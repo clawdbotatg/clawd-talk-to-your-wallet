@@ -48,7 +48,7 @@ WETH Balance: ${wethBalance} WETH
 User says: "${message}"`;
 
     const response = await client.messages.create({
-      model: "claude-opus-4-5-20250514",
+      model: "claude-opus-4-5",
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userPrompt }],
