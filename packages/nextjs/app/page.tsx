@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { Address } from "@scaffold-ui/components";
 import type { NextPage } from "next";
 import { formatEther } from "viem";
 import { useAccount, useBalance, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 
 const WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" as const;
 
@@ -109,8 +111,8 @@ const Home: NextPage = () => {
         </h1>
 
         {!isConnected ? (
-          <div className="text-center mt-10">
-            <p className="text-lg mb-4">Connect your wallet to get started</p>
+          <div className="flex flex-col items-center mt-10 gap-4">
+            <RainbowKitCustomConnectButton />
           </div>
         ) : (
           <div className="mt-8 space-y-6">
@@ -127,8 +129,8 @@ const Home: NextPage = () => {
             </div>
 
             {/* Connected address */}
-            <div className="flex justify-center font-mono text-sm text-base-content/60">
-              {address?.slice(0, 6)}...{address?.slice(-4)}
+            <div className="flex justify-center">
+              <Address address={address} />
             </div>
 
             {/* Chat input */}
@@ -188,8 +190,9 @@ const Home: NextPage = () => {
 
                 {/* Calldata preview */}
                 <div className="bg-base-200 rounded-xl p-4 font-mono text-sm break-all">
-                  <div>
-                    <span className="text-base-content/60">to:</span> {intentResult.calldata.to}
+                  <div className="flex items-center gap-1">
+                    <span className="text-base-content/60">to:</span>{" "}
+                    <Address address={intentResult.calldata.to as `0x${string}`} />
                   </div>
                   <div>
                     <span className="text-base-content/60">value:</span>{" "}
