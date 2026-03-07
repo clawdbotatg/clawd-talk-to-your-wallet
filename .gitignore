@@ -12,6 +12,11 @@ node_modules
 # eslint
 .eslintcache
 
+# env
+.env
+.env.*
+.env.local
+
 # misc
 .DS_Store
 
