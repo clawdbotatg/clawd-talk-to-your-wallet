@@ -152,6 +152,18 @@ const Home: NextPage = () => {
         }),
       );
       setTxHash(hash);
+      // Close any WalletConnect redirect tab that opened
+      if (typeof window !== "undefined") {
+        setTimeout(() => {
+          try {
+            window.close();
+          } catch {
+            /* ignore */
+          }
+          // If window.close() didn't work (opener required), go back
+          if (!window.closed) window.history.back();
+        }, 500);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Transaction failed");
     } finally {
@@ -238,44 +250,43 @@ const Home: NextPage = () => {
               <div className="space-y-4">
                 <div className={`alert ${securityResult.safe ? "alert-success" : "alert-warning"}`}>
                   <div>
-                    <div className="font-bold">
-                      Security Check: {securityResult.safe ? "✅ Safe" : "⚠️ Review Carefully"}
-                    </div>
-                    <div className="mt-1">{securityResult.explanation}</div>
+                    {!securityResult.safe && <div className="font-bold mb-1">⚠️ Review Carefully</div>}
+                    <div>{securityResult.explanation}</div>
                     {securityResult.warnings.length > 0 && (
                       <ul className="mt-2 list-disc list-inside">
                         {securityResult.warnings.map((w, i) => (
-                          <li key={i} className="text-warning-content">
-                            {w}
-                          </li>
+                          <li key={i}>{w}</li>
                         ))}
                       </ul>
                     )}
                   </div>
                 </div>
 
-                {/* Calldata preview */}
-                <div className="bg-base-200 rounded-xl p-4 font-mono text-sm break-all">
-                  <div className="flex items-center gap-1">
-                    <span className="text-base-content/60">to:</span>{" "}
-                    <Address address={intentResult.calldata.to as `0x${string}`} />
-                  </div>
-                  <div>
-                    <span className="text-base-content/60">value:</span>{" "}
-                    {intentResult.calldata.value === "0x0"
-                      ? "0 ETH"
-                      : `${formatEther(BigInt(intentResult.calldata.value))} ETH`}
-                    {intentResult.calldata.value !== "0x0" && ethPrice > 0 && (
-                      <span className="text-base-content/50">
-                        {" "}
-                        ({formatUsd(formatEther(BigInt(intentResult.calldata.value)), ethPrice)})
-                      </span>
-                    )}
-                  </div>
-                  <div>
-                    <span className="text-base-content/60">data:</span> {intentResult.calldata.data}
-                  </div>
-                </div>
+                {/* Wallet effects */}
+                {(() => {
+                  const amt = intentResult.amount;
+                  const usd = ethPrice > 0 ? ` (${formatUsd(amt, ethPrice)})` : "";
+                  const isWrap = intentResult.action === "wrap";
+                  return (
+                    <div className="bg-base-200 rounded-xl p-4 space-y-2 text-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-base-content/60">You send</span>
+                        <span className="font-bold text-error">
+                          − {amt} {isWrap ? "ETH" : "WETH"}
+                          {usd}
+                        </span>
+                      </div>
+                      <div className="border-t border-base-300" />
+                      <div className="flex justify-between items-center">
+                        <span className="text-base-content/60">You receive</span>
+                        <span className="font-bold text-success">
+                          + {amt} {isWrap ? "WETH" : "ETH"}
+                          {usd}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Execute button */}
                 {!txHash && securityResult.safe && (
