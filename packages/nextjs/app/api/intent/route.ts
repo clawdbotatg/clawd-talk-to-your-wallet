@@ -47,8 +47,29 @@ function padAddress(addr: string): string {
   return addr.toLowerCase().replace("0x", "").padStart(64, "0");
 }
 
+const PORTFOLIO_URL =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+
 // Tool definitions for the AI agent using v6 API (inputSchema instead of parameters)
 const intentTools = {
+  getPortfolio: tool({
+    description:
+      "Get all token balances for the user's wallet address. Use this to answer questions about what tokens they hold, their ETH balance, or any balance-related question.",
+    inputSchema: z.object({
+      address: z.string().describe("The wallet address to look up"),
+    }),
+    execute: async ({ address }) => {
+      try {
+        const res = await fetch(`${PORTFOLIO_URL}/api/portfolio?address=${address}`);
+        const data = await res.json();
+        return data;
+      } catch (e) {
+        return { error: `Failed to fetch portfolio: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }),
+
   wrapEth: tool({
     description: "Wraps ETH to WETH on Ethereum mainnet. Returns transaction calldata for WETH deposit().",
     inputSchema: z.object({

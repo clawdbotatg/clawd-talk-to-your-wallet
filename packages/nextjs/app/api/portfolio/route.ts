@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 
-interface AnkrAsset {
-  blockchain: string;
-  tokenName: string;
-  tokenSymbol: string;
-  balance: string;
-  balanceUsd: string;
-  tokenDecimals: number;
-  contractAddress: string;
-  thumbnail: string;
+const ALCHEMY_KEY = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || "8GVG8WjDs-sGFRr6Rm839";
+const ALCHEMY_URL = `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`;
+
+async function alchemyRpc(method: string, params: unknown[]) {
+  const res = await fetch(ALCHEMY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
+  });
+  const data = await res.json();
+  return data.result;
 }
 
 export async function GET(req: NextRequest) {
@@ -18,48 +20,101 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "address query param required" }, { status: 400 });
     }
 
-    const response = await fetch("https://rpc.ankr.com/multichain/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        method: "ankr_getAccountBalance",
-        params: {
-          walletAddress,
-          onlyWhitelisted: false,
-        },
-        id: 1,
-      }),
+    // Fetch ETH balance + ERC-20 balances in parallel
+    const [ethBalanceHex, tokenBalancesResult] = await Promise.all([
+      alchemyRpc("eth_getBalance", [walletAddress, "latest"]),
+      alchemyRpc("alchemy_getTokenBalances", [walletAddress, "erc20"]),
+    ]);
+
+    // Get ETH price from a simple free API
+    let ethPriceUsd = 0;
+    try {
+      const priceRes = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd", {
+        next: { revalidate: 60 },
+      });
+      const priceData = await priceRes.json();
+      ethPriceUsd = priceData?.ethereum?.usd || 0;
+    } catch {
+      // fallback — use a rough estimate
+      ethPriceUsd = 2000;
+    }
+
+    const ethBalance = parseInt(ethBalanceHex, 16) / 1e18;
+    const ethBalanceUsd = ethBalance * ethPriceUsd;
+
+    // Filter out zero balances
+    const nonZeroTokens: { contractAddress: string; tokenBalance: string }[] = (
+      tokenBalancesResult?.tokenBalances || []
+    ).filter(
+      (t: { tokenBalance: string }) =>
+        t.tokenBalance !== "0x0000000000000000000000000000000000000000000000000000000000000000",
+    );
+
+    // Take top 20 by raw balance count (we'll sort by USD after metadata)
+    const topTokens = nonZeroTokens.slice(0, 20);
+
+    // Fetch metadata for all tokens in parallel
+    const metadataResults = await Promise.all(
+      topTokens.map(t => alchemyRpc("alchemy_getTokenMetadata", [t.contractAddress])),
+    );
+
+    interface Asset {
+      blockchain: string;
+      tokenName: string;
+      tokenSymbol: string;
+      balance: string;
+      balanceUsd: string;
+      tokenDecimals: number;
+      contractAddress: string;
+      thumbnail: string;
+    }
+
+    const assets: Asset[] = [];
+
+    // Add ETH first
+    assets.push({
+      blockchain: "eth",
+      tokenName: "Ethereum",
+      tokenSymbol: "ETH",
+      balance: ethBalance.toFixed(6),
+      balanceUsd: ethBalanceUsd.toFixed(2),
+      tokenDecimals: 18,
+      contractAddress: "",
+      thumbnail: "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
     });
 
-    if (!response.ok) {
-      return NextResponse.json({ error: `Ankr API returned ${response.status}` }, { status: 502 });
+    // Add ERC-20 tokens
+    for (let i = 0; i < topTokens.length; i++) {
+      const token = topTokens[i];
+      const meta = metadataResults[i];
+      if (!meta || !meta.decimals) continue;
+
+      const decimals = meta.decimals || 18;
+      const rawBalance = BigInt(token.tokenBalance);
+      const balance = Number(rawBalance) / Math.pow(10, decimals);
+
+      if (balance < 0.000001) continue;
+
+      assets.push({
+        blockchain: "eth",
+        tokenName: meta.name || "Unknown",
+        tokenSymbol: meta.symbol || "???",
+        balance: balance.toFixed(6),
+        balanceUsd: "0", // we don't fetch individual token prices — show balance only
+        tokenDecimals: decimals,
+        contractAddress: token.contractAddress,
+        thumbnail: meta.logo || "",
+      });
     }
 
-    const data = await response.json();
+    // Sort: ETH first (already there), then by name
+    const ethAsset = assets[0];
+    const otherAssets = assets.slice(1).sort((a, b) => a.tokenSymbol.localeCompare(b.tokenSymbol));
+    const sorted = [ethAsset, ...otherAssets].filter(a => parseFloat(a.balance) > 0);
 
-    if (data.error) {
-      return NextResponse.json({ error: data.error.message || "Ankr RPC error" }, { status: 502 });
-    }
+    const totalBalanceUsd = ethBalanceUsd.toFixed(2); // approximate — only ETH priced
 
-    const result = data.result;
-    const totalBalanceUsd: string = result.totalBalanceUsd || "0";
-
-    const assets: AnkrAsset[] = (result.assets || [])
-      .map((a: Record<string, unknown>) => ({
-        blockchain: a.blockchain as string,
-        tokenName: a.tokenName as string,
-        tokenSymbol: a.tokenSymbol as string,
-        balance: a.balance as string,
-        balanceUsd: String(a.balanceUsd ?? "0"),
-        tokenDecimals: a.tokenDecimals as number,
-        contractAddress: (a.contractAddress as string) || "",
-        thumbnail: (a.thumbnail as string) || "",
-      }))
-      .filter((a: AnkrAsset) => parseFloat(a.balanceUsd) >= 0.01)
-      .sort((a: AnkrAsset, b: AnkrAsset) => parseFloat(b.balanceUsd) - parseFloat(a.balanceUsd));
-
-    return NextResponse.json({ totalBalanceUsd, assets });
+    return NextResponse.json({ totalBalanceUsd, assets: sorted });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
