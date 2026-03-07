@@ -74,7 +74,12 @@ Analyze this transaction for safety.`,
       ],
     });
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const raw = response.content[0].type === "text" ? response.content[0].text : "";
+    // Strip markdown code fences if model wraps output in ```json ... ```
+    const text = raw
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```\s*$/i, "")
+      .trim();
     const aiResult = JSON.parse(text);
 
     // Merge local checks with AI analysis
