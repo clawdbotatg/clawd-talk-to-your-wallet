@@ -1,13 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Address } from "@scaffold-ui/components";
+import { useFetchNativeCurrencyPrice } from "@scaffold-ui/hooks";
 import type { NextPage } from "next";
 import { formatEther } from "viem";
-import { useAccount, useBalance, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useBalance, useConnectorClient, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 
 const WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" as const;
+
+const formatUsd = (ethAmount: string, ethPrice: number): string => {
+  const usd = parseFloat(ethAmount) * ethPrice;
+  if (usd < 0.01) return "<$0.01";
+  return `~$${usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
 
 const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
@@ -36,9 +43,57 @@ const Home: NextPage = () => {
 
   const { sendTransactionAsync } = useSendTransaction();
   const { isLoading: isTxConfirming, isSuccess: isTxConfirmed } = useWaitForTransactionReceipt({ hash: txHash });
+  const { data: connectorClient } = useConnectorClient();
+  const { price: ethPrice } = useFetchNativeCurrencyPrice();
 
   const ethBalance = ethBalanceData ? formatEther(ethBalanceData.value) : "0";
   const wethBalance = wethBalanceData ? formatEther(wethBalanceData.value) : "0";
+
+  // Mobile deep linking — fire TX first, then open wallet app
+  const openWallet = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (!isMobile || window.ethereum) return; // Skip desktop or in-app browser
+
+    const connector = connectorClient?.transport;
+    const allIds = [connector?.name, localStorage.getItem("wagmi.recentConnectorId")]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    let wcWallet = "";
+    try {
+      const wcKey = Object.keys(localStorage).find(k => k.startsWith("wc@2:client"));
+      if (wcKey) wcWallet = (localStorage.getItem(wcKey) || "").toLowerCase();
+    } catch {
+      /* ignore */
+    }
+    const search = `${allIds} ${wcWallet}`;
+
+    const schemes: [string[], string][] = [
+      [["rainbow"], "rainbow://"],
+      [["metamask"], "metamask://"],
+      [["coinbase", "cbwallet"], "cbwallet://"],
+      [["trust"], "trust://"],
+      [["phantom"], "phantom://"],
+    ];
+
+    for (const [keywords, scheme] of schemes) {
+      if (keywords.some(k => search.includes(k))) {
+        window.location.href = scheme;
+        return;
+      }
+    }
+  }, [connectorClient]);
+
+  const writeAndOpen = useCallback(
+    <T,>(writeFn: () => Promise<T>): Promise<T> => {
+      const promise = writeFn();
+      setTimeout(openWallet, 2000);
+      return promise;
+    },
+    [openWallet],
+  );
 
   const handleSubmit = async () => {
     if (!message.trim() || !address) return;
@@ -89,11 +144,13 @@ const Home: NextPage = () => {
     setError("");
 
     try {
-      const hash = await sendTransactionAsync({
-        to: intentResult.calldata.to as `0x${string}`,
-        data: intentResult.calldata.data as `0x${string}`,
-        value: BigInt(intentResult.calldata.value),
-      });
+      const hash = await writeAndOpen(() =>
+        sendTransactionAsync({
+          to: intentResult.calldata.to as `0x${string}`,
+          data: intentResult.calldata.data as `0x${string}`,
+          value: BigInt(intentResult.calldata.value),
+        }),
+      );
       setTxHash(hash);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Transaction failed");
@@ -121,16 +178,25 @@ const Home: NextPage = () => {
               <div className="bg-base-200 rounded-xl p-4 flex-1 text-center">
                 <div className="text-sm text-base-content/60">ETH Balance</div>
                 <div className="text-2xl font-bold">{parseFloat(ethBalance).toFixed(4)} ETH</div>
+                {ethPrice > 0 && <div className="text-sm text-base-content/50">{formatUsd(ethBalance, ethPrice)}</div>}
               </div>
               <div className="bg-base-200 rounded-xl p-4 flex-1 text-center">
                 <div className="text-sm text-base-content/60">WETH Balance</div>
                 <div className="text-2xl font-bold">{parseFloat(wethBalance).toFixed(4)} WETH</div>
+                {ethPrice > 0 && <div className="text-sm text-base-content/50">{formatUsd(wethBalance, ethPrice)}</div>}
               </div>
             </div>
 
-            {/* Connected address */}
-            <div className="flex justify-center">
-              <Address address={address} />
+            {/* Connected address & WETH contract */}
+            <div className="flex flex-col items-center gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-base-content/60">Your wallet:</span>
+                <Address address={address} />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-base-content/60">WETH contract:</span>
+                <Address address={WETH_ADDRESS} />
+              </div>
             </div>
 
             {/* Chat input */}
@@ -199,6 +265,12 @@ const Home: NextPage = () => {
                     {intentResult.calldata.value === "0x0"
                       ? "0 ETH"
                       : `${formatEther(BigInt(intentResult.calldata.value))} ETH`}
+                    {intentResult.calldata.value !== "0x0" && ethPrice > 0 && (
+                      <span className="text-base-content/50">
+                        {" "}
+                        ({formatUsd(formatEther(BigInt(intentResult.calldata.value)), ethPrice)})
+                      </span>
+                    )}
                   </div>
                   <div>
                     <span className="text-base-content/60">data:</span> {intentResult.calldata.data}
