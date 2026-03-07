@@ -1,59 +1,124 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Address } from "@scaffold-ui/components";
-import { useFetchNativeCurrencyPrice } from "@scaffold-ui/hooks";
 import type { NextPage } from "next";
-import { formatEther } from "viem";
-import { useAccount, useBalance, useConnectorClient, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useConnectorClient, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 
-const WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" as const;
+interface PortfolioAsset {
+  blockchain: string;
+  tokenName: string;
+  tokenSymbol: string;
+  balance: string;
+  balanceUsd: string;
+  tokenDecimals: number;
+  contractAddress: string;
+  thumbnail: string;
+}
 
-const formatUsd = (ethAmount: string, ethPrice: number): string => {
-  const usd = parseFloat(ethAmount) * ethPrice;
-  if (usd < 0.01) return "<$0.01";
-  return `~$${usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+interface IntentTransaction {
+  to: string;
+  data: string;
+  value: string;
+  chainId: number;
+}
+
+interface IntentResult {
+  transactions: IntentTransaction[];
+  description: string;
+  effects: { send: string; receive: string };
+  aiMessage?: string;
+  error?: string;
+}
+
+const CHAIN_BADGES: Record<string, string> = {
+  eth: "🔷",
+  bsc: "🟡",
+  polygon: "🟣",
+  arbitrum: "🔵",
+  optimism: "🔴",
+  base: "🔵",
+  avalanche: "🔺",
+  fantom: "👻",
+  gnosis: "🦉",
+  linea: "➰",
+  scroll: "📜",
+  zksync: "⚡",
 };
+
+const formatUsdValue = (value: string | number): string => {
+  const num = typeof value === "string" ? parseFloat(value) : value;
+  if (num < 0.01) return "<$0.01";
+  if (num >= 1_000_000) return `$${(num / 1_000_000).toFixed(2)}M`;
+  if (num >= 1_000) return `$${(num / 1_000).toFixed(2)}K`;
+  return `$${num.toFixed(2)}`;
+};
+
+const formatBalance = (balance: string): string => {
+  const num = parseFloat(balance);
+  if (num === 0) return "0";
+  if (num < 0.0001) return "<0.0001";
+  if (num < 1) return num.toFixed(4);
+  if (num < 1000) return num.toFixed(2);
+  return num.toLocaleString("en-US", { maximumFractionDigits: 2 });
+};
+
+const MAX_DISPLAY_ASSETS = 8;
 
 const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [intentResult, setIntentResult] = useState<{
-    action: string;
-    amount: string;
-    calldata: { to: string; data: string; value: string };
-    explanation: string;
-  } | null>(null);
-  const [securityResult, setSecurityResult] = useState<{
-    safe: boolean;
-    explanation: string;
-    warnings: string[];
-  } | null>(null);
+  const [intentResult, setIntentResult] = useState<IntentResult | null>(null);
   const [error, setError] = useState("");
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
 
-  // ETH balance
-  const { data: ethBalanceData } = useBalance({ address });
-
-  // WETH balance via generic balance hook with token
-  const { data: wethBalanceData } = useBalance({ address, token: WETH_ADDRESS });
+  // Portfolio state
+  const [portfolio, setPortfolio] = useState<PortfolioAsset[]>([]);
+  const [totalBalanceUsd, setTotalBalanceUsd] = useState("0");
+  const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(false);
+  const [showAllAssets, setShowAllAssets] = useState(false);
 
   const { sendTransactionAsync } = useSendTransaction();
   const { isLoading: isTxConfirming, isSuccess: isTxConfirmed } = useWaitForTransactionReceipt({ hash: txHash });
   const { data: connectorClient } = useConnectorClient();
-  const { price: ethPrice } = useFetchNativeCurrencyPrice();
 
-  const ethBalance = ethBalanceData ? formatEther(ethBalanceData.value) : "0";
-  const wethBalance = wethBalanceData ? formatEther(wethBalanceData.value) : "0";
+  // Fetch portfolio on wallet connect
+  useEffect(() => {
+    if (!address) {
+      setPortfolio([]);
+      setTotalBalanceUsd("0");
+      return;
+    }
 
-  // Mobile deep linking — fire TX first, then open wallet app
+    const fetchPortfolio = async () => {
+      setIsLoadingPortfolio(true);
+      try {
+        const res = await fetch(`/api/portfolio?address=${address}`);
+        const data = await res.json();
+        if (data.error) {
+          console.error("Portfolio error:", data.error);
+          return;
+        }
+        setPortfolio(data.assets || []);
+        setTotalBalanceUsd(data.totalBalanceUsd || "0");
+      } catch (e) {
+        console.error("Failed to fetch portfolio:", e);
+      } finally {
+        setIsLoadingPortfolio(false);
+      }
+    };
+
+    fetchPortfolio();
+  }, [address]);
+
+  // Mobile deep linking
   const openWallet = useCallback(() => {
     if (typeof window === "undefined") return;
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (!isMobile || window.ethereum) return; // Skip desktop or in-app browser
+    if (!isMobile || window.ethereum) return;
 
     const connector = connectorClient?.transport;
     const allIds = [connector?.name, localStorage.getItem("wagmi.recentConnectorId")]
@@ -100,15 +165,13 @@ const Home: NextPage = () => {
     setIsProcessing(true);
     setError("");
     setIntentResult(null);
-    setSecurityResult(null);
     setTxHash(undefined);
 
     try {
-      // Step 1: Intent parsing
       const intentRes = await fetch("/api/intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, address, ethBalance, wethBalance }),
+        body: JSON.stringify({ message, address, portfolio }),
       });
       const intent = await intentRes.json();
       if (intent.error) {
@@ -117,20 +180,6 @@ const Home: NextPage = () => {
         return;
       }
       setIntentResult(intent);
-
-      // Step 2: Security check
-      const secRes = await fetch("/api/security", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ calldata: intent.calldata, action: intent.action, amount: intent.amount }),
-      });
-      const sec = await secRes.json();
-      if (sec.error) {
-        setError(sec.error);
-        setIsProcessing(false);
-        return;
-      }
-      setSecurityResult(sec);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -139,31 +188,21 @@ const Home: NextPage = () => {
   };
 
   const handleExecute = async () => {
-    if (!intentResult?.calldata) return;
+    if (!intentResult?.transactions?.length) return;
     setIsExecuting(true);
     setError("");
 
     try {
+      // Execute first transaction (multi-tx support is a future step)
+      const tx = intentResult.transactions[0];
       const hash = await writeAndOpen(() =>
         sendTransactionAsync({
-          to: intentResult.calldata.to as `0x${string}`,
-          data: intentResult.calldata.data as `0x${string}`,
-          value: BigInt(intentResult.calldata.value),
+          to: tx.to as `0x${string}`,
+          data: (tx.data && tx.data !== "0x" ? tx.data : undefined) as `0x${string}` | undefined,
+          value: BigInt(tx.value || "0"),
         }),
       );
       setTxHash(hash);
-      // Close any WalletConnect redirect tab that opened
-      if (typeof window !== "undefined") {
-        setTimeout(() => {
-          try {
-            window.close();
-          } catch {
-            /* ignore */
-          }
-          // If window.close() didn't work (opener required), go back
-          if (!window.closed) window.history.back();
-        }, 500);
-      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Transaction failed");
     } finally {
@@ -171,12 +210,17 @@ const Home: NextPage = () => {
     }
   };
 
+  const displayedAssets = showAllAssets ? portfolio : portfolio.slice(0, MAX_DISPLAY_ASSETS);
+  const hiddenCount = portfolio.length - MAX_DISPLAY_ASSETS;
+
   return (
     <div className="flex items-center flex-col flex-grow pt-10">
       <div className="px-5 w-full max-w-2xl">
         <h1 className="text-center">
           <span className="block text-4xl font-bold">Talk to Your Wallet</span>
-          <span className="block text-lg mt-2 text-base-content/70">Wrap and unwrap ETH using natural language</span>
+          <span className="block text-lg mt-2 text-base-content/70">
+            Swap, bridge, send, wrap — just say what you want
+          </span>
         </h1>
 
         {!isConnected ? (
@@ -185,37 +229,92 @@ const Home: NextPage = () => {
           </div>
         ) : (
           <div className="mt-8 space-y-6">
-            {/* Balances */}
-            <div className="flex gap-4 justify-center">
-              <div className="bg-base-200 rounded-xl p-4 flex-1 text-center">
-                <div className="text-sm text-base-content/60">ETH Balance</div>
-                <div className="text-2xl font-bold">{parseFloat(ethBalance).toFixed(4)} ETH</div>
-                {ethPrice > 0 && <div className="text-sm text-base-content/50">{formatUsd(ethBalance, ethPrice)}</div>}
-              </div>
-              <div className="bg-base-200 rounded-xl p-4 flex-1 text-center">
-                <div className="text-sm text-base-content/60">WETH Balance</div>
-                <div className="text-2xl font-bold">{parseFloat(wethBalance).toFixed(4)} WETH</div>
-                {ethPrice > 0 && <div className="text-sm text-base-content/50">{formatUsd(wethBalance, ethPrice)}</div>}
+            {/* Connected address */}
+            <div className="flex justify-center">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-base-content/60">Connected:</span>
+                <Address address={address} />
               </div>
             </div>
 
-            {/* Connected address & WETH contract */}
-            <div className="flex flex-col items-center gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-base-content/60">Your wallet:</span>
-                <Address address={address} />
+            {/* Portfolio */}
+            <div className="bg-base-200 rounded-xl p-4">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-sm font-semibold text-base-content/60">Portfolio</span>
+                {isLoadingPortfolio ? (
+                  <span className="loading loading-spinner loading-xs"></span>
+                ) : (
+                  <span className="text-lg font-bold">{formatUsdValue(totalBalanceUsd)}</span>
+                )}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-base-content/60">WETH contract:</span>
-                <Address address={WETH_ADDRESS} />
-              </div>
+
+              {isLoadingPortfolio ? (
+                <div className="text-center py-4 text-base-content/50">Loading assets...</div>
+              ) : portfolio.length === 0 ? (
+                <div className="text-center py-4 text-base-content/50">No assets found</div>
+              ) : (
+                <div className="space-y-1">
+                  {displayedAssets.map((asset, i) => (
+                    <div
+                      key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
+                      className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        {asset.thumbnail ? (
+                          <img
+                            src={asset.thumbnail}
+                            alt={asset.tokenSymbol}
+                            className="w-8 h-8 rounded-full"
+                            onError={e => {
+                              (e.target as HTMLImageElement).style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
+                            {asset.tokenSymbol.slice(0, 2)}
+                          </div>
+                        )}
+                        <div>
+                          <div className="font-medium text-sm">
+                            {asset.tokenSymbol}
+                            <span className="ml-1 text-xs opacity-50">
+                              {CHAIN_BADGES[asset.blockchain] || "⬡"} {asset.blockchain}
+                            </span>
+                          </div>
+                          <div className="text-xs text-base-content/50">{formatBalance(asset.balance)}</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-medium">{formatUsdValue(asset.balanceUsd)}</div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {!showAllAssets && hiddenCount > 0 && (
+                    <button
+                      className="w-full text-center text-sm text-primary hover:underline py-2"
+                      onClick={() => setShowAllAssets(true)}
+                    >
+                      and {hiddenCount} more...
+                    </button>
+                  )}
+                  {showAllAssets && hiddenCount > 0 && (
+                    <button
+                      className="w-full text-center text-sm text-primary hover:underline py-2"
+                      onClick={() => setShowAllAssets(false)}
+                    >
+                      Show less
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Chat input */}
             <div className="space-y-3">
               <input
                 type="text"
-                placeholder='Try: "wrap 0.5 ETH" or "unwrap 0.1 WETH"'
+                placeholder='Try: "swap 0.1 ETH to USDC" or "bridge 100 USDC to Base"'
                 className="input input-bordered w-full text-lg"
                 value={message}
                 onChange={e => setMessage(e.target.value)}
@@ -230,7 +329,7 @@ const Home: NextPage = () => {
                 {isProcessing ? (
                   <>
                     <span className="loading loading-spinner loading-sm"></span>
-                    Analyzing...
+                    Building transaction...
                   </>
                 ) : (
                   "Submit"
@@ -245,51 +344,39 @@ const Home: NextPage = () => {
               </div>
             )}
 
-            {/* Security result */}
-            {securityResult && intentResult && (
+            {/* Intent result */}
+            {intentResult && intentResult.transactions && (
               <div className="space-y-4">
-                <div className={`alert ${securityResult.safe ? "alert-success" : "alert-warning"}`}>
-                  <div>
-                    {!securityResult.safe && <div className="font-bold mb-1">⚠️ Review Carefully</div>}
-                    <div>{securityResult.explanation}</div>
-                    {securityResult.warnings.length > 0 && (
-                      <ul className="mt-2 list-disc list-inside">
-                        {securityResult.warnings.map((w, i) => (
-                          <li key={i}>{w}</li>
-                        ))}
-                      </ul>
-                    )}
+                {/* AI message */}
+                {intentResult.aiMessage && (
+                  <div className="bg-base-200 rounded-xl p-4 text-sm">
+                    <div className="text-base-content/60 text-xs mb-1">AI</div>
+                    <div>{intentResult.aiMessage}</div>
                   </div>
-                </div>
+                )}
 
-                {/* Wallet effects */}
-                {(() => {
-                  const amt = intentResult.amount;
-                  const usd = ethPrice > 0 ? ` (${formatUsd(amt, ethPrice)})` : "";
-                  const isWrap = intentResult.action === "wrap";
-                  return (
-                    <div className="bg-base-200 rounded-xl p-4 space-y-2 text-sm">
-                      <div className="flex justify-between items-center">
-                        <span className="text-base-content/60">You send</span>
-                        <span className="font-bold text-error">
-                          − {amt} {isWrap ? "ETH" : "WETH"}
-                          {usd}
-                        </span>
-                      </div>
-                      <div className="border-t border-base-300" />
-                      <div className="flex justify-between items-center">
-                        <span className="text-base-content/60">You receive</span>
-                        <span className="font-bold text-success">
-                          + {amt} {isWrap ? "WETH" : "ETH"}
-                          {usd}
-                        </span>
-                      </div>
+                {/* Effects panel */}
+                {intentResult.effects && (
+                  <div className="bg-base-200 rounded-xl p-4 space-y-2 text-sm">
+                    <div className="flex justify-between items-center">
+                      <span className="text-base-content/60">You send</span>
+                      <span className="font-bold text-error">− {intentResult.effects.send}</span>
                     </div>
-                  );
-                })()}
+                    <div className="border-t border-base-300" />
+                    <div className="flex justify-between items-center">
+                      <span className="text-base-content/60">You receive</span>
+                      <span className="font-bold text-success">+ {intentResult.effects.receive}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Description */}
+                {intentResult.description && (
+                  <div className="text-center text-sm text-base-content/60">{intentResult.description}</div>
+                )}
 
                 {/* Execute button */}
-                {!txHash && securityResult.safe && (
+                {!txHash && (
                   <button className="btn btn-success w-full text-lg" onClick={handleExecute} disabled={isExecuting}>
                     {isExecuting ? (
                       <>
@@ -297,7 +384,7 @@ const Home: NextPage = () => {
                         Sending Transaction...
                       </>
                     ) : (
-                      `Execute: ${intentResult.action} ${intentResult.amount} ${intentResult.action === "wrap" ? "ETH" : "WETH"}`
+                      `Execute Transaction`
                     )}
                   </button>
                 )}
