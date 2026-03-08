@@ -237,13 +237,6 @@ const Home: NextPage = () => {
   return (
     <div className="flex items-center flex-col flex-grow pt-10">
       <div className="px-5 w-full max-w-7xl">
-        <h1 className="text-center">
-          <span className="block text-4xl font-bold">Talk to Your Wallet</span>
-          <span className="block text-lg mt-2 text-base-content/70">
-            Swap, bridge, send, wrap — just say what you want
-          </span>
-        </h1>
-
         {!isConnected ? (
           <div className="flex flex-col items-center mt-10 gap-4">
             <RainbowKitCustomConnectButton />
