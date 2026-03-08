@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { NextPage } from "next";
 import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
+import ChatMessageRenderer from "~~/components/ChatMessageRenderer";
 import TransactionCard from "~~/components/TransactionCard";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 
@@ -385,7 +386,7 @@ const Home: NextPage = () => {
                             : "bg-base-200 text-base-content rounded-bl-sm"
                         }`}
                       >
-                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                        <ChatMessageRenderer content={msg.content} portfolio={portfolio} />
 
                         {/* Transaction card — only shown when msg has a transaction */}
                         {msg.transaction && <TransactionCard tx={msg.transaction} address={address!} />}
