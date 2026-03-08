@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 const ZERION_KEY = process.env.ZERION_API_KEY || "";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
     const walletAddress = req.nextUrl.searchParams.get("address");
@@ -23,11 +25,11 @@ export async function GET(req: NextRequest) {
     const [positionsRes, portfolioRes] = await Promise.all([
       fetch(
         `https://api.zerion.io/v1/wallets/${walletAddress}/positions/?filter[position_types]=wallet&currency=usd&sort=-value&page[size]=100`,
-        { headers, next: { revalidate: 60 } },
+        { headers, cache: "no-store" },
       ),
       fetch(`https://api.zerion.io/v1/wallets/${walletAddress}/portfolio?currency=usd`, {
         headers,
-        next: { revalidate: 60 },
+        cache: "no-store",
       }),
     ]);
 
