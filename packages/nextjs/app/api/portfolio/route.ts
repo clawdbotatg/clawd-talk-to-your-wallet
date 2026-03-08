@@ -23,9 +23,12 @@ export async function GET(req: NextRequest) {
     const [positionsRes, portfolioRes] = await Promise.all([
       fetch(
         `https://api.zerion.io/v1/wallets/${walletAddress}/positions/?filter[position_types]=wallet&currency=usd&sort=-value&page[size]=100`,
-        { headers },
+        { headers, next: { revalidate: 120 } },
       ),
-      fetch(`https://api.zerion.io/v1/wallets/${walletAddress}/portfolio?currency=usd`, { headers }),
+      fetch(`https://api.zerion.io/v1/wallets/${walletAddress}/portfolio?currency=usd`, {
+        headers,
+        next: { revalidate: 120 },
+      }),
     ]);
 
     if (!positionsRes.ok) {

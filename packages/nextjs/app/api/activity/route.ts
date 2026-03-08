@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
         Authorization: `Basic ${Buffer.from(ZERION_KEY + ":").toString("base64")}`,
         Accept: "application/json",
       },
-      next: { revalidate: 15 },
+      next: { revalidate: 120 },
     });
 
     if (!res.ok) {

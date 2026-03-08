@@ -123,12 +123,8 @@ export default function ActivityPanel({ address }: ActivityPanelProps) {
 
     fetchActivity();
 
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchActivity, 30_000);
-
     return () => {
       cancelled = true;
-      clearInterval(interval);
     };
   }, [address]);
 
