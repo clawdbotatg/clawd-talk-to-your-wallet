@@ -5,6 +5,7 @@ import type { NextPage } from "next";
 import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
 import ChatMessageRenderer from "~~/components/ChatMessageRenderer";
+import NetworkChip from "~~/components/NetworkChip";
 import TransactionCard from "~~/components/TransactionCard";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 
@@ -80,14 +81,7 @@ const formatUsdValue = (value: string | number): string => {
   return `$${num.toFixed(2)}`;
 };
 
-const formatBalance = (balance: string): string => {
-  const num = parseFloat(balance);
-  if (num === 0) return "0";
-  if (num < 0.0001) return "<0.0001";
-  if (num < 1) return num.toFixed(4);
-  if (num < 1000) return num.toFixed(2);
-  return num.toLocaleString("en-US", { maximumFractionDigits: 2 });
-};
+// formatBalance removed — balance shown via NetworkChip subtitle instead
 
 const MAX_DISPLAY_ASSETS = 8;
 
@@ -360,7 +354,9 @@ const Home: NextPage = () => {
                               </div>
                               <div>
                                 <div className="font-medium text-sm">{asset.tokenSymbol}</div>
-                                <div className="text-xs text-base-content/50">{formatBalance(asset.balance)}</div>
+                                <div className="mt-0.5">
+                                  <NetworkChip chain={asset.blockchain} />
+                                </div>
                               </div>
                             </div>
                             <div className="text-right">
