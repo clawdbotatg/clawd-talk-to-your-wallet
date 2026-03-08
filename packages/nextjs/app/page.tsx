@@ -164,7 +164,8 @@ const Home: NextPage = () => {
     };
 
     fetchPortfolio();
-    fetchActivity();
+    // Stagger activity fetch to avoid concurrent Zerion calls
+    setTimeout(fetchActivity, 1500);
   }, [address]);
 
   // ─── handleSubmit ────────────────────────────────────────────────────────
@@ -425,7 +426,7 @@ const Home: NextPage = () => {
 
               {/* RIGHT SIDEBAR: Activity */}
               <div className="w-full lg:w-80 shrink-0 overflow-y-auto">
-                <ActivityPanel address={address!} />
+                <ActivityPanel address={address!} initialItems={activity} />
               </div>
             </div>
           </div>

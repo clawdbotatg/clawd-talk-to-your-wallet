@@ -15,10 +15,6 @@ interface ActivityItem {
   explorerUrl: string;
 }
 
-interface ActivityPanelProps {
-  address: string;
-}
-
 const CHAIN_ICONS: Record<string, string> = {
   ethereum: "https://icons.llamao.fi/icons/chains/rsz_ethereum.jpg",
   base: "https://icons.llamao.fi/icons/chains/rsz_base.jpg",
@@ -91,12 +87,24 @@ function transferSummary(item: ActivityItem): string {
   return "";
 }
 
-export default function ActivityPanel({ address }: ActivityPanelProps) {
-  const [items, setItems] = useState<ActivityItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+interface ActivityPanelProps {
+  address: string;
+  initialItems?: ActivityItem[];
+}
+
+export default function ActivityPanel({ address, initialItems }: ActivityPanelProps) {
+  const [items, setItems] = useState<ActivityItem[]>(initialItems || []);
+  const [isLoading, setIsLoading] = useState(!initialItems);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    // If items were passed as props, use them (no self-fetch to avoid rate limits)
+    if (initialItems !== undefined) {
+      setItems(initialItems);
+      setIsLoading(false);
+      return;
+    }
+
     if (!address) return;
 
     let cancelled = false;
@@ -128,7 +136,7 @@ export default function ActivityPanel({ address }: ActivityPanelProps) {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [address]);
+  }, [address, initialItems]);
 
   return (
     <div className="bg-base-200 rounded-xl p-4">
