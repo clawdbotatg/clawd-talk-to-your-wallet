@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import AssetChip from "./AssetChip";
 
 interface ActivityItem {
   id: string;
@@ -70,21 +71,22 @@ function formatUsdValue(value: number | null): string {
   return `$${value.toFixed(2)}`;
 }
 
-function transferSummary(item: ActivityItem): string {
-  const { type, out: outT, in: inT } = item;
-  if (type === "trade" || type === "bridge") {
-    const outStr = outT ? `-${outT.amount} ${outT.symbol}` : "";
-    const inStr = inT ? `+${inT.amount} ${inT.symbol}` : "";
-    if (outStr && inStr) return `${outStr} → ${inStr}`;
-    return outStr || inStr || "";
+function TransferChips({ item }: { item: ActivityItem }) {
+  const { type, out: outT, in: inT, chain } = item;
+  const isSwapOrBridge = type === "trade" || type === "bridge";
+
+  if (isSwapOrBridge && outT && inT) {
+    return (
+      <span className="inline-flex items-center gap-1 flex-wrap">
+        <AssetChip symbol={outT.symbol} amount={outT.amount} thumbnail={outT.icon} chain={chain} />
+        <span className="text-base-content/40 text-xs">→</span>
+        <AssetChip symbol={inT.symbol} amount={inT.amount} thumbnail={inT.icon} chain={chain} />
+      </span>
+    );
   }
-  if (type === "send" && outT) return `-${outT.amount} ${outT.symbol}`;
-  if (type === "receive" && inT) return `+${inT.amount} ${inT.symbol}`;
-  // Fallback
-  if (outT && inT) return `-${outT.amount} ${outT.symbol} → +${inT.amount} ${inT.symbol}`;
-  if (outT) return `-${outT.amount} ${outT.symbol}`;
-  if (inT) return `+${inT.amount} ${inT.symbol}`;
-  return "";
+  if (outT) return <AssetChip symbol={outT.symbol} amount={outT.amount} thumbnail={outT.icon} chain={chain} />;
+  if (inT) return <AssetChip symbol={inT.symbol} amount={inT.amount} thumbnail={inT.icon} chain={chain} />;
+  return null;
 }
 
 interface ActivityPanelProps {
@@ -212,7 +214,9 @@ export default function ActivityPanel({ address, initialItems }: ActivityPanelPr
                     <span className={`badge badge-xs ${badge.className}`}>{badge.label}</span>
                     {isFailed && <span className="badge badge-xs badge-error">Failed</span>}
                   </div>
-                  <div className="text-xs text-base-content/70 truncate mt-0.5">{transferSummary(item)}</div>
+                  <div className="mt-0.5">
+                    <TransferChips item={item} />
+                  </div>
                 </div>
 
                 {/* Right side: value + time + link */}
