@@ -775,7 +775,6 @@ export async function POST(req: NextRequest) {
     const totalUsd = portfolioAssets.reduce((sum, a) => sum + (parseFloat(a.balanceUsd) || 0), 0);
     const portfolioSummary = portfolioAssets.length
       ? `\n\nPortfolio (${portfolioAssets.length} assets, total $${totalUsd.toLocaleString("en-US", { maximumFractionDigits: 0 })}):\n${portfolioAssets
-          .slice(0, 10)
           .map(
             a =>
               `- ${parseFloat(a.balance).toFixed(4)} ${a.tokenSymbol} ($${parseFloat(a.balanceUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })}) on ${a.blockchain}`,
