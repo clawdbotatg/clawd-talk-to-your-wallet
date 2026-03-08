@@ -25,32 +25,69 @@ const TOKEN_ICONS: Record<string, string> = {
   DEGEN: "https://cdn.zerion.io/d590ac9c-6971-42db-b900-0bd057033ae0.png",
   RNBW: "https://cdn.zerion.io/33f2717b-8050-4c71-9be6-afafb648b29d.png",
   SCR: "https://cdn.zerion.io/6f0cef93-3e34-444c-aec3-446c09d03df3.png",
+  BNB: "https://cdn.zerion.io/0xb8c77482e45f1f44de1745f52c74426c631bdd52.png",
+};
+
+// Chain icon URLs (DefiLlama)
+const CHAIN_ICONS: Record<string, string> = {
+  ethereum: "https://icons.llamao.fi/icons/chains/rsz_ethereum.jpg",
+  base: "https://icons.llamao.fi/icons/chains/rsz_base.jpg",
+  arbitrum: "https://icons.llamao.fi/icons/chains/rsz_arbitrum.jpg",
+  optimism: "https://icons.llamao.fi/icons/chains/rsz_optimism.jpg",
+  polygon: "https://icons.llamao.fi/icons/chains/rsz_polygon.jpg",
+  xdai: "https://icons.llamao.fi/icons/chains/rsz_xdai.jpg",
+  gnosis: "https://icons.llamao.fi/icons/chains/rsz_xdai.jpg",
+  linea: "https://icons.llamao.fi/icons/chains/rsz_linea.jpg",
+  scroll: "https://icons.llamao.fi/icons/chains/rsz_scroll.jpg",
+  zksync: "https://icons.llamao.fi/icons/chains/rsz_zksync%20era.jpg",
+  "zksync-era": "https://icons.llamao.fi/icons/chains/rsz_zksync%20era.jpg",
+  mantle: "https://icons.llamao.fi/icons/chains/rsz_mantle.jpg",
+  monad: "https://icons.llamao.fi/icons/chains/rsz_monad.jpg",
+  abstract: "https://icons.llamao.fi/icons/chains/rsz_abstract.jpg",
+  zora: "https://icons.llamao.fi/icons/chains/rsz_zora.jpg",
+  unichain: "https://icons.llamao.fi/icons/chains/rsz_unichain.jpg",
+  "binance-smart-chain": "https://icons.llamao.fi/icons/chains/rsz_binance.jpg",
 };
 
 export default function AssetChip({ symbol, amount, thumbnail, chain }: AssetChipProps) {
   const iconUrl = thumbnail || TOKEN_ICONS[symbol.toUpperCase()] || null;
+  const chainIconUrl = chain ? CHAIN_ICONS[chain.toLowerCase()] : null;
 
   return (
-    <span className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-xs font-semibold align-middle whitespace-nowrap">
-      {iconUrl ? (
-        <img
-          src={iconUrl}
-          alt={symbol}
-          className="w-3.5 h-3.5 rounded-full flex-shrink-0"
-          onError={e => {
-            (e.target as HTMLImageElement).style.display = "none";
-          }}
-        />
-      ) : (
-        <span className="w-3.5 h-3.5 rounded-full bg-primary/30 flex-shrink-0 flex items-center justify-center text-[8px] font-bold text-primary">
-          {symbol.slice(0, 1)}
-        </span>
-      )}
+    <span className="inline-flex items-center gap-1.5 mx-0.5 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-xs font-semibold align-middle whitespace-nowrap">
+      {/* Token icon with chain badge */}
+      <span className="relative flex-shrink-0 w-4 h-4">
+        {iconUrl ? (
+          <img
+            src={iconUrl}
+            alt={symbol}
+            className="w-4 h-4 rounded-full"
+            onError={e => {
+              (e.target as HTMLImageElement).style.display = "none";
+            }}
+          />
+        ) : (
+          <span className="w-4 h-4 rounded-full bg-primary/30 flex items-center justify-center text-[8px] font-bold text-primary">
+            {symbol.slice(0, 1)}
+          </span>
+        )}
+        {/* Chain badge — bottom-right corner */}
+        {chainIconUrl && (
+          <img
+            src={chainIconUrl}
+            alt={chain}
+            className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-1 ring-base-100"
+            onError={e => {
+              (e.target as HTMLImageElement).style.display = "none";
+            }}
+          />
+        )}
+      </span>
+
       <span className="text-primary">
         {amount && <span className="font-mono mr-0.5">{amount}</span>}
         {symbol}
       </span>
-      {chain && <span className="text-base-content/30 font-normal">on {chain}</span>}
     </span>
   );
 }
