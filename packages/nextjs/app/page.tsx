@@ -220,7 +220,7 @@ const Home: NextPage = () => {
 
   return (
     <div className="flex items-center flex-col flex-grow pt-10">
-      <div className="px-5 w-full max-w-6xl">
+      <div className="px-5 w-full max-w-7xl">
         <h1 className="text-center">
           <span className="block text-4xl font-bold">Talk to Your Wallet</span>
           <span className="block text-lg mt-2 text-base-content/70">
@@ -234,11 +234,11 @@ const Home: NextPage = () => {
           </div>
         ) : (
           <div className="mt-8">
-            <div className="flex flex-col lg:flex-row gap-6">
-              {/* LEFT: existing portfolio + chat */}
-              <div className="flex-1 min-w-0 max-w-2xl space-y-6">
+            <div className="flex flex-col lg:flex-row gap-4">
+              {/* LEFT SIDEBAR: Portfolio */}
+              <div className="w-full lg:w-72 shrink-0 space-y-4">
                 {/* Connected address */}
-                <div className="flex justify-center">
+                <div className="flex justify-center lg:justify-start">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-base-content/60">Connected:</span>
                     <Address address={address} />
@@ -331,7 +331,10 @@ const Home: NextPage = () => {
                     </div>
                   )}
                 </div>
+              </div>
 
+              {/* CENTER: Chat + Intent */}
+              <div className="flex-1 min-w-0 space-y-4">
                 {/* Chat input */}
                 <div className="space-y-3">
                   <input
@@ -437,8 +440,8 @@ const Home: NextPage = () => {
                 )}
               </div>
 
-              {/* RIGHT: activity panel */}
-              <div className="w-full lg:w-96 shrink-0">
+              {/* RIGHT SIDEBAR: Activity */}
+              <div className="w-full lg:w-80 shrink-0">
                 <ActivityPanel address={address!} />
               </div>
             </div>
