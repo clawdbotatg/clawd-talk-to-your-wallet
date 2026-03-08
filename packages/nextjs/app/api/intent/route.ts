@@ -361,6 +361,101 @@ const intentTools = {
     },
   }),
 
+  getOnChainBalance: tool({
+    description:
+      "Get the LIVE on-chain balance of ETH or any ERC-20 token for a wallet address. Use this when the user asks specifically about a token balance on a specific chain — the injected portfolio snapshot can be stale. Also use to check allowances.",
+    inputSchema: z.object({
+      walletAddress: z.string().describe("The wallet address to check"),
+      chain: z
+        .string()
+        .describe(
+          "Chain: 'ethereum', 'base', 'arbitrum', 'optimism', 'polygon', 'xdai', 'zksync-era', 'scroll', 'linea', 'mantle', 'monad'",
+        ),
+      tokenAddress: z
+        .string()
+        .optional()
+        .describe(
+          "ERC-20 contract address. Omit for native ETH/chain token. Use 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE for ETH.",
+        ),
+      tokenSymbol: z.string().optional().describe("Token symbol for display, e.g. 'USDC'"),
+      tokenDecimals: z.number().optional().describe("Token decimals (default 18, USDC=6)"),
+    }),
+    execute: async ({ walletAddress, chain, tokenAddress, tokenSymbol, tokenDecimals }) => {
+      const ALCHEMY_KEY = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || "";
+      const rpcUrls: Record<string, string> = {
+        ethereum: `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+        base: `https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+        arbitrum: `https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+        optimism: `https://opt-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+        polygon: `https://polygon-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+        xdai: "https://rpc.gnosischain.com",
+        gnosis: "https://rpc.gnosischain.com",
+        "zksync-era": "https://mainnet.era.zksync.io",
+        scroll: "https://rpc.scroll.io",
+        linea: "https://rpc.linea.build",
+        mantle: "https://rpc.mantle.xyz",
+        monad: "https://testnet-rpc.monad.xyz",
+      };
+
+      const rpcUrl = rpcUrls[chain];
+      if (!rpcUrl) return { error: `Chain '${chain}' not supported` };
+
+      try {
+        const isNative =
+          !tokenAddress || tokenAddress === "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" || tokenAddress === "";
+
+        if (isNative) {
+          // eth_getBalance
+          const res = await fetch(rpcUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              method: "eth_getBalance",
+              params: [walletAddress, "latest"],
+              id: 1,
+            }),
+          });
+          const data = await res.json();
+          const balanceWei = BigInt(data.result || "0x0");
+          const balance = Number(balanceWei) / 1e18;
+          return { walletAddress, chain, token: tokenSymbol || "ETH", balance: balance.toFixed(6), raw: data.result };
+        } else {
+          // ERC-20 balanceOf
+          const decimals = tokenDecimals ?? 18;
+          // balanceOf(address) selector = 0x70a08231, padded to 32 bytes
+          const paddedAddr = walletAddress.toLowerCase().replace("0x", "").padStart(64, "0");
+          const data_hex = "0x70a08231" + paddedAddr;
+
+          const res = await fetch(rpcUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              method: "eth_call",
+              params: [{ to: tokenAddress, data: data_hex }, "latest"],
+              id: 1,
+            }),
+          });
+          const data = await res.json();
+          if (data.error) return { error: data.error.message };
+          const raw = BigInt(data.result || "0x0");
+          const balance = Number(raw) / Math.pow(10, decimals);
+          return {
+            walletAddress,
+            chain,
+            token: tokenSymbol || tokenAddress,
+            tokenAddress,
+            balance: balance.toFixed(decimals > 6 ? 6 : decimals),
+            raw: data.result,
+          };
+        }
+      } catch (e) {
+        return { error: String(e) };
+      }
+    },
+  }),
+
   getTokenPrice: tool({
     description: "Get the current USD price and 24h change for a token by symbol.",
     inputSchema: z.object({
@@ -662,10 +757,12 @@ YOU ALWAYS HAVE:
 - Tools to look up more detailed history, prices, and to build transactions
 
 WHEN ANSWERING QUESTIONS:
-- Use the portfolio/activity context injected below FIRST before calling tools
-- For "where did X come from?" → check the activity context for receives of that token. If not visible, call getTokenActivity. Once you have a tx hash, call getTransactionDetails to get the sender address — NEVER say "check a block explorer" when you have a hash
+- Injected portfolio = your starting point for overviews ("what do I have?", "show me my portfolio")
+- For ANY specific question about a token/balance on a specific chain → call getOnChainBalance to get the LIVE on-chain value. Don't trust the snapshot for specific queries.
+- For "how much X do I have on Y chain?" → ALWAYS call getOnChainBalance. The injected snapshot may be stale.
+- For "where did X come from?" → check activity context first. If not visible, call getTokenActivity. Once you have a tx hash, call getTransactionDetails to get the sender address — NEVER say "check a block explorer" when you have a hash
 - For "what address sent it?" or "who sent me X?" → call getTransactionDetails with the hash and chain
-- For "how is X doing?" → use portfolio data for balance, call getTokenPrice for current price/change
+- For "how is X doing?" or "what's the price of X?" → call getTokenPrice for current price/change
 - For "what have I been doing?" → summarize from the activity context
 - Be specific: give dates, amounts, chains. Never say "I don't have access to your history"
 - Keep answers concise — 2-4 sentences unless they ask for more detail
@@ -692,6 +789,7 @@ AVAILABLE TOOLS:
 - simulateAssetChanges: Simulate a tx to see exact asset changes. USE THIS to verify every transaction.
 - traceCall: Full EVM trace for debugging.
 - getPortfolio: Get user's current balances across all chains (with chain breakdown and totals).
+- getOnChainBalance: LIVE on-chain balance via RPC for ETH or any ERC-20. Use for specific "how much X on Y chain?" questions — more accurate than the snapshot.
 - getTokenActivity: Get all transactions involving a specific token. Use for "where did X come from?" questions.
 - getTransactionDetails: Look up full tx details by hash — sender, receiver, value. Use when you have a hash and need to answer "who sent this?" or "what address?"
 - getTokenPrice: Get current USD price and 24h change for any token.
