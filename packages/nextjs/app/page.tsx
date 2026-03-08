@@ -25,6 +25,21 @@ interface IntentTransaction {
   chainId: number;
 }
 
+interface SimulatedChange {
+  type: string;
+  symbol: string;
+  amount: string;
+  logo: string;
+  direction: "in" | "out";
+}
+
+interface SimulationResult {
+  safe: boolean;
+  explanation: string;
+  warnings: string[];
+  changes: SimulatedChange[];
+}
+
 interface IntentResult {
   transactions: IntentTransaction[];
   description: string;
@@ -88,6 +103,8 @@ const Home: NextPage = () => {
   const [change1dPct, setChange1dPct] = useState("0");
   const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
+  const [simulation, setSimulation] = useState<SimulationResult | null>(null);
+  const [isSimulating, setIsSimulating] = useState(false);
 
   const { sendTransactionAsync } = useSendTransaction();
   const { isLoading: isTxConfirming, isSuccess: isTxConfirmed } = useWaitForTransactionReceipt({ hash: txHash });
@@ -194,6 +211,25 @@ const Home: NextPage = () => {
         return;
       }
       setIntentResult(intent);
+      // Run simulation in background after intent resolves
+      if (intent.transactions?.length && address) {
+        setSimulation(null);
+        setIsSimulating(true);
+        try {
+          const tx = intent.transactions[0];
+          const simRes = await fetch("/api/security", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ calldata: tx, address, chainId: tx.chainId || 1 }),
+          });
+          const simData = await simRes.json();
+          setSimulation(simData);
+        } catch {
+          // simulation failure is non-blocking
+        } finally {
+          setIsSimulating(false);
+        }
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -426,17 +462,45 @@ const Home: NextPage = () => {
                       </div>
                     )}
 
-                    {intentResult.effects && (
-                      <div className="bg-base-200 rounded-xl p-4 space-y-2 text-sm">
-                        <div className="flex justify-between items-center">
-                          <span className="text-base-content/60">You send</span>
-                          <span className="font-bold text-error">− {intentResult.effects.send}</span>
-                        </div>
-                        <div className="border-t border-base-300" />
-                        <div className="flex justify-between items-center">
-                          <span className="text-base-content/60">You receive</span>
-                          <span className="font-bold text-success">+ {intentResult.effects.receive}</span>
-                        </div>
+                    {/* Simulation results */}
+                    {isSimulating && (
+                      <div className="bg-base-200 rounded-xl p-4 flex items-center gap-2 text-sm text-base-content/60">
+                        <span className="loading loading-spinner loading-xs"></span>
+                        Simulating transaction...
+                      </div>
+                    )}
+
+                    {simulation && !isSimulating && (
+                      <div
+                        className={`rounded-xl p-4 space-y-2 text-sm ${simulation.safe ? "bg-base-200" : "bg-error/10 border border-error/30"}`}
+                      >
+                        {!simulation.safe && simulation.warnings.length > 0 && (
+                          <div className="text-error font-medium text-xs mb-2">⚠️ {simulation.warnings[0]}</div>
+                        )}
+                        {simulation.changes
+                          .filter(c => c.direction === "out")
+                          .map((c, i) => (
+                            <div key={i} className="flex justify-between items-center">
+                              <span className="text-base-content/60">You send</span>
+                              <span className="font-bold text-error">
+                                − {c.amount} {c.symbol}
+                              </span>
+                            </div>
+                          ))}
+                        {simulation.changes.length > 0 && <div className="border-t border-base-300" />}
+                        {simulation.changes
+                          .filter(c => c.direction === "in")
+                          .map((c, i) => (
+                            <div key={i} className="flex justify-between items-center">
+                              <span className="text-base-content/60">You receive</span>
+                              <span className="font-bold text-success">
+                                + {c.amount} {c.symbol}
+                              </span>
+                            </div>
+                          ))}
+                        {simulation.changes.length === 0 && (
+                          <div className="text-base-content/50 text-center py-1">{simulation.explanation}</div>
+                        )}
                       </div>
                     )}
 

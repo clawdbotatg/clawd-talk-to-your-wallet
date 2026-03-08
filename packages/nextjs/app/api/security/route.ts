@@ -1,84 +1,121 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 
-const WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".toLowerCase();
-const DEPOSIT_SELECTOR = "0xd0e30db0";
-const WITHDRAW_SELECTOR = "0x2e1a7d4d";
+const ALCHEMY_KEY = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || "";
 
-const SYSTEM_PROMPT = `You are an Ethereum transaction security reviewer.
-
-Return ONLY valid JSON (no markdown):
-{
-  "safe": true/false,
-  "explanation": "<one short sentence, plain English, no tech jargon — e.g. 'Wraps 0.01 ETH into 0.01 WETH'>",
-  "warnings": ["<only include if something is actually wrong, empty array if safe>"]
+// Chain ID → Alchemy RPC base URL
+function alchemyUrl(chainId: number): string {
+  const urls: Record<number, string> = {
+    1: `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+    8453: `https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+    42161: `https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+    10: `https://opt-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+    137: `https://polygon-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+  };
+  return urls[chainId] || urls[1];
 }
 
-Rules for explanation: max 10 words, describe the real-world effect only. No mention of selectors, contracts, addresses, or functions.`;
+function formatAmount(raw: string, decimals: number): string {
+  const val = BigInt(raw);
+  const divisor = BigInt(10 ** decimals);
+  const whole = val / divisor;
+  const frac = val % divisor;
+  const fracStr = frac.toString().padStart(decimals, "0").slice(0, 4).replace(/0+$/, "");
+  return fracStr ? `${whole}.${fracStr}` : whole.toString();
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const { calldata, action, amount } = await req.json();
+    const { calldata, address, chainId = 1 } = await req.json();
 
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return NextResponse.json({ error: "ANTHROPIC_API_KEY not configured" }, { status: 500 });
+    if (!calldata?.to || !address) {
+      return NextResponse.json({ error: "calldata.to and address required" }, { status: 400 });
     }
 
-    // Quick local checks first
-    const warnings: string[] = [];
-    let safe = true;
-
-    if (calldata.to.toLowerCase() !== WETH_ADDRESS) {
-      safe = false;
-      warnings.push(`Target address ${calldata.to} is NOT the WETH contract!`);
+    if (!ALCHEMY_KEY) {
+      return NextResponse.json({ error: "ALCHEMY_API_KEY not configured" }, { status: 500 });
     }
 
-    if (action === "wrap" && !calldata.data.startsWith(DEPOSIT_SELECTOR)) {
-      safe = false;
-      warnings.push(`Function selector does not match deposit() for wrap action`);
+    const rpcUrl = alchemyUrl(chainId);
+
+    // Build the transaction object for simulation
+    const txParams: Record<string, string> = {
+      from: address,
+      to: calldata.to,
+      data: calldata.data || "0x",
+    };
+    if (calldata.value && calldata.value !== "0x0" && calldata.value !== "0x") {
+      txParams.value = calldata.value;
     }
 
-    if (action === "unwrap" && !calldata.data.startsWith(WITHDRAW_SELECTOR)) {
-      safe = false;
-      warnings.push(`Function selector does not match withdraw() for unwrap action`);
-    }
-
-    // Also get AI explanation
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-    const response = await client.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `Proposed transaction:
-- to: ${calldata.to}
-- data: ${calldata.data}
-- value: ${calldata.value}
-- Stated action: ${action}
-- Stated amount: ${amount} ${action === "wrap" ? "ETH" : "WETH"}
-
-Analyze this transaction for safety.`,
-        },
-      ],
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: "2.0",
+        method: "alchemy_simulateAssetChanges",
+        params: [txParams],
+      }),
     });
 
-    const raw = response.content[0].type === "text" ? response.content[0].text : "";
-    // Strip markdown code fences if model wraps output in ```json ... ```
-    const text = raw
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```\s*$/i, "")
-      .trim();
-    const aiResult = JSON.parse(text);
+    const data = await res.json();
 
-    // Merge local checks with AI analysis
-    return NextResponse.json({
-      safe: safe && aiResult.safe,
-      explanation: aiResult.explanation,
-      warnings: [...warnings, ...aiResult.warnings],
-    });
+    if (data.error) {
+      // Simulation failed — return a warning but don't block
+      return NextResponse.json({
+        safe: false,
+        explanation: "Could not simulate transaction",
+        warnings: [data.error.message || "Simulation failed"],
+        changes: [],
+      });
+    }
+
+    const result = data.result;
+    const changes: { type: string; symbol: string; amount: string; logo: string; direction: "in" | "out" }[] = [];
+
+    for (const change of result.changes || []) {
+      const direction = change.changeType === "RECEIVE" ? "in" : "out";
+      let amount = "?";
+
+      if (change.rawAmount && change.decimals != null) {
+        try {
+          amount = formatAmount(change.rawAmount, change.decimals);
+        } catch {
+          amount = change.amount || "?";
+        }
+      } else {
+        amount = change.amount || "?";
+      }
+
+      changes.push({
+        type: change.assetType, // "NATIVE" | "ERC20" | "ERC721" | "ERC1155"
+        symbol: change.symbol || change.name || "???",
+        amount,
+        logo: change.logo || "",
+        direction,
+      });
+    }
+
+    // Determine safety: if simulation succeeded and no errors, it's safe
+    const safe = !result.error;
+    const warnings: string[] = result.error ? [result.error] : [];
+
+    // Build human-readable explanation from changes
+    const outChanges = changes.filter(c => c.direction === "out");
+    const inChanges = changes.filter(c => c.direction === "in");
+
+    let explanation = "";
+    if (outChanges.length && inChanges.length) {
+      explanation = `${outChanges.map(c => `-${c.amount} ${c.symbol}`).join(", ")} → ${inChanges.map(c => `+${c.amount} ${c.symbol}`).join(", ")}`;
+    } else if (outChanges.length) {
+      explanation = outChanges.map(c => `Send ${c.amount} ${c.symbol}`).join(", ");
+    } else if (inChanges.length) {
+      explanation = inChanges.map(c => `Receive ${c.amount} ${c.symbol}`).join(", ");
+    } else {
+      explanation = "No asset changes detected";
+    }
+
+    return NextResponse.json({ safe, explanation, warnings, changes });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
