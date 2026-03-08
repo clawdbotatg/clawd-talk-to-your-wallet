@@ -194,7 +194,7 @@ const intentTools = {
 
   getPortfolio: tool({
     description:
-      "Get all token balances for the user's wallet across all chains. Use this to answer balance questions and to find token addresses the user holds.",
+      "Get all token balances for the user's wallet across all chains, including chain breakdown and total USD value. Use this to answer balance questions and to find token addresses the user holds.",
     inputSchema: z.object({
       address: z.string().describe("The wallet address to look up"),
     }),
@@ -202,9 +202,153 @@ const intentTools = {
       try {
         const res = await fetch(`${BASE_URL}/api/portfolio?address=${address}`);
         const data = await res.json();
-        return data;
+        return {
+          assets: data.assets || [],
+          totalBalanceUsd: data.totalBalanceUsd || "0",
+          totalPortfolioUsd: data.totalPortfolioUsd || "0",
+          chainBreakdown: data.chainBreakdown || {},
+          change1dUsd: data.change1dUsd || "0",
+          change1dPct: data.change1dPct || "0",
+        };
       } catch (e) {
         return { error: `Failed to fetch portfolio: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }),
+
+  getTokenActivity: tool({
+    description:
+      "Get all transactions involving a specific token symbol or contract address for the user's wallet. Use this when user asks where a token came from, when they got it, or details about a specific token's history.",
+    inputSchema: z.object({
+      address: z.string(),
+      tokenSymbol: z.string().optional().describe("Token symbol to filter by, e.g. 'GNO', 'ETH'"),
+      chainId: z.string().optional().describe("e.g. 'xdai', 'base', 'ethereum'"),
+    }),
+    execute: async ({ address, tokenSymbol, chainId }) => {
+      const ZERION_KEY = process.env.ZERION_API_KEY || "";
+      const auth = Buffer.from(`${ZERION_KEY}:`).toString("base64");
+
+      let url = `https://api.zerion.io/v1/wallets/${address}/transactions/?currency=usd&page[size]=100&sort=-mined_at`;
+      if (chainId) url += `&filter[chain_ids]=${chainId}`;
+
+      try {
+        const res = await fetch(url, {
+          headers: { Authorization: `Basic ${auth}`, accept: "application/json" },
+        });
+        const data = await res.json();
+
+        const items = (data.data || [])
+          .filter((tx: any) => {
+            if (!tokenSymbol) return true;
+            const transfers = tx.attributes?.transfers || [];
+            return transfers.some((t: any) => t.fungible_info?.symbol?.toLowerCase() === tokenSymbol.toLowerCase());
+          })
+          .slice(0, 20)
+          .map((tx: any) => {
+            const attrs = tx.attributes;
+            const transfers = attrs.transfers || [];
+            return {
+              date: attrs.mined_at?.slice(0, 10),
+              type: attrs.operation_type,
+              chain: tx.relationships?.chain?.data?.id,
+              transfers: transfers.map((t: any) => ({
+                direction: t.direction,
+                symbol: t.fungible_info?.symbol,
+                amount: t.quantity?.float,
+                valueUsd: t.value,
+              })),
+              hash: attrs.hash,
+            };
+          });
+
+        return { transactions: items, total: items.length };
+      } catch (e) {
+        return { error: `Failed to fetch token activity: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }),
+
+  getTokenPrice: tool({
+    description: "Get the current USD price and 24h change for a token by symbol.",
+    inputSchema: z.object({
+      symbol: z.string().describe("Token symbol like ETH, USDC, GNO, etc."),
+    }),
+    execute: async ({ symbol }) => {
+      try {
+        const res = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${symbol.toLowerCase()}&vs_currencies=usd&include_24hr_change=true`,
+          { headers: { accept: "application/json" } },
+        );
+        const data = await res.json();
+        // Try direct match
+        if (data[symbol.toLowerCase()]) {
+          return {
+            symbol,
+            priceUsd: data[symbol.toLowerCase()].usd,
+            change24h: data[symbol.toLowerCase()].usd_24h_change,
+          };
+        }
+        // Fallback: search by symbol
+        const searchRes = await fetch(`https://api.coingecko.com/api/v3/search?query=${symbol}`);
+        const searchData = await searchRes.json();
+        const coin = searchData.coins?.[0];
+        if (coin) {
+          const priceRes = await fetch(
+            `https://api.coingecko.com/api/v3/simple/price?ids=${coin.id}&vs_currencies=usd&include_24hr_change=true`,
+          );
+          const priceData = await priceRes.json();
+          return {
+            symbol,
+            name: coin.name,
+            priceUsd: priceData[coin.id]?.usd,
+            change24h: priceData[coin.id]?.usd_24h_change,
+          };
+        }
+        return { error: "Token not found" };
+      } catch (e) {
+        return { error: String(e) };
+      }
+    },
+  }),
+
+  getWalletActivity: tool({
+    description:
+      "Get the user's recent cross-chain transaction history. Use when asked about recent activity, what they've been doing, or to find specific past transactions.",
+    inputSchema: z.object({
+      address: z.string(),
+      limit: z.number().optional().default(20),
+    }),
+    execute: async ({ address, limit }) => {
+      const fetchLimit = limit ?? 20;
+      const ZERION_KEY = process.env.ZERION_API_KEY || "";
+      const auth = Buffer.from(`${ZERION_KEY}:`).toString("base64");
+      try {
+        const res = await fetch(
+          `https://api.zerion.io/v1/wallets/${address}/transactions/?currency=usd&page[size]=${fetchLimit}&sort=-mined_at`,
+          { headers: { Authorization: `Basic ${auth}`, accept: "application/json" } },
+        );
+        const data = await res.json();
+        return {
+          transactions: (data.data || []).slice(0, fetchLimit).map((tx: any) => {
+            const attrs = tx.attributes;
+            const transfers = (attrs.transfers || []).map((t: any) => ({
+              direction: t.direction,
+              symbol: t.fungible_info?.symbol,
+              amount: t.quantity?.float?.toFixed(4),
+              valueUsd: t.value?.toFixed(2),
+            }));
+            return {
+              date: attrs.mined_at?.slice(0, 10),
+              type: attrs.operation_type,
+              chain: tx.relationships?.chain?.data?.id,
+              status: attrs.status,
+              transfers,
+              hash: attrs.hash,
+            };
+          }),
+        };
+      } catch (e) {
+        return { error: `Failed to fetch activity: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
   }),
@@ -417,34 +561,46 @@ const intentTools = {
 
 // ─── System Prompt ──────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a friendly wallet assistant. You have access to the user's full portfolio across all chains.
+const SYSTEM_PROMPT = `You are a smart wallet assistant with full visibility into the user's portfolio and transaction history.
 
-WHEN TO CHAT vs WHEN TO BUILD A TRANSACTION:
+YOU ALWAYS HAVE:
+- The user's current portfolio (all tokens, all chains, USD values) — injected in context below
+- The user's recent 20 transactions — injected in context below
+- Tools to look up more detailed history, prices, and to build transactions
+
+WHEN ANSWERING QUESTIONS:
+- Use the portfolio/activity context injected below FIRST before calling tools
+- For "where did X come from?" → check the activity context for receives of that token. If not visible, call getTokenActivity
+- For "how is X doing?" → use portfolio data for balance, call getTokenPrice for current price/change
+- For "what have I been doing?" → summarize from the activity context
+- Be specific: give dates, amounts, chains. Never say "I don't have access to your history"
+- Keep answers concise — 2-4 sentences unless they ask for more detail
+
+WHEN TO BUILD A TRANSACTION:
+Only when the user clearly wants to execute: "swap", "send", "bridge", "wrap", "buy", "sell"
 
 Chat (just respond in plain English) when the user:
 - Asks questions about their portfolio ("how is my GNO doing?", "what's my biggest position?")
 - Asks about prices, protocols, or market info
 - Wants to understand something ("what is WETH?", "explain Gnosis chain")
+- Asks about their transaction history or where a token came from
 - Says something ambiguous
 - Greets you or makes small talk
 
-Build a transaction when the user CLEARLY wants to execute something:
-- "swap X for Y"
-- "send X to address"
-- "bridge X to chain"
-- "wrap/unwrap X ETH"
-- "buy/sell X"
-
 RESPONSE RULES:
-- For chat: respond in plain English, 2-4 sentences max, conversational tone. Use the portfolio data in context to give specific answers.
+- For chat: respond in plain English, 2-4 sentences max, conversational tone. Use the portfolio + activity data in context to give specific answers.
 - For transactions: use your tools to build + simulate it, then respond with the JSON transaction format
 - NEVER show error-like output for simple questions
-- NEVER suggest the user "check block explorers" for info you can answer from their portfolio data
+- NEVER suggest the user "check block explorers" for info you can answer from context or tools
+- NEVER say "I don't have access to your transaction history" — you DO
 
 AVAILABLE TOOLS:
 - simulateAssetChanges: Simulate a tx to see exact asset changes. USE THIS to verify every transaction.
 - traceCall: Full EVM trace for debugging.
-- getPortfolio: Get user's current balances across all chains.
+- getPortfolio: Get user's current balances across all chains (with chain breakdown and totals).
+- getTokenActivity: Get all transactions involving a specific token. Use for "where did X come from?" questions.
+- getTokenPrice: Get current USD price and 24h change for any token.
+- getWalletActivity: Get recent cross-chain transaction history with full details.
 - buildSwap: Build swap calldata via Enso Finance.
 - buildBridge: Build bridge calldata via LI.FI (cross-chain).
 - buildTransfer: Build ETH or ERC-20 transfer calldata.
@@ -500,7 +656,7 @@ RULES:
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, address, portfolio, chainId, recentMessages } = await req.json();
+    const { message, address, portfolio, chainId, recentMessages, recentActivity } = await req.json();
 
     if (!process.env.ANTHROPIC_API_KEY) {
       return NextResponse.json(
@@ -511,21 +667,55 @@ export async function POST(req: NextRequest) {
 
     const userChainId = chainId ?? 1;
 
-    const portfolioSummary = portfolio?.length
-      ? `\n\nUser's current portfolio:\n${(
-          portfolio as {
-            tokenSymbol: string;
-            balance: string;
-            balanceUsd: string;
-            blockchain: string;
-            contractAddress?: string;
-          }[]
-        )
-          .slice(0, 30)
+    // Build portfolio context
+    const portfolioAssets =
+      (portfolio as {
+        tokenSymbol: string;
+        balance: string;
+        balanceUsd: string;
+        blockchain: string;
+        contractAddress?: string;
+      }[]) || [];
+
+    const totalUsd = portfolioAssets.reduce((sum, a) => sum + (parseFloat(a.balanceUsd) || 0), 0);
+    const portfolioSummary = portfolioAssets.length
+      ? `\n\nPortfolio (${portfolioAssets.length} assets, total $${totalUsd.toLocaleString("en-US", { maximumFractionDigits: 0 })}):\n${portfolioAssets
+          .slice(0, 10)
           .map(
             a =>
-              `- ${a.tokenSymbol}: ${a.balance} (~$${parseFloat(a.balanceUsd).toFixed(2)}) on ${a.blockchain}${a.contractAddress ? ` [${a.contractAddress}]` : ""}`,
+              `- ${parseFloat(a.balance).toFixed(4)} ${a.tokenSymbol} ($${parseFloat(a.balanceUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })}) on ${a.blockchain}`,
           )
+          .join("\n")}`
+      : "";
+
+    // Build activity context
+    const activityItems =
+      (recentActivity as {
+        type: string;
+        chain: string;
+        minedAt: string;
+        out: { symbol: string; amount: string } | null;
+        in: { symbol: string; amount: string } | null;
+        valueUsd: number | null;
+      }[]) || [];
+
+    const activitySummary = activityItems.length
+      ? `\n\nRecent activity (last ${activityItems.length} transactions):\n${activityItems
+          .map(a => {
+            const date = a.minedAt?.slice(0, 10) || "unknown";
+            const chain = a.chain || "unknown";
+            const outStr = a.out ? `-${a.out.amount} ${a.out.symbol}` : "";
+            const inStr = a.in ? `+${a.in.amount} ${a.in.symbol}` : "";
+            const valueStr =
+              a.valueUsd != null ? ` ($${a.valueUsd.toLocaleString("en-US", { maximumFractionDigits: 0 })})` : "";
+            if (a.type === "trade" || a.type === "bridge") {
+              return `- ${date} on ${chain}: ${a.type === "trade" ? "Swap" : "Bridge"} ${outStr} → ${inStr}${valueStr}`;
+            }
+            if (a.type === "send" && outStr) return `- ${date} on ${chain}: Send ${outStr}${valueStr}`;
+            if (a.type === "receive" && inStr) return `- ${date} on ${chain}: Receive ${inStr}${valueStr}`;
+            const transferStr = outStr && inStr ? `${outStr} → ${inStr}` : outStr || inStr || "";
+            return `- ${date} on ${chain}: ${a.type} ${transferStr}${valueStr}`;
+          })
           .join("\n")}`
       : "";
 
@@ -536,7 +726,7 @@ export async function POST(req: NextRequest) {
           .join("\n")}`
       : "";
 
-    const userPrompt = `User wallet: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${recentContext}\n\nUser says: "${message}"`;
+    const userPrompt = `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${activitySummary}${recentContext}\n\nUser: ${message}`;
 
     const result = await generateText({
       model: anthropic("claude-sonnet-4-20250514"),

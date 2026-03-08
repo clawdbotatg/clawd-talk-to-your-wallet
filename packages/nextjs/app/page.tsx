@@ -9,6 +9,19 @@ import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+interface ActivityItem {
+  id: string;
+  hash: string;
+  chain: string;
+  type: string;
+  status: string;
+  minedAt: string;
+  valueUsd: number | null;
+  out: { symbol: string; amount: string; icon: string } | null;
+  in: { symbol: string; amount: string; icon: string } | null;
+  explorerUrl: string;
+}
+
 interface PortfolioAsset {
   blockchain: string;
   tokenName: string;
@@ -94,6 +107,9 @@ const Home: NextPage = () => {
   const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
 
+  // Activity state (lifted from ActivityPanel for AI context)
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+
   // Chat scroll ref
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
@@ -104,7 +120,7 @@ const Home: NextPage = () => {
     }
   }, [messages, isProcessing]);
 
-  // Fetch portfolio on wallet connect
+  // Fetch portfolio + activity on wallet connect
   useEffect(() => {
     if (!address) {
       setPortfolio([]);
@@ -112,6 +128,7 @@ const Home: NextPage = () => {
       setTotalPortfolioUsd("0");
       setChange1dUsd("0");
       setChange1dPct("0");
+      setActivity([]);
       return;
     }
 
@@ -136,7 +153,18 @@ const Home: NextPage = () => {
       }
     };
 
+    const fetchActivity = async () => {
+      try {
+        const res = await fetch(`/api/activity?address=${address}`);
+        const data = await res.json();
+        setActivity(data.items || []);
+      } catch (e) {
+        console.error("Failed to fetch activity:", e);
+      }
+    };
+
     fetchPortfolio();
+    fetchActivity();
   }, [address]);
 
   // ─── handleSubmit ────────────────────────────────────────────────────────
@@ -158,6 +186,7 @@ const Home: NextPage = () => {
           address,
           portfolio,
           recentMessages: messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
+          recentActivity: activity.slice(0, 20),
         }),
       });
       const data = await res.json();
