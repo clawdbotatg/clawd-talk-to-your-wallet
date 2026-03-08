@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
     const items: ActivityItem[] = (data.data || []).map((tx: any) => {
       const attrs = tx.attributes || {};
       const hash = attrs.hash || "";
-      const chain = attrs.chain || "ethereum";
+      const chain = tx.relationships?.chain?.data?.id || attrs.chain || "ethereum";
       const transfers = attrs.transfers || [];
 
       const outTransfer = transfers.find((t: any) => t.direction === "out");
