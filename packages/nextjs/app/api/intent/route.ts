@@ -47,7 +47,7 @@ function padAddress(addr: string): string {
 const intentTools = {
   simulateAssetChanges: tool({
     description:
-      "Simulate a transaction via Alchemy to see exactly what assets leave/enter the wallet. ALWAYS use this to verify every transaction before returning it to the user.",
+      "Simulate a transaction via Alchemy to see exactly what assets leave/enter the wallet. ALWAYS use this to verify every transaction before returning it.",
     inputSchema: z.object({
       from: z.string().describe("Sender address"),
       to: z.string().describe("Target contract address"),
@@ -111,7 +111,7 @@ const intentTools = {
 
   traceCall: tool({
     description:
-      "Full EVM execution trace via debug_traceCall. Use when simulateAssetChanges shows unexpected results or the user asks why something failed. Detects unexpected contract calls, revert reasons, and unlimited approvals.",
+      "Full EVM execution trace via debug_traceCall. Use when simulateAssetChanges shows unexpected results or the user asks why something failed.",
     inputSchema: z.object({
       from: z.string().describe("Sender address"),
       to: z.string().describe("Target contract address"),
@@ -147,10 +147,8 @@ const intentTools = {
         const revertReason = result.error || undefined;
         const gasUsed = result.gasUsed || "0x0";
 
-        // Parse internal calls from callTracer result
         const internalCalls: { to: string; input: string; value: string }[] = [];
         let hasUnlimitedApproval = false;
-
         const MAX_UINT256 = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
         function walkCalls(calls: { to?: string; input?: string; value?: string; calls?: unknown[] }[]) {
@@ -158,11 +156,10 @@ const intentTools = {
             if (call.to) {
               internalCalls.push({
                 to: call.to,
-                input: (call.input || "0x").slice(0, 74), // first 10 chars = selector + first param
+                input: (call.input || "0x").slice(0, 74),
                 value: call.value || "0x0",
               });
             }
-            // Check for unlimited approval (approve with max uint256)
             if (call.input && call.input.startsWith("0x095ea7b3") && call.input.includes(MAX_UINT256)) {
               hasUnlimitedApproval = true;
             }
@@ -180,7 +177,7 @@ const intentTools = {
           success,
           revertReason,
           gasUsed,
-          internalCalls: internalCalls.slice(0, 20), // cap to keep response manageable
+          internalCalls: internalCalls.slice(0, 20),
           hasUnlimitedApproval,
         };
       } catch (e) {
@@ -303,7 +300,6 @@ const intentTools = {
           chainId: chain,
         };
       }
-      // ERC-20 transfer(address,uint256) = 0xa9059cbb
       const data = "0xa9059cbb" + padAddress(to) + padUint256(BigInt(amount));
       return {
         to: token,
@@ -348,7 +344,6 @@ const intentTools = {
     execute: async ({ symbol, chainId }) => {
       const upper = symbol.toUpperCase();
 
-      // Well-known hardcoded addresses
       if (upper === "ETH") {
         return { address: ETH_PLACEHOLDER, decimals: 18, name: "Ether" };
       }
@@ -360,7 +355,6 @@ const intentTools = {
         return { address: USDC_MAINNET, decimals: 6, name: "USD Coin" };
       }
 
-      // Search Enso Finance token list
       try {
         const url = `https://api.enso.finance/api/v1/tokens?chainId=${chainId}&search=${encodeURIComponent(symbol)}&limit=5`;
         const res = await fetch(url);
@@ -369,7 +363,6 @@ const intentTools = {
         }
         const tokens = await res.json();
         if (Array.isArray(tokens) && tokens.length > 0) {
-          // Find exact symbol match first, then fall back to first result
           const exact = tokens.find((t: { symbol: string }) => t.symbol.toUpperCase() === upper);
           const token = exact || tokens[0];
           return {
@@ -424,13 +417,35 @@ const intentTools = {
 
 // ─── System Prompt ──────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are an Ethereum transaction intent engine. You translate plain English requests into verified, ready-to-sign transactions.
+const SYSTEM_PROMPT = `You are a friendly wallet assistant. You have access to the user's full portfolio across all chains.
+
+WHEN TO CHAT vs WHEN TO BUILD A TRANSACTION:
+
+Chat (just respond in plain English) when the user:
+- Asks questions about their portfolio ("how is my GNO doing?", "what's my biggest position?")
+- Asks about prices, protocols, or market info
+- Wants to understand something ("what is WETH?", "explain Gnosis chain")
+- Says something ambiguous
+- Greets you or makes small talk
+
+Build a transaction when the user CLEARLY wants to execute something:
+- "swap X for Y"
+- "send X to address"
+- "bridge X to chain"
+- "wrap/unwrap X ETH"
+- "buy/sell X"
+
+RESPONSE RULES:
+- For chat: respond in plain English, 2-4 sentences max, conversational tone. Use the portfolio data in context to give specific answers.
+- For transactions: use your tools to build + simulate it, then respond with the JSON transaction format
+- NEVER show error-like output for simple questions
+- NEVER suggest the user "check block explorers" for info you can answer from their portfolio data
 
 AVAILABLE TOOLS:
-- simulateAssetChanges: Simulate a tx to see exact asset changes. USE THIS to verify every transaction before returning it.
-- traceCall: Full EVM trace. Use when simulateAssetChanges shows unexpected results or the user asks why something failed.
+- simulateAssetChanges: Simulate a tx to see exact asset changes. USE THIS to verify every transaction.
+- traceCall: Full EVM trace for debugging.
 - getPortfolio: Get user's current balances across all chains.
-- buildSwap: Build swap calldata via Enso Finance (works on most EVM chains).
+- buildSwap: Build swap calldata via Enso Finance.
 - buildBridge: Build bridge calldata via LI.FI (cross-chain).
 - buildTransfer: Build ETH or ERC-20 transfer calldata.
 - resolveENS: Resolve ENS name to address.
@@ -438,7 +453,7 @@ AVAILABLE TOOLS:
 - wrapEth: Wrap ETH to WETH.
 - unwrapWeth: Unwrap WETH to ETH.
 
-MANDATORY WORKFLOW:
+MANDATORY WORKFLOW (for transactions only):
 1. If you need balance info → call getPortfolio first
 2. Resolve any ENS names → call resolveENS
 3. Look up unknown token addresses → call getTokenAddress
@@ -447,13 +462,26 @@ MANDATORY WORKFLOW:
 6. If simulation shows unexpected results → call traceCall to diagnose
 7. Only return the transaction if simulation confirms the expected asset changes
 
-RESPONSE FORMAT (after all tool calls complete):
-Return JSON with this exact structure:
+RESPONSE FORMAT:
+
+For chat responses, return ONLY this JSON:
 {
-  "transactions": [{ "to": "0x...", "data": "0x...", "value": "0x...", "chainId": 1 }],
-  "description": "One plain English sentence",
-  "effects": { "send": "0.1 ETH", "receive": "198 USDC" },
-  "simulation": { "verified": true, "changes": [...] }
+  "type": "chat",
+  "message": "your conversational response here"
+}
+
+For transaction responses, return ONLY this JSON (after all tool calls complete):
+{
+  "type": "transaction",
+  "message": "I'll swap 0.1 ETH for USDC — here are the details:",
+  "transaction": {
+    "to": "0x...",
+    "data": "0x...",
+    "value": "0x...",
+    "chainId": 1,
+    "description": "Swap 0.1 ETH → ~198 USDC",
+    "simulation": { "verified": true, "changes": [{ "direction": "out", "symbol": "ETH", "amount": "0.1" }, { "direction": "in", "symbol": "USDC", "amount": "198.5" }] }
+  }
 }
 
 RULES:
@@ -464,18 +492,21 @@ RULES:
 - WETH on mainnet: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 - WETH on Base: 0x4200000000000000000000000000000000000006
 - USDC on mainnet: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 (6 decimals!)
-- All amountIn/fromAmount/amount parameters for buildSwap, buildBridge, buildTransfer, wrapEth, unwrapWeth expect wei (raw units). Convert from human-readable first.
-- If the user's request is unclear, ask for clarification
-- If simulation fails, explain why and do NOT return the transaction`;
+- All amount parameters expect wei (raw units). Convert from human-readable first.
+- If the user's request is unclear, respond with a chat message asking for clarification
+- If simulation fails, respond with a chat message explaining why`;
 
 // ─── Route Handler ──────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, address, portfolio, chainId } = await req.json();
+    const { message, address, portfolio, chainId, recentMessages } = await req.json();
 
     if (!process.env.ANTHROPIC_API_KEY) {
-      return NextResponse.json({ error: "ANTHROPIC_API_KEY not configured" }, { status: 500 });
+      return NextResponse.json(
+        { type: "chat", message: "API key not configured. Please set ANTHROPIC_API_KEY." },
+        { status: 500 },
+      );
     }
 
     const userChainId = chainId ?? 1;
@@ -498,7 +529,14 @@ export async function POST(req: NextRequest) {
           .join("\n")}`
       : "";
 
-    const userPrompt = `User wallet: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}\n\nUser says: "${message}"`;
+    // Build conversation context from recent messages
+    const recentContext = recentMessages?.length
+      ? `\n\nRecent conversation:\n${(recentMessages as { role: string; content: string }[])
+          .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+          .join("\n")}`
+      : "";
+
+    const userPrompt = `User wallet: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${recentContext}\n\nUser says: "${message}"`;
 
     const result = await generateText({
       model: anthropic("claude-sonnet-4-20250514"),
@@ -508,10 +546,9 @@ export async function POST(req: NextRequest) {
       stopWhen: stepCountIs(10),
     });
 
-    // Try to parse the AI's final text as JSON (the structured response)
+    // Try to parse the AI's final text as JSON
     let parsed: Record<string, unknown> | null = null;
     if (result.text) {
-      // Extract JSON from the response (may be wrapped in markdown code block)
       const jsonMatch = result.text.match(/```(?:json)?\s*([\s\S]*?)```/) || result.text.match(/(\{[\s\S]*\})/);
       if (jsonMatch) {
         try {
@@ -522,16 +559,48 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (parsed && parsed.transactions) {
-      return NextResponse.json({
-        ...parsed,
-        aiMessage: result.text,
-      });
+    // Handle parsed JSON response
+    if (parsed) {
+      if (parsed.type === "chat") {
+        return NextResponse.json({
+          type: "chat",
+          message: parsed.message as string,
+        });
+      }
+
+      if (parsed.type === "transaction" && parsed.transaction) {
+        return NextResponse.json({
+          type: "transaction",
+          message: parsed.message as string,
+          transaction: parsed.transaction,
+        });
+      }
+
+      // Legacy format: has transactions array
+      if (parsed.transactions) {
+        const txs = parsed.transactions as { to: string; data: string; value: string; chainId: number }[];
+        const sim = parsed.simulation as
+          | { verified: boolean; changes: { direction: string; symbol: string; amount: string }[] }
+          | undefined;
+        return NextResponse.json({
+          type: "transaction",
+          message: (parsed.description as string) || result.text || "Transaction ready",
+          transaction: {
+            ...txs[0],
+            description: (parsed.description as string) || "",
+            simulation: sim ? { verified: sim.verified, changes: sim.changes } : undefined,
+          },
+        });
+      }
     }
 
-    // Fallback: scan tool results for transaction data and simulation data
+    // Fallback: scan tool results for transaction data
     type TxData = { to: string; data: string; value: string; chainId: number };
-    type SimResult = { success: boolean; changes: unknown[]; error?: string };
+    type SimResult = {
+      success: boolean;
+      changes: { direction: string; symbol: string; amount: string }[];
+      error?: string;
+    };
 
     let lastTx: TxData | null = null;
     let lastSim: SimResult | null = null;
@@ -549,37 +618,43 @@ export async function POST(req: NextRequest) {
     }
 
     if (lastTx) {
-      // Build effects from simulation changes
-      interface SimChange {
-        direction: string;
-        amount: string;
-        symbol: string;
-      }
-      const simChanges = (lastSim?.changes || []) as SimChange[];
-      const outChange = simChanges.find(c => c.direction === "out");
-      const inChange = simChanges.find(c => c.direction === "in");
-      const effects = {
-        send: outChange ? `${outChange.amount} ${outChange.symbol}` : "",
-        receive: inChange ? `${inChange.amount} ${inChange.symbol}` : "",
-      };
-
+      const simChanges = lastSim?.changes || [];
       return NextResponse.json({
-        transactions: [lastTx],
-        description: result.text || "Transaction ready",
-        effects,
-        simulation: { verified: !!lastSim?.success, changes: lastSim?.changes || [] },
-        aiMessage: result.text,
+        type: "transaction",
+        message: result.text || "Transaction ready",
+        transaction: {
+          ...lastTx,
+          description: result.text || "",
+          simulation: lastSim ? { verified: !!lastSim.success, changes: simChanges } : undefined,
+        },
       });
     }
 
-    // No transaction built — AI responded with text only
+    // No transaction built — treat as chat response
+    // Clean up the text (remove JSON wrapper if the AI wrapped it weirdly)
+    let chatMessage = result.text || "I'm not sure how to help with that. Could you rephrase?";
+    // If the text looks like raw JSON that wasn't parsed, extract the message
+    try {
+      const maybeJson = JSON.parse(chatMessage);
+      if (maybeJson.message) chatMessage = maybeJson.message;
+    } catch {
+      // not JSON, use as-is
+    }
+
     return NextResponse.json({
-      error: result.text || "Could not build a transaction for this request.",
-      aiMessage: result.text,
+      type: "chat",
+      message: chatMessage,
     });
   } catch (error: unknown) {
     const errMessage = error instanceof Error ? error.message : "Unknown error";
     console.error("Intent API error:", error);
-    return NextResponse.json({ error: errMessage }, { status: 500 });
+    return NextResponse.json(
+      {
+        type: "chat",
+        message: "Sorry, something went wrong. Please try again.",
+        error: errMessage,
+      },
+      { status: 500 },
+    );
   }
 }

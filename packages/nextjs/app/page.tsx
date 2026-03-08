@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Address } from "@scaffold-ui/components";
 import type { NextPage } from "next";
-import { useAccount, useConnectorClient, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
+import TransactionCard from "~~/components/TransactionCard";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface PortfolioAsset {
   blockchain: string;
@@ -18,35 +21,24 @@ interface PortfolioAsset {
   thumbnail: string;
 }
 
-interface IntentTransaction {
-  to: string;
-  data: string;
-  value: string;
-  chainId: number;
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  transaction?: {
+    to: string;
+    data: string;
+    value: string;
+    chainId: number;
+    description: string;
+    simulation?: {
+      verified: boolean;
+      changes: { direction: "in" | "out"; symbol: string; amount: string }[];
+    };
+  };
+  timestamp: number;
 }
 
-interface SimulatedChange {
-  type: string;
-  symbol: string;
-  amount: string;
-  logo: string;
-  direction: "in" | "out";
-}
-
-interface SimulationResult {
-  safe: boolean;
-  explanation: string;
-  warnings: string[];
-  changes: SimulatedChange[];
-}
-
-interface IntentResult {
-  transactions: IntentTransaction[];
-  description: string;
-  effects: { send: string; receive: string };
-  aiMessage?: string;
-  error?: string;
-}
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const CHAIN_ICONS: Record<string, string> = {
   ethereum: "https://icons.llamao.fi/icons/chains/rsz_ethereum.jpg",
@@ -86,14 +78,13 @@ const formatBalance = (balance: string): string => {
 
 const MAX_DISPLAY_ASSETS = 8;
 
+// ─── Component ───────────────────────────────────────────────────────────────
+
 const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [intentResult, setIntentResult] = useState<IntentResult | null>(null);
-  const [error, setError] = useState("");
-  const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   // Portfolio state
   const [portfolio, setPortfolio] = useState<PortfolioAsset[]>([]);
@@ -103,12 +94,16 @@ const Home: NextPage = () => {
   const [change1dPct, setChange1dPct] = useState("0");
   const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
-  const [simulation, setSimulation] = useState<SimulationResult | null>(null);
-  const [isSimulating, setIsSimulating] = useState(false);
 
-  const { sendTransactionAsync } = useSendTransaction();
-  const { isLoading: isTxConfirming, isSuccess: isTxConfirmed } = useWaitForTransactionReceipt({ hash: txHash });
-  const { data: connectorClient } = useConnectorClient();
+  // Chat scroll ref
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll on new messages
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [messages, isProcessing]);
 
   // Fetch portfolio on wallet connect
   useEffect(() => {
@@ -128,7 +123,6 @@ const Home: NextPage = () => {
         const data = await res.json();
         if (data.error) {
           console.error("Portfolio error:", data.error);
-          setError(`Portfolio failed: ${data.error}`);
           return;
         }
         setPortfolio(data.assets || []);
@@ -146,121 +140,52 @@ const Home: NextPage = () => {
     fetchPortfolio();
   }, [address]);
 
-  // Mobile deep linking
-  const openWallet = useCallback(() => {
-    if (typeof window === "undefined") return;
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (!isMobile || window.ethereum) return;
-
-    const connector = connectorClient?.transport;
-    const allIds = [connector?.name, localStorage.getItem("wagmi.recentConnectorId")]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-
-    let wcWallet = "";
-    try {
-      const wcKey = Object.keys(localStorage).find(k => k.startsWith("wc@2:client"));
-      if (wcKey) wcWallet = (localStorage.getItem(wcKey) || "").toLowerCase();
-    } catch {
-      /* ignore */
-    }
-    const search = `${allIds} ${wcWallet}`;
-
-    const schemes: [string[], string][] = [
-      [["rainbow"], "rainbow://"],
-      [["metamask"], "metamask://"],
-      [["coinbase", "cbwallet"], "cbwallet://"],
-      [["trust"], "trust://"],
-      [["phantom"], "phantom://"],
-    ];
-
-    for (const [keywords, scheme] of schemes) {
-      if (keywords.some(k => search.includes(k))) {
-        window.location.href = scheme;
-        return;
-      }
-    }
-  }, [connectorClient]);
-
-  const writeAndOpen = useCallback(
-    <T,>(writeFn: () => Promise<T>): Promise<T> => {
-      const promise = writeFn();
-      setTimeout(openWallet, 2000);
-      return promise;
-    },
-    [openWallet],
-  );
+  // ─── handleSubmit ────────────────────────────────────────────────────────
 
   const handleSubmit = async () => {
     if (!message.trim() || !address) return;
+
+    const userMsg: ChatMessage = { role: "user", content: message, timestamp: Date.now() };
+    setMessages(prev => [...prev, userMsg]);
+    setMessage("");
     setIsProcessing(true);
-    setError("");
-    setIntentResult(null);
-    setTxHash(undefined);
 
     try {
-      const intentRes = await fetch("/api/intent", {
+      const res = await fetch("/api/intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, address, portfolio }),
+        body: JSON.stringify({
+          message,
+          address,
+          portfolio,
+          recentMessages: messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
+        }),
       });
-      const intent = await intentRes.json();
-      if (intent.error) {
-        setError(intent.error);
-        setIsProcessing(false);
-        return;
-      }
-      setIntentResult(intent);
-      // Run simulation in background after intent resolves
-      if (intent.transactions?.length && address) {
-        setSimulation(null);
-        setIsSimulating(true);
-        try {
-          const tx = intent.transactions[0];
-          const simRes = await fetch("/api/security", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ calldata: tx, address, chainId: tx.chainId || 1 }),
-          });
-          const simData = await simRes.json();
-          setSimulation(simData);
-        } catch {
-          // simulation failure is non-blocking
-        } finally {
-          setIsSimulating(false);
-        }
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      const data = await res.json();
+
+      const assistantMsg: ChatMessage = {
+        role: "assistant",
+        content: data.message || "Something went wrong",
+        transaction: data.type === "transaction" ? data.transaction : undefined,
+        timestamp: Date.now(),
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+    } catch {
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Sorry, something went wrong. Please try again.",
+          timestamp: Date.now(),
+        },
+      ]);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleExecute = async () => {
-    if (!intentResult?.transactions?.length) return;
-    setIsExecuting(true);
-    setError("");
+  // ─── Computed ────────────────────────────────────────────────────────────
 
-    try {
-      const tx = intentResult.transactions[0];
-      const hash = await writeAndOpen(() =>
-        sendTransactionAsync({
-          to: tx.to as `0x${string}`,
-          data: (tx.data && tx.data !== "0x" ? tx.data : undefined) as `0x${string}` | undefined,
-          value: BigInt(tx.value || "0"),
-        }),
-      );
-      setTxHash(hash);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Transaction failed");
-    } finally {
-      setIsExecuting(false);
-    }
-  };
-
-  // Computed: grand total = wallet + defi
   const walletTotal = parseFloat(totalBalanceUsd) || 0;
   const defiTotal = parseFloat(totalPortfolioUsd) || 0;
   const grandTotal = walletTotal + defiTotal;
@@ -271,6 +196,8 @@ const Home: NextPage = () => {
   const displayedAssets = showAllAssets ? portfolio : portfolio.slice(0, MAX_DISPLAY_ASSETS);
   const hiddenCount = portfolio.length - MAX_DISPLAY_ASSETS;
 
+  // ─── Render ──────────────────────────────────────────────────────────────
+
   return (
     <div className="flex items-center flex-col flex-grow pt-10">
       <div className="px-5 w-full max-w-7xl">
@@ -280,9 +207,9 @@ const Home: NextPage = () => {
           </div>
         ) : (
           <div className="mt-8">
-            <div className="flex flex-col lg:flex-row gap-4">
+            <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 160px)" }}>
               {/* LEFT SIDEBAR: Portfolio */}
-              <div className="w-full lg:w-72 shrink-0 space-y-4">
+              <div className="w-full lg:w-72 shrink-0 space-y-4 overflow-y-auto">
                 <div className="bg-base-200 rounded-xl p-4 space-y-4">
                   {/* Total + daily change header */}
                   <div>
@@ -410,21 +337,54 @@ const Home: NextPage = () => {
                 </div>
               </div>
 
-              {/* CENTER: Chat + Intent */}
-              <div className="flex-1 min-w-0 space-y-4">
+              {/* CENTER: Chat */}
+              <div className="flex-1 min-w-0 flex flex-col">
                 {/* Connected address indicator */}
-                <div className="flex justify-center">
+                <div className="flex justify-center mb-2">
                   <div className="text-sm text-base-content/60">
                     <Address address={address} />
                   </div>
                 </div>
 
-                {/* Chat input — pinned to bottom */}
-                <div className="sticky bottom-4 mt-auto">
+                {/* Chat messages — scrollable */}
+                <div className="flex-1 overflow-y-auto space-y-4 pb-4" ref={chatScrollRef}>
+                  {messages.length === 0 && (
+                    <div className="text-center text-base-content/40 mt-20">
+                      <p className="text-lg">Ask anything about your wallet</p>
+                      <p className="text-sm mt-2">or say &quot;swap 0.1 ETH for USDC&quot; to make a move</p>
+                    </div>
+                  )}
+                  {messages.map((msg, i) => (
+                    <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                          msg.role === "user"
+                            ? "bg-primary text-primary-content rounded-br-sm"
+                            : "bg-base-200 text-base-content rounded-bl-sm"
+                        }`}
+                      >
+                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+
+                        {/* Transaction card — only shown when msg has a transaction */}
+                        {msg.transaction && <TransactionCard tx={msg.transaction} address={address!} />}
+                      </div>
+                    </div>
+                  ))}
+                  {isProcessing && (
+                    <div className="flex justify-start">
+                      <div className="bg-base-200 rounded-2xl rounded-bl-sm px-4 py-3">
+                        <span className="loading loading-dots loading-sm"></span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Input — sticky bottom */}
+                <div className="sticky bottom-0 pb-4 pt-2 bg-base-100">
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="Swap, bridge, send — just say what you want"
+                      placeholder="Ask about your wallet, or say what you want to do..."
                       className="input input-bordered flex-1 text-base"
                       value={message}
                       onChange={e => setMessage(e.target.value)}
@@ -440,110 +400,10 @@ const Home: NextPage = () => {
                     </button>
                   </div>
                 </div>
-
-                {/* Error */}
-                {error && (
-                  <div className="alert alert-error">
-                    <span>{error}</span>
-                  </div>
-                )}
-
-                {/* Intent result */}
-                {intentResult && intentResult.transactions && (
-                  <div className="space-y-4">
-                    {intentResult.aiMessage && (
-                      <div className="bg-base-200 rounded-xl p-4 text-sm">
-                        <div className="text-base-content/60 text-xs mb-1">AI</div>
-                        <div>{intentResult.aiMessage}</div>
-                      </div>
-                    )}
-
-                    {/* Simulation results */}
-                    {isSimulating && (
-                      <div className="bg-base-200 rounded-xl p-4 flex items-center gap-2 text-sm text-base-content/60">
-                        <span className="loading loading-spinner loading-xs"></span>
-                        Simulating transaction...
-                      </div>
-                    )}
-
-                    {simulation && !isSimulating && (
-                      <div
-                        className={`rounded-xl p-4 space-y-2 text-sm ${simulation.safe ? "bg-base-200" : "bg-error/10 border border-error/30"}`}
-                      >
-                        {!simulation.safe && simulation.warnings.length > 0 && (
-                          <div className="text-error font-medium text-xs mb-2">⚠️ {simulation.warnings[0]}</div>
-                        )}
-                        {simulation.changes
-                          .filter(c => c.direction === "out")
-                          .map((c, i) => (
-                            <div key={i} className="flex justify-between items-center">
-                              <span className="text-base-content/60">You send</span>
-                              <span className="font-bold text-error">
-                                − {c.amount} {c.symbol}
-                              </span>
-                            </div>
-                          ))}
-                        {simulation.changes.length > 0 && <div className="border-t border-base-300" />}
-                        {simulation.changes
-                          .filter(c => c.direction === "in")
-                          .map((c, i) => (
-                            <div key={i} className="flex justify-between items-center">
-                              <span className="text-base-content/60">You receive</span>
-                              <span className="font-bold text-success">
-                                + {c.amount} {c.symbol}
-                              </span>
-                            </div>
-                          ))}
-                        {simulation.changes.length === 0 && (
-                          <div className="text-base-content/50 text-center py-1">{simulation.explanation}</div>
-                        )}
-                      </div>
-                    )}
-
-                    {intentResult.description && (
-                      <div className="text-center text-sm text-base-content/60">{intentResult.description}</div>
-                    )}
-
-                    {!txHash && (
-                      <button className="btn btn-success w-full text-lg" onClick={handleExecute} disabled={isExecuting}>
-                        {isExecuting ? (
-                          <>
-                            <span className="loading loading-spinner loading-sm"></span>
-                            Sending Transaction...
-                          </>
-                        ) : (
-                          `Execute Transaction`
-                        )}
-                      </button>
-                    )}
-
-                    {txHash && (
-                      <div className="alert alert-info">
-                        {isTxConfirming && (
-                          <div className="flex items-center gap-2">
-                            <span className="loading loading-spinner loading-sm"></span>
-                            Waiting for confirmation...
-                          </div>
-                        )}
-                        {isTxConfirmed && <div>✅ Transaction confirmed!</div>}
-                        <div className="mt-2">
-                          <a
-                            href={`https://etherscan.io/tx/${txHash}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="link"
-                          >
-                            View on Etherscan →
-                          </a>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* RIGHT SIDEBAR: Activity */}
-              <div className="w-full lg:w-80 shrink-0">
+              <div className="w-full lg:w-80 shrink-0 overflow-y-auto">
                 <ActivityPanel address={address!} />
               </div>
             </div>
