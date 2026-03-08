@@ -71,6 +71,9 @@ export async function GET(req: NextRequest) {
         };
       });
 
+    // Sort by USD value descending
+    assets.sort((a, b) => parseFloat(b.balanceUsd) - parseFloat(a.balanceUsd));
+
     const totalBalanceUsd = assets.reduce((sum, a) => sum + parseFloat(a.balanceUsd), 0).toFixed(2);
 
     return NextResponse.json({ totalBalanceUsd, assets });
