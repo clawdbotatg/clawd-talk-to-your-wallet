@@ -268,6 +268,89 @@ const intentTools = {
     },
   }),
 
+  getTransactionDetails: tool({
+    description:
+      "Look up full details of a specific transaction by hash. Returns sender address, receiver address, value, block number, timestamp, and decoded transfer info. Use this when the user asks WHO sent something, WHERE it came from, or wants any specific transaction detail.",
+    inputSchema: z.object({
+      hash: z.string().describe("Transaction hash (0x...)"),
+      chain: z
+        .string()
+        .describe(
+          "Chain name: 'ethereum', 'base', 'xdai', 'arbitrum', 'optimism', 'polygon', 'binance-smart-chain', 'monad', 'abstract'",
+        ),
+    }),
+    execute: async ({ hash, chain }) => {
+      // Map chain name to Zerion transaction endpoint
+      const ZERION_KEY = process.env.ZERION_API_KEY || "";
+      const auth = Buffer.from(`${ZERION_KEY}:`).toString("base64");
+
+      try {
+        // Use Zerion transaction endpoint to get full details
+        const res = await fetch(`https://api.zerion.io/v1/transactions/${hash}?currency=usd`, {
+          headers: { Authorization: `Basic ${auth}`, accept: "application/json" },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const attrs = data.data?.attributes || {};
+          const transfers = attrs.transfers || [];
+          return {
+            hash,
+            chain: data.data?.relationships?.chain?.data?.id || chain,
+            from: attrs.sent_from,
+            to: attrs.sent_to,
+            status: attrs.status,
+            minedAt: attrs.mined_at,
+            fee: attrs.fee,
+            transfers: transfers.map((t: any) => ({
+              direction: t.direction,
+              symbol: t.fungible_info?.symbol,
+              name: t.fungible_info?.name,
+              amount: t.quantity?.float,
+              valueUsd: t.value,
+              from: t.sender,
+              to: t.recipient,
+            })),
+            type: attrs.operation_type,
+          };
+        }
+
+        // Fallback: use Alchemy eth_getTransactionByHash for supported chains
+        const ALCHEMY_KEY = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || "";
+        const rpcUrls: Record<string, string> = {
+          ethereum: `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+          base: `https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+          arbitrum: `https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+          optimism: `https://opt-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+          polygon: `https://polygon-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+        };
+        const rpcUrl = rpcUrls[chain];
+        if (!rpcUrl) return { error: `Chain ${chain} not supported for direct lookup` };
+
+        const rpcRes = await fetch(rpcUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getTransactionByHash", params: [hash], id: 1 }),
+        });
+        const rpcData = await rpcRes.json();
+        const tx = rpcData.result;
+        if (!tx) return { error: "Transaction not found" };
+
+        return {
+          hash,
+          chain,
+          from: tx.from,
+          to: tx.to,
+          value: tx.value,
+          blockNumber: parseInt(tx.blockNumber, 16),
+          gas: parseInt(tx.gas, 16),
+        };
+      } catch (e) {
+        return { error: String(e) };
+      }
+    },
+  }),
+
   getTokenPrice: tool({
     description: "Get the current USD price and 24h change for a token by symbol.",
     inputSchema: z.object({
@@ -570,7 +653,8 @@ YOU ALWAYS HAVE:
 
 WHEN ANSWERING QUESTIONS:
 - Use the portfolio/activity context injected below FIRST before calling tools
-- For "where did X come from?" → check the activity context for receives of that token. If not visible, call getTokenActivity
+- For "where did X come from?" → check the activity context for receives of that token. If not visible, call getTokenActivity. Once you have a tx hash, call getTransactionDetails to get the sender address — NEVER say "check a block explorer" when you have a hash
+- For "what address sent it?" or "who sent me X?" → call getTransactionDetails with the hash and chain
 - For "how is X doing?" → use portfolio data for balance, call getTokenPrice for current price/change
 - For "what have I been doing?" → summarize from the activity context
 - Be specific: give dates, amounts, chains. Never say "I don't have access to your history"
@@ -599,6 +683,7 @@ AVAILABLE TOOLS:
 - traceCall: Full EVM trace for debugging.
 - getPortfolio: Get user's current balances across all chains (with chain breakdown and totals).
 - getTokenActivity: Get all transactions involving a specific token. Use for "where did X come from?" questions.
+- getTransactionDetails: Look up full tx details by hash — sender, receiver, value. Use when you have a hash and need to answer "who sent this?" or "what address?"
 - getTokenPrice: Get current USD price and 24h change for any token.
 - getWalletActivity: Get recent cross-chain transaction history with full details.
 - buildSwap: Build swap calldata via Enso Finance.
