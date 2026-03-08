@@ -438,7 +438,11 @@ const Home: NextPage = () => {
                             : "bg-base-200 text-base-content rounded-bl-sm"
                         }`}
                       >
-                        <ChatMessageRenderer content={msg.content} portfolio={portfolio} />
+                        {msg.role === "assistant" ? (
+                          <ChatMessageRenderer content={msg.content} portfolio={portfolio} />
+                        ) : (
+                          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                        )}
 
                         {/* Transaction card — only shown when msg has a transaction */}
                         {msg.transaction && <TransactionCard tx={msg.transaction} address={address!} />}

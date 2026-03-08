@@ -57,16 +57,16 @@ const CHAIN_PAT = CHAIN_NAMES_LIST.join("|");
 
 // "179.08 USDC on Base"
 const ASSET_CHAIN_RE = new RegExp(
-  `\\b(\\d+(?:[.,]\\d+)?(?:e-?\\d+)?)\\s+([A-Z]{2,10})\\s+on\\s+(${CHAIN_PAT})\\b`,
+  `\\b(\\d+(?:[.,]\\d+)?(?:e-?\\d+)?)\\s+([A-Za-z]{2,10})\\s+on\\s+(${CHAIN_PAT})\\b`,
   "gi",
 );
-// "USDC on Base"
-const SYMBOL_CHAIN_RE = new RegExp(`\\b([A-Z]{2,10})\\s+on\\s+(${CHAIN_PAT})\\b`, "gi");
-// "179.08 USDC"
-const ASSET_AMOUNT_RE = /\b(\d+(?:[.,]\d+)?(?:e-?\d+)?)\s+([A-Z]{2,10})\b/g;
-// "on Base" standalone (after asset already consumed, or before it)
+// "usdc on Base" — case-insensitive symbol
+const SYMBOL_CHAIN_RE = new RegExp(`\\b([A-Za-z]{2,10})\\s+on\\s+(${CHAIN_PAT})\\b`, "gi");
+// "179.08 usdc" — case-insensitive symbol
+const ASSET_AMOUNT_RE = /\b(\d+(?:[.,]\d+)?(?:e-?\d+)?)\s+([A-Za-z]{2,10})\b/g;
+// "on Base" standalone
 const ON_CHAIN_RE = new RegExp(`\\bon\\s+(${CHAIN_PAT})\\b`, "gi");
-// Bare chain name at word boundary (only when clearly a network ref)
+// Bare chain name at word boundary
 const BARE_CHAIN_RE = new RegExp(`\\b(${CHAIN_PAT})\\s+(?:chain|network|mainnet)\\b`, "gi");
 
 const KNOWN_SYMBOLS = new Set([
