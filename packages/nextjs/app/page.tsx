@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Address } from "@scaffold-ui/components";
 import type { NextPage } from "next";
 import { useAccount, useConnectorClient, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import ActivityPanel from "~~/components/ActivityPanel";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 
 interface PortfolioAsset {
@@ -219,7 +220,7 @@ const Home: NextPage = () => {
 
   return (
     <div className="flex items-center flex-col flex-grow pt-10">
-      <div className="px-5 w-full max-w-2xl">
+      <div className="px-5 w-full max-w-6xl">
         <h1 className="text-center">
           <span className="block text-4xl font-bold">Talk to Your Wallet</span>
           <span className="block text-lg mt-2 text-base-content/70">
@@ -232,205 +233,215 @@ const Home: NextPage = () => {
             <RainbowKitCustomConnectButton />
           </div>
         ) : (
-          <div className="mt-8 space-y-6">
-            {/* Connected address */}
-            <div className="flex justify-center">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-base-content/60">Connected:</span>
-                <Address address={address} />
-              </div>
-            </div>
+          <div className="mt-8">
+            <div className="flex flex-col lg:flex-row gap-6">
+              {/* LEFT: existing portfolio + chat */}
+              <div className="flex-1 min-w-0 max-w-2xl space-y-6">
+                {/* Connected address */}
+                <div className="flex justify-center">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-base-content/60">Connected:</span>
+                    <Address address={address} />
+                  </div>
+                </div>
 
-            {/* Portfolio */}
-            <div className="bg-base-200 rounded-xl p-4">
-              <div className="flex justify-between items-center mb-3">
-                <span className="text-sm font-semibold text-base-content/60">Portfolio</span>
-                {isLoadingPortfolio ? (
-                  <span className="loading loading-spinner loading-xs"></span>
-                ) : (
-                  <span className="text-lg font-bold">{formatUsdValue(totalBalanceUsd)}</span>
-                )}
-              </div>
+                {/* Portfolio */}
+                <div className="bg-base-200 rounded-xl p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-sm font-semibold text-base-content/60">Portfolio</span>
+                    {isLoadingPortfolio ? (
+                      <span className="loading loading-spinner loading-xs"></span>
+                    ) : (
+                      <span className="text-lg font-bold">{formatUsdValue(totalBalanceUsd)}</span>
+                    )}
+                  </div>
 
-              {isLoadingPortfolio ? (
-                <div className="text-center py-4 text-base-content/50">Loading assets...</div>
-              ) : portfolio.length === 0 ? (
-                <div className="text-center py-4 text-base-content/50">No assets found</div>
-              ) : (
-                <div className="space-y-1">
-                  {displayedAssets.map((asset, i) => (
-                    <div
-                      key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
-                      className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        {/* Token icon with chain badge overlay */}
-                        <div className="relative w-8 h-8 shrink-0">
-                          {asset.thumbnail ? (
-                            <img
-                              src={asset.thumbnail}
-                              alt={asset.tokenSymbol}
-                              className="w-8 h-8 rounded-full"
-                              onError={e => {
-                                (e.target as HTMLImageElement).src = "";
-                                (e.target as HTMLImageElement).style.display = "none";
-                                const parent = (e.target as HTMLImageElement).parentElement;
-                                if (parent) {
-                                  const fallback = document.createElement("div");
-                                  fallback.className =
-                                    "w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold absolute inset-0";
-                                  fallback.textContent = asset.tokenSymbol.slice(0, 2);
-                                  parent.appendChild(fallback);
-                                }
-                              }}
-                            />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
-                              {asset.tokenSymbol.slice(0, 2)}
+                  {isLoadingPortfolio ? (
+                    <div className="text-center py-4 text-base-content/50">Loading assets...</div>
+                  ) : portfolio.length === 0 ? (
+                    <div className="text-center py-4 text-base-content/50">No assets found</div>
+                  ) : (
+                    <div className="space-y-1">
+                      {displayedAssets.map((asset, i) => (
+                        <div
+                          key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
+                          className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            {/* Token icon with chain badge overlay */}
+                            <div className="relative w-8 h-8 shrink-0">
+                              {asset.thumbnail ? (
+                                <img
+                                  src={asset.thumbnail}
+                                  alt={asset.tokenSymbol}
+                                  className="w-8 h-8 rounded-full"
+                                  onError={e => {
+                                    (e.target as HTMLImageElement).src = "";
+                                    (e.target as HTMLImageElement).style.display = "none";
+                                    const parent = (e.target as HTMLImageElement).parentElement;
+                                    if (parent) {
+                                      const fallback = document.createElement("div");
+                                      fallback.className =
+                                        "w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold absolute inset-0";
+                                      fallback.textContent = asset.tokenSymbol.slice(0, 2);
+                                      parent.appendChild(fallback);
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
+                                  {asset.tokenSymbol.slice(0, 2)}
+                                </div>
+                              )}
+                              {CHAIN_ICONS[asset.blockchain] && (
+                                <img
+                                  src={CHAIN_ICONS[asset.blockchain]}
+                                  alt={asset.blockchain}
+                                  className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-base-200"
+                                />
+                              )}
                             </div>
-                          )}
-                          {CHAIN_ICONS[asset.blockchain] && (
-                            <img
-                              src={CHAIN_ICONS[asset.blockchain]}
-                              alt={asset.blockchain}
-                              className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-base-200"
-                            />
-                          )}
+                            <div>
+                              <div className="font-medium text-sm">{asset.tokenSymbol}</div>
+                              <div className="text-xs text-base-content/50">{formatBalance(asset.balance)}</div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-medium">{formatUsdValue(asset.balanceUsd)}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="font-medium text-sm">{asset.tokenSymbol}</div>
-                          <div className="text-xs text-base-content/50">{formatBalance(asset.balance)}</div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm font-medium">{formatUsdValue(asset.balanceUsd)}</div>
-                      </div>
-                    </div>
-                  ))}
+                      ))}
 
-                  {!showAllAssets && hiddenCount > 0 && (
-                    <button
-                      className="w-full text-center text-sm text-primary hover:underline py-2"
-                      onClick={() => setShowAllAssets(true)}
-                    >
-                      and {hiddenCount} more...
-                    </button>
-                  )}
-                  {showAllAssets && hiddenCount > 0 && (
-                    <button
-                      className="w-full text-center text-sm text-primary hover:underline py-2"
-                      onClick={() => setShowAllAssets(false)}
-                    >
-                      Show less
-                    </button>
+                      {!showAllAssets && hiddenCount > 0 && (
+                        <button
+                          className="w-full text-center text-sm text-primary hover:underline py-2"
+                          onClick={() => setShowAllAssets(true)}
+                        >
+                          and {hiddenCount} more...
+                        </button>
+                      )}
+                      {showAllAssets && hiddenCount > 0 && (
+                        <button
+                          className="w-full text-center text-sm text-primary hover:underline py-2"
+                          onClick={() => setShowAllAssets(false)}
+                        >
+                          Show less
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
 
-            {/* Chat input */}
-            <div className="space-y-3">
-              <input
-                type="text"
-                placeholder='Try: "swap 0.1 ETH to USDC" or "bridge 100 USDC to Base"'
-                className="input input-bordered w-full text-lg"
-                value={message}
-                onChange={e => setMessage(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && !isProcessing && handleSubmit()}
-                disabled={isProcessing}
-              />
-              <button
-                className="btn btn-primary w-full"
-                onClick={handleSubmit}
-                disabled={isProcessing || !message.trim()}
-              >
-                {isProcessing ? (
-                  <>
-                    <span className="loading loading-spinner loading-sm"></span>
-                    Building transaction...
-                  </>
-                ) : (
-                  "Submit"
-                )}
-              </button>
-            </div>
-
-            {/* Error */}
-            {error && (
-              <div className="alert alert-error">
-                <span>{error}</span>
-              </div>
-            )}
-
-            {/* Intent result */}
-            {intentResult && intentResult.transactions && (
-              <div className="space-y-4">
-                {/* AI message */}
-                {intentResult.aiMessage && (
-                  <div className="bg-base-200 rounded-xl p-4 text-sm">
-                    <div className="text-base-content/60 text-xs mb-1">AI</div>
-                    <div>{intentResult.aiMessage}</div>
-                  </div>
-                )}
-
-                {/* Effects panel */}
-                {intentResult.effects && (
-                  <div className="bg-base-200 rounded-xl p-4 space-y-2 text-sm">
-                    <div className="flex justify-between items-center">
-                      <span className="text-base-content/60">You send</span>
-                      <span className="font-bold text-error">− {intentResult.effects.send}</span>
-                    </div>
-                    <div className="border-t border-base-300" />
-                    <div className="flex justify-between items-center">
-                      <span className="text-base-content/60">You receive</span>
-                      <span className="font-bold text-success">+ {intentResult.effects.receive}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Description */}
-                {intentResult.description && (
-                  <div className="text-center text-sm text-base-content/60">{intentResult.description}</div>
-                )}
-
-                {/* Execute button */}
-                {!txHash && (
-                  <button className="btn btn-success w-full text-lg" onClick={handleExecute} disabled={isExecuting}>
-                    {isExecuting ? (
+                {/* Chat input */}
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    placeholder='Try: "swap 0.1 ETH to USDC" or "bridge 100 USDC to Base"'
+                    className="input input-bordered w-full text-lg"
+                    value={message}
+                    onChange={e => setMessage(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && !isProcessing && handleSubmit()}
+                    disabled={isProcessing}
+                  />
+                  <button
+                    className="btn btn-primary w-full"
+                    onClick={handleSubmit}
+                    disabled={isProcessing || !message.trim()}
+                  >
+                    {isProcessing ? (
                       <>
                         <span className="loading loading-spinner loading-sm"></span>
-                        Sending Transaction...
+                        Building transaction...
                       </>
                     ) : (
-                      `Execute Transaction`
+                      "Submit"
                     )}
                   </button>
+                </div>
+
+                {/* Error */}
+                {error && (
+                  <div className="alert alert-error">
+                    <span>{error}</span>
+                  </div>
                 )}
 
-                {/* Tx result */}
-                {txHash && (
-                  <div className="alert alert-info">
-                    {isTxConfirming && (
-                      <div className="flex items-center gap-2">
-                        <span className="loading loading-spinner loading-sm"></span>
-                        Waiting for confirmation...
+                {/* Intent result */}
+                {intentResult && intentResult.transactions && (
+                  <div className="space-y-4">
+                    {/* AI message */}
+                    {intentResult.aiMessage && (
+                      <div className="bg-base-200 rounded-xl p-4 text-sm">
+                        <div className="text-base-content/60 text-xs mb-1">AI</div>
+                        <div>{intentResult.aiMessage}</div>
                       </div>
                     )}
-                    {isTxConfirmed && <div>✅ Transaction confirmed!</div>}
-                    <div className="mt-2">
-                      <a
-                        href={`https://etherscan.io/tx/${txHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="link"
-                      >
-                        View on Etherscan →
-                      </a>
-                    </div>
+
+                    {/* Effects panel */}
+                    {intentResult.effects && (
+                      <div className="bg-base-200 rounded-xl p-4 space-y-2 text-sm">
+                        <div className="flex justify-between items-center">
+                          <span className="text-base-content/60">You send</span>
+                          <span className="font-bold text-error">− {intentResult.effects.send}</span>
+                        </div>
+                        <div className="border-t border-base-300" />
+                        <div className="flex justify-between items-center">
+                          <span className="text-base-content/60">You receive</span>
+                          <span className="font-bold text-success">+ {intentResult.effects.receive}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Description */}
+                    {intentResult.description && (
+                      <div className="text-center text-sm text-base-content/60">{intentResult.description}</div>
+                    )}
+
+                    {/* Execute button */}
+                    {!txHash && (
+                      <button className="btn btn-success w-full text-lg" onClick={handleExecute} disabled={isExecuting}>
+                        {isExecuting ? (
+                          <>
+                            <span className="loading loading-spinner loading-sm"></span>
+                            Sending Transaction...
+                          </>
+                        ) : (
+                          `Execute Transaction`
+                        )}
+                      </button>
+                    )}
+
+                    {/* Tx result */}
+                    {txHash && (
+                      <div className="alert alert-info">
+                        {isTxConfirming && (
+                          <div className="flex items-center gap-2">
+                            <span className="loading loading-spinner loading-sm"></span>
+                            Waiting for confirmation...
+                          </div>
+                        )}
+                        {isTxConfirmed && <div>✅ Transaction confirmed!</div>}
+                        <div className="mt-2">
+                          <a
+                            href={`https://etherscan.io/tx/${txHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="link"
+                          >
+                            View on Etherscan →
+                          </a>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
+
+              {/* RIGHT: activity panel */}
+              <div className="w-full lg:w-96 shrink-0">
+                <ActivityPanel address={address!} />
+              </div>
+            </div>
           </div>
         )}
       </div>
