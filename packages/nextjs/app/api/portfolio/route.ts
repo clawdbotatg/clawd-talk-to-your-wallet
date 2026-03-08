@@ -14,24 +14,61 @@ export async function GET(req: NextRequest) {
     }
 
     const auth = Buffer.from(`${ZERION_KEY}:`).toString("base64");
+    const headers = {
+      Authorization: `Basic ${auth}`,
+      accept: "application/json",
+    };
 
-    // Fetch all wallet positions sorted by USD value
-    const res = await fetch(
-      `https://api.zerion.io/v1/wallets/${walletAddress}/positions/?filter[position_types]=wallet&currency=usd&sort=-value&page[size]=100`,
-      {
-        headers: {
-          Authorization: `Basic ${auth}`,
-          accept: "application/json",
-        },
-      },
-    );
+    // Fetch wallet positions AND portfolio summary in parallel
+    const [positionsRes, portfolioRes] = await Promise.all([
+      fetch(
+        `https://api.zerion.io/v1/wallets/${walletAddress}/positions/?filter[position_types]=wallet&currency=usd&sort=-value&page[size]=100`,
+        { headers },
+      ),
+      fetch(`https://api.zerion.io/v1/wallets/${walletAddress}/portfolio?currency=usd`, { headers }),
+    ]);
 
-    if (!res.ok) {
-      const err = await res.text();
-      return NextResponse.json({ error: `Zerion API error (${res.status}): ${err}` }, { status: 502 });
+    if (!positionsRes.ok) {
+      const err = await positionsRes.text();
+      return NextResponse.json(
+        { error: `Zerion positions API error (${positionsRes.status}): ${err}` },
+        { status: 502 },
+      );
     }
 
-    const data = await res.json();
+    const positionsData = await positionsRes.json();
+
+    // Parse portfolio summary (best-effort — don't fail if this one errors)
+    let totalPortfolioUsd = "0";
+    let change1dUsd = "0";
+    let change1dPct = "0";
+    let chainBreakdown: { chain: string; valueUsd: string }[] = [];
+
+    if (portfolioRes.ok) {
+      try {
+        const portfolioData = await portfolioRes.json();
+        const attrs = portfolioData?.data?.attributes || {};
+
+        // DeFi total = deposited + staked + locked (exclude "wallet" which is token holdings)
+        const dist = attrs.positions_distribution_by_type || {};
+        const defiTotal = (dist.deposited || 0) + (dist.staked || 0) + (dist.locked || 0);
+        totalPortfolioUsd = defiTotal.toFixed(2);
+
+        // 1-day change
+        const changes = attrs.changes || {};
+        change1dUsd = (changes.absolute_1d || 0).toFixed(2);
+        change1dPct = (changes.percent_1d || 0).toFixed(2);
+
+        // Chain breakdown
+        const chainDist = attrs.positions_distribution_by_chain || {};
+        chainBreakdown = Object.entries(chainDist)
+          .map(([chain, value]) => ({ chain, valueUsd: (value as number).toFixed(2) }))
+          .filter(c => parseFloat(c.valueUsd) > 1)
+          .sort((a, b) => parseFloat(b.valueUsd) - parseFloat(a.valueUsd));
+      } catch {
+        // Portfolio parsing failed — continue with defaults
+      }
+    }
 
     interface ZerionPosition {
       attributes: {
@@ -50,7 +87,7 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    const positions: ZerionPosition[] = data.data || [];
+    const positions: ZerionPosition[] = positionsData.data || [];
 
     // Filter: only displayable, meaningful value (>$1 to cut dust)
     const assets = positions
@@ -76,7 +113,14 @@ export async function GET(req: NextRequest) {
 
     const totalBalanceUsd = assets.reduce((sum, a) => sum + parseFloat(a.balanceUsd), 0).toFixed(2);
 
-    return NextResponse.json({ totalBalanceUsd, assets });
+    return NextResponse.json({
+      totalBalanceUsd,
+      assets,
+      totalPortfolioUsd,
+      change1dUsd,
+      change1dPct,
+      chainBreakdown,
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

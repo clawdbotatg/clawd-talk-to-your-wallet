@@ -56,7 +56,7 @@ const formatUsdValue = (value: string | number): string => {
   const num = typeof value === "string" ? parseFloat(value) : value;
   if (num < 0.01) return "<$0.01";
   if (num >= 1_000_000) return `$${(num / 1_000_000).toFixed(2)}M`;
-  if (num >= 1_000) return `$${(num / 1_000).toFixed(2)}K`;
+  if (num >= 1_000) return `$${(num / 1_000).toFixed(1)}K`;
   return `$${num.toFixed(2)}`;
 };
 
@@ -83,6 +83,9 @@ const Home: NextPage = () => {
   // Portfolio state
   const [portfolio, setPortfolio] = useState<PortfolioAsset[]>([]);
   const [totalBalanceUsd, setTotalBalanceUsd] = useState("0");
+  const [totalPortfolioUsd, setTotalPortfolioUsd] = useState("0");
+  const [change1dUsd, setChange1dUsd] = useState("0");
+  const [change1dPct, setChange1dPct] = useState("0");
   const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
 
@@ -95,6 +98,9 @@ const Home: NextPage = () => {
     if (!address) {
       setPortfolio([]);
       setTotalBalanceUsd("0");
+      setTotalPortfolioUsd("0");
+      setChange1dUsd("0");
+      setChange1dPct("0");
       return;
     }
 
@@ -109,6 +115,9 @@ const Home: NextPage = () => {
         }
         setPortfolio(data.assets || []);
         setTotalBalanceUsd(data.totalBalanceUsd || "0");
+        setTotalPortfolioUsd(data.totalPortfolioUsd || "0");
+        setChange1dUsd(data.change1dUsd || "0");
+        setChange1dPct(data.change1dPct || "0");
       } catch (e) {
         console.error("Failed to fetch portfolio:", e);
       } finally {
@@ -198,7 +207,6 @@ const Home: NextPage = () => {
     setError("");
 
     try {
-      // Execute first transaction (multi-tx support is a future step)
       const tx = intentResult.transactions[0];
       const hash = await writeAndOpen(() =>
         sendTransactionAsync({
@@ -214,6 +222,14 @@ const Home: NextPage = () => {
       setIsExecuting(false);
     }
   };
+
+  // Computed: grand total = wallet + defi
+  const walletTotal = parseFloat(totalBalanceUsd) || 0;
+  const defiTotal = parseFloat(totalPortfolioUsd) || 0;
+  const grandTotal = walletTotal + defiTotal;
+  const changeUsd = parseFloat(change1dUsd) || 0;
+  const changePct = parseFloat(change1dPct) || 0;
+  const isChangeNegative = changeUsd < 0;
 
   const displayedAssets = showAllAssets ? portfolio : portfolio.slice(0, MAX_DISPLAY_ASSETS);
   const hiddenCount = portfolio.length - MAX_DISPLAY_ASSETS;
@@ -237,104 +253,142 @@ const Home: NextPage = () => {
             <div className="flex flex-col lg:flex-row gap-4">
               {/* LEFT SIDEBAR: Portfolio */}
               <div className="w-full lg:w-72 shrink-0 space-y-4">
-                {/* Connected address */}
-                <div className="flex justify-center lg:justify-start">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-base-content/60">Connected:</span>
-                    <Address address={address} />
-                  </div>
-                </div>
-
-                {/* Portfolio */}
-                <div className="bg-base-200 rounded-xl p-4">
-                  <div className="flex justify-between items-center mb-3">
-                    <span className="text-sm font-semibold text-base-content/60">Portfolio</span>
+                <div className="bg-base-200 rounded-xl p-4 space-y-4">
+                  {/* Total + daily change header */}
+                  <div>
                     {isLoadingPortfolio ? (
-                      <span className="loading loading-spinner loading-xs"></span>
+                      <div className="flex items-center gap-2">
+                        <span className="loading loading-spinner loading-sm"></span>
+                        <span className="text-sm text-base-content/50">Loading...</span>
+                      </div>
                     ) : (
-                      <span className="text-lg font-bold">{formatUsdValue(totalBalanceUsd)}</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-2xl font-bold">{formatUsdValue(grandTotal)}</span>
+                        {changeUsd !== 0 && (
+                          <span className={`text-sm font-medium ${isChangeNegative ? "text-error" : "text-success"}`}>
+                            {isChangeNegative ? "▼" : "▲"} $
+                            {Math.abs(changeUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })} (
+                            {isChangeNegative ? "" : "+"}
+                            {changePct.toFixed(1)}%)
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
 
-                  {isLoadingPortfolio ? (
-                    <div className="text-center py-4 text-base-content/50">Loading assets...</div>
-                  ) : portfolio.length === 0 ? (
-                    <div className="text-center py-4 text-base-content/50">No assets found</div>
-                  ) : (
-                    <div className="space-y-1">
-                      {displayedAssets.map((asset, i) => (
-                        <div
-                          key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
-                          className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
-                        >
-                          <div className="flex items-center gap-3">
-                            {/* Token icon with chain badge overlay */}
-                            <div className="relative w-8 h-8 shrink-0">
-                              {asset.thumbnail ? (
-                                <img
-                                  src={asset.thumbnail}
-                                  alt={asset.tokenSymbol}
-                                  className="w-8 h-8 rounded-full"
-                                  onError={e => {
-                                    (e.target as HTMLImageElement).src = "";
-                                    (e.target as HTMLImageElement).style.display = "none";
-                                    const parent = (e.target as HTMLImageElement).parentElement;
-                                    if (parent) {
-                                      const fallback = document.createElement("div");
-                                      fallback.className =
-                                        "w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold absolute inset-0";
-                                      fallback.textContent = asset.tokenSymbol.slice(0, 2);
-                                      parent.appendChild(fallback);
-                                    }
-                                  }}
-                                />
-                              ) : (
-                                <div className="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
-                                  {asset.tokenSymbol.slice(0, 2)}
-                                </div>
-                              )}
-                              {CHAIN_ICONS[asset.blockchain] && (
-                                <img
-                                  src={CHAIN_ICONS[asset.blockchain]}
-                                  alt={asset.blockchain}
-                                  className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-base-200"
-                                />
-                              )}
-                            </div>
-                            <div>
-                              <div className="font-medium text-sm">{asset.tokenSymbol}</div>
-                              <div className="text-xs text-base-content/50">{formatBalance(asset.balance)}</div>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-sm font-medium">{formatUsdValue(asset.balanceUsd)}</div>
-                          </div>
-                        </div>
-                      ))}
-
-                      {!showAllAssets && hiddenCount > 0 && (
-                        <button
-                          className="w-full text-center text-sm text-primary hover:underline py-2"
-                          onClick={() => setShowAllAssets(true)}
-                        >
-                          and {hiddenCount} more...
-                        </button>
-                      )}
-                      {showAllAssets && hiddenCount > 0 && (
-                        <button
-                          className="w-full text-center text-sm text-primary hover:underline py-2"
-                          onClick={() => setShowAllAssets(false)}
-                        >
-                          Show less
-                        </button>
-                      )}
+                  {/* WALLET section */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs font-semibold tracking-wider text-base-content/50 uppercase">
+                        Wallet
+                      </span>
+                      <span className="text-sm font-semibold text-base-content/70">{formatUsdValue(walletTotal)}</span>
                     </div>
-                  )}
+
+                    {isLoadingPortfolio ? (
+                      <div className="text-center py-4 text-base-content/50">Loading assets...</div>
+                    ) : portfolio.length === 0 ? (
+                      <div className="text-center py-4 text-base-content/50">No assets found</div>
+                    ) : (
+                      <div className="space-y-1">
+                        {displayedAssets.map((asset, i) => (
+                          <div
+                            key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
+                            className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="relative w-8 h-8 shrink-0">
+                                {asset.thumbnail ? (
+                                  <img
+                                    src={asset.thumbnail}
+                                    alt={asset.tokenSymbol}
+                                    className="w-8 h-8 rounded-full"
+                                    onError={e => {
+                                      (e.target as HTMLImageElement).src = "";
+                                      (e.target as HTMLImageElement).style.display = "none";
+                                      const parent = (e.target as HTMLImageElement).parentElement;
+                                      if (parent) {
+                                        const fallback = document.createElement("div");
+                                        fallback.className =
+                                          "w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold absolute inset-0";
+                                        fallback.textContent = asset.tokenSymbol.slice(0, 2);
+                                        parent.appendChild(fallback);
+                                      }
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
+                                    {asset.tokenSymbol.slice(0, 2)}
+                                  </div>
+                                )}
+                                {CHAIN_ICONS[asset.blockchain] && (
+                                  <img
+                                    src={CHAIN_ICONS[asset.blockchain]}
+                                    alt={asset.blockchain}
+                                    className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-base-200"
+                                  />
+                                )}
+                              </div>
+                              <div>
+                                <div className="font-medium text-sm">{asset.tokenSymbol}</div>
+                                <div className="text-xs text-base-content/50">{formatBalance(asset.balance)}</div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm font-medium">{formatUsdValue(asset.balanceUsd)}</div>
+                            </div>
+                          </div>
+                        ))}
+
+                        {!showAllAssets && hiddenCount > 0 && (
+                          <button
+                            className="w-full text-center text-sm text-primary hover:underline py-2"
+                            onClick={() => setShowAllAssets(true)}
+                          >
+                            and {hiddenCount} more...
+                          </button>
+                        )}
+                        {showAllAssets && hiddenCount > 0 && (
+                          <button
+                            className="w-full text-center text-sm text-primary hover:underline py-2"
+                            onClick={() => setShowAllAssets(false)}
+                          >
+                            Show less
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Divider */}
+                  <div className="border-t border-base-300" />
+
+                  {/* PORTFOLIO (DeFi) section */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs font-semibold tracking-wider text-base-content/50 uppercase">
+                        Portfolio
+                      </span>
+                      <span className="text-sm font-semibold text-base-content/70">{formatUsdValue(defiTotal)}</span>
+                    </div>
+                    {defiTotal < 1 ? (
+                      <div className="text-sm text-base-content/40 py-2">No DeFi positions</div>
+                    ) : (
+                      <div className="text-sm text-base-content/60 py-2">DeFi positions loaded</div>
+                    )}
+                  </div>
                 </div>
               </div>
 
               {/* CENTER: Chat + Intent */}
               <div className="flex-1 min-w-0 space-y-4">
+                {/* Connected address indicator */}
+                <div className="flex justify-center">
+                  <div className="text-sm text-base-content/60">
+                    <Address address={address} />
+                  </div>
+                </div>
+
                 {/* Chat input */}
                 <div className="space-y-3">
                   <input
@@ -372,7 +426,6 @@ const Home: NextPage = () => {
                 {/* Intent result */}
                 {intentResult && intentResult.transactions && (
                   <div className="space-y-4">
-                    {/* AI message */}
                     {intentResult.aiMessage && (
                       <div className="bg-base-200 rounded-xl p-4 text-sm">
                         <div className="text-base-content/60 text-xs mb-1">AI</div>
@@ -380,7 +433,6 @@ const Home: NextPage = () => {
                       </div>
                     )}
 
-                    {/* Effects panel */}
                     {intentResult.effects && (
                       <div className="bg-base-200 rounded-xl p-4 space-y-2 text-sm">
                         <div className="flex justify-between items-center">
@@ -395,12 +447,10 @@ const Home: NextPage = () => {
                       </div>
                     )}
 
-                    {/* Description */}
                     {intentResult.description && (
                       <div className="text-center text-sm text-base-content/60">{intentResult.description}</div>
                     )}
 
-                    {/* Execute button */}
                     {!txHash && (
                       <button className="btn btn-success w-full text-lg" onClick={handleExecute} disabled={isExecuting}>
                         {isExecuting ? (
@@ -414,7 +464,6 @@ const Home: NextPage = () => {
                       </button>
                     )}
 
-                    {/* Tx result */}
                     {txHash && (
                       <div className="alert alert-info">
                         {isTxConfirming && (
