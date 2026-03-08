@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import AddressChip from "./AddressChip";
+import AssetChip from "./AssetChip";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 
 interface SimulationChange {
   direction: "in" | "out";
   symbol: string;
   amount: string;
+  chain?: string;
 }
 
 interface TransactionData {
@@ -32,9 +35,27 @@ const EXPLORER_URLS: Record<number, string> = {
   42161: "https://arbiscan.io/tx/",
   10: "https://optimistic.etherscan.io/tx/",
   137: "https://polygonscan.com/tx/",
+  100: "https://gnosisscan.io/tx/",
+  324: "https://explorer.zksync.io/tx/",
+  534352: "https://scrollscan.com/tx/",
+  59144: "https://lineascan.build/tx/",
+  5000: "https://explorer.mantle.xyz/tx/",
 };
 
-const TransactionCard = ({ tx }: TransactionCardProps) => {
+const CHAIN_NAMES: Record<number, string> = {
+  1: "ethereum",
+  8453: "base",
+  42161: "arbitrum",
+  10: "optimism",
+  137: "polygon",
+  100: "xdai",
+  324: "zksync-era",
+  534352: "scroll",
+  59144: "linea",
+  5000: "mantle",
+};
+
+const TransactionCard = ({ tx, address }: TransactionCardProps) => {
   const [showModal, setShowModal] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
@@ -44,6 +65,7 @@ const TransactionCard = ({ tx }: TransactionCardProps) => {
   const { isLoading: isTxConfirming, isSuccess: isTxConfirmed } = useWaitForTransactionReceipt({ hash: txHash });
 
   const explorerBase = EXPLORER_URLS[tx.chainId] || "https://etherscan.io/tx/";
+  const chainName = CHAIN_NAMES[tx.chainId];
 
   // Mobile deep-link to wallet
   const openWallet = useCallback(() => {
@@ -98,22 +120,18 @@ const TransactionCard = ({ tx }: TransactionCardProps) => {
       <div className="mt-3 bg-base-300/50 rounded-xl p-3 space-y-2">
         {/* Simulation preview */}
         {tx.simulation && tx.simulation.changes.length > 0 && (
-          <div className="space-y-1 text-sm">
+          <div className="space-y-2 text-sm">
             {outChanges.map((c, i) => (
-              <div key={`out-${i}`} className="flex justify-between">
-                <span className="text-base-content/60">Send</span>
-                <span className="font-semibold text-error">
-                  − {c.amount} {c.symbol}
-                </span>
+              <div key={`out-${i}`} className="flex justify-between items-center">
+                <span className="text-base-content/60 text-xs">You send</span>
+                <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
               </div>
             ))}
             {outChanges.length > 0 && inChanges.length > 0 && <div className="border-t border-base-content/10" />}
             {inChanges.map((c, i) => (
-              <div key={`in-${i}`} className="flex justify-between">
-                <span className="text-base-content/60">Receive</span>
-                <span className="font-semibold text-success">
-                  + {c.amount} {c.symbol}
-                </span>
+              <div key={`in-${i}`} className="flex justify-between items-center">
+                <span className="text-base-content/60 text-xs">You receive</span>
+                <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
               </div>
             ))}
           </div>
@@ -160,43 +178,43 @@ const TransactionCard = ({ tx }: TransactionCardProps) => {
 
             {/* Full simulation details */}
             {tx.simulation && tx.simulation.changes.length > 0 && (
-              <div className="bg-base-200 rounded-xl p-4 space-y-2 mb-4">
+              <div className="bg-base-200 rounded-xl p-4 space-y-3 mb-4">
                 {outChanges.map((c, i) => (
                   <div key={`modal-out-${i}`} className="flex justify-between items-center">
-                    <span className="text-base-content/60">You send</span>
-                    <span className="font-bold text-error">
-                      − {c.amount} {c.symbol}
-                    </span>
+                    <span className="text-base-content/60 text-sm">You send</span>
+                    <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
                   </div>
                 ))}
                 {outChanges.length > 0 && inChanges.length > 0 && <div className="border-t border-base-300" />}
                 {inChanges.map((c, i) => (
                   <div key={`modal-in-${i}`} className="flex justify-between items-center">
-                    <span className="text-base-content/60">You receive</span>
-                    <span className="font-bold text-success">
-                      + {c.amount} {c.symbol}
-                    </span>
+                    <span className="text-base-content/60 text-sm">You receive</span>
+                    <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
                   </div>
                 ))}
                 {tx.simulation.verified && (
-                  <div className="text-xs text-success/70 text-center mt-1">✓ Simulation verified</div>
+                  <div className="text-xs text-success/70 text-center mt-1">✓ Simulation verified on-chain</div>
                 )}
               </div>
             )}
 
             {/* Tx details */}
-            <div className="space-y-1 text-sm text-base-content/60 mb-4">
-              <div className="flex justify-between">
-                <span>To</span>
-                <span className="font-mono text-xs">
-                  {tx.to.slice(0, 6)}...{tx.to.slice(-4)}
-                </span>
+            <div className="bg-base-200 rounded-xl p-4 space-y-3 text-sm mb-4">
+              <div className="flex justify-between items-center">
+                <span className="text-base-content/60">From</span>
+                <AddressChip address={address} />
               </div>
-              <div className="flex justify-between">
-                <span>Chain ID</span>
-                <span>{tx.chainId}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-base-content/60">To</span>
+                <AddressChip address={tx.to} />
               </div>
-              {tx.description && <p className="mt-2 text-base-content/80">{tx.description}</p>}
+              <div className="flex justify-between items-center">
+                <span className="text-base-content/60">Network</span>
+                <AssetChip symbol={chainName || `Chain ${tx.chainId}`} chain={chainName} />
+              </div>
+              {tx.description && (
+                <p className="text-base-content/60 text-xs border-t border-base-300 pt-2">{tx.description}</p>
+              )}
             </div>
 
             {execError && (
