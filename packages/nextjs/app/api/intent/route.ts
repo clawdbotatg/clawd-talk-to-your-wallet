@@ -323,6 +323,16 @@ const intentTools = {
           arbitrum: `https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
           optimism: `https://opt-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
           polygon: `https://polygon-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
+          // Public RPCs for chains not on Alchemy
+          xdai: "https://rpc.gnosischain.com",
+          gnosis: "https://rpc.gnosischain.com",
+          monad: "https://testnet-rpc.monad.xyz",
+          "binance-smart-chain": "https://bsc-dataseed.binance.org",
+          zksync: "https://mainnet.era.zksync.io",
+          "zksync-era": "https://mainnet.era.zksync.io",
+          scroll: "https://rpc.scroll.io",
+          linea: "https://rpc.linea.build",
+          mantle: "https://rpc.mantle.xyz",
         };
         const rpcUrl = rpcUrls[chain];
         if (!rpcUrl) return { error: `Chain ${chain} not supported for direct lookup` };
