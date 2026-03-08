@@ -7,24 +7,37 @@ interface AddressChipProps {
   ens?: string;
 }
 
-// Deterministic blockie — 5x5 grid, mirrored, from address bytes
-function Blockie({ address }: { address: string }) {
-  const hex = address.toLowerCase().replace("0x", "").padEnd(40, "0");
+// Convert any string to a stable sequence of bytes for blockie generation
+function toBytes(input: string): number[] {
+  const isHex = /^0x[a-fA-F0-9]{40}$/.test(input);
+  if (isHex) {
+    const hex = input.toLowerCase().replace("0x", "");
+    return Array.from({ length: 20 }, (_, i) => parseInt(hex.slice(i * 2, i * 2 + 2), 16));
+  }
+  // ENS name or other string — use char codes
+  const bytes: number[] = [];
+  for (let i = 0; i < input.length; i++) bytes.push(input.charCodeAt(i) & 0xff);
+  // Pad/repeat to at least 20 bytes
+  while (bytes.length < 20) bytes.push(...bytes);
+  return bytes;
+}
 
-  // Use first 25 bytes for the 5x5 grid (mirrored left/right)
+// Deterministic blockie — 5x5 grid, mirrored, works for addresses AND ENS names
+function Blockie({ address }: { address: string }) {
+  const bytes = toBytes(address);
+
+  // Use first 15 bytes for the 5x5 grid (3 cols × 5 rows, mirrored)
   const cells: boolean[] = [];
   for (let row = 0; row < 5; row++) {
-    // Only need 3 cols (0,1,2) — mirror to get 3,4
     for (let col = 0; col < 3; col++) {
-      const idx = row * 3 + col;
-      const byte = parseInt(hex[idx * 2] || "0", 16);
-      cells.push(byte > 7); // threshold at half
+      const byte = bytes[row * 3 + col] ?? 0;
+      cells.push(byte > 127);
     }
   }
 
-  // Color from address
-  const r = parseInt(hex.slice(0, 2), 16);
-  const g = parseInt(hex.slice(2, 4), 16);
+  // Color from first two bytes
+  const r = bytes[0] ?? 0;
+  const g = bytes[1] ?? 0;
   const hue = Math.round((r / 255) * 360);
   const sat = 50 + Math.round((g / 255) * 20);
   const color = `hsl(${hue}, ${sat}%, 52%)`;
