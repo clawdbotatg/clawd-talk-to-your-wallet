@@ -32,19 +32,23 @@ interface IntentResult {
   error?: string;
 }
 
-const CHAIN_BADGES: Record<string, string> = {
-  eth: "🔷",
-  bsc: "🟡",
-  polygon: "🟣",
-  arbitrum: "🔵",
-  optimism: "🔴",
-  base: "🔵",
-  avalanche: "🔺",
-  fantom: "👻",
-  gnosis: "🦉",
-  linea: "➰",
-  scroll: "📜",
-  zksync: "⚡",
+const CHAIN_ICONS: Record<string, string> = {
+  ethereum: "https://icons.llamao.fi/icons/chains/rsz_ethereum.jpg",
+  base: "https://icons.llamao.fi/icons/chains/rsz_base.jpg",
+  arbitrum: "https://icons.llamao.fi/icons/chains/rsz_arbitrum.jpg",
+  optimism: "https://icons.llamao.fi/icons/chains/rsz_optimism.jpg",
+  polygon: "https://icons.llamao.fi/icons/chains/rsz_polygon.jpg",
+  bsc: "https://icons.llamao.fi/icons/chains/rsz_binance.jpg",
+  avalanche: "https://icons.llamao.fi/icons/chains/rsz_avalanche.jpg",
+  gnosis: "https://icons.llamao.fi/icons/chains/rsz_xdai.jpg",
+  xdai: "https://icons.llamao.fi/icons/chains/rsz_xdai.jpg",
+  linea: "https://icons.llamao.fi/icons/chains/rsz_linea.jpg",
+  scroll: "https://icons.llamao.fi/icons/chains/rsz_scroll.jpg",
+  zksync: "https://icons.llamao.fi/icons/chains/rsz_zksync%20era.jpg",
+  fantom: "https://icons.llamao.fi/icons/chains/rsz_fantom.jpg",
+  monad: "https://icons.llamao.fi/icons/chains/rsz_monad.jpg",
+  abstract: "https://icons.llamao.fi/icons/chains/rsz_abstract.jpg",
+  celo: "https://icons.llamao.fi/icons/chains/rsz_celo.jpg",
 };
 
 const formatUsdValue = (value: string | number): string => {
@@ -260,27 +264,41 @@ const Home: NextPage = () => {
                       className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        {asset.thumbnail ? (
-                          <img
-                            src={asset.thumbnail}
-                            alt={asset.tokenSymbol}
-                            className="w-8 h-8 rounded-full"
-                            onError={e => {
-                              (e.target as HTMLImageElement).style.display = "none";
-                            }}
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
-                            {asset.tokenSymbol.slice(0, 2)}
-                          </div>
-                        )}
+                        {/* Token icon with chain badge overlay */}
+                        <div className="relative w-8 h-8 shrink-0">
+                          {asset.thumbnail ? (
+                            <img
+                              src={asset.thumbnail}
+                              alt={asset.tokenSymbol}
+                              className="w-8 h-8 rounded-full"
+                              onError={e => {
+                                (e.target as HTMLImageElement).src = "";
+                                (e.target as HTMLImageElement).style.display = "none";
+                                const parent = (e.target as HTMLImageElement).parentElement;
+                                if (parent) {
+                                  const fallback = document.createElement("div");
+                                  fallback.className =
+                                    "w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold absolute inset-0";
+                                  fallback.textContent = asset.tokenSymbol.slice(0, 2);
+                                  parent.appendChild(fallback);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
+                              {asset.tokenSymbol.slice(0, 2)}
+                            </div>
+                          )}
+                          {CHAIN_ICONS[asset.blockchain] && (
+                            <img
+                              src={CHAIN_ICONS[asset.blockchain]}
+                              alt={asset.blockchain}
+                              className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-base-200"
+                            />
+                          )}
+                        </div>
                         <div>
-                          <div className="font-medium text-sm">
-                            {asset.tokenSymbol}
-                            <span className="ml-1 text-xs opacity-50">
-                              {CHAIN_BADGES[asset.blockchain] || "⬡"} {asset.blockchain}
-                            </span>
-                          </div>
+                          <div className="font-medium text-sm">{asset.tokenSymbol}</div>
                           <div className="text-xs text-base-content/50">{formatBalance(asset.balance)}</div>
                         </div>
                       </div>
