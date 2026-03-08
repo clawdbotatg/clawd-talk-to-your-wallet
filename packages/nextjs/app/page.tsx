@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Address } from "@scaffold-ui/components";
 import type { NextPage } from "next";
 import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
@@ -339,13 +338,6 @@ const Home: NextPage = () => {
 
               {/* CENTER: Chat */}
               <div className="flex-1 min-w-0 flex flex-col">
-                {/* Connected address indicator */}
-                <div className="flex justify-center mb-2">
-                  <div className="text-sm text-base-content/60">
-                    <Address address={address} />
-                  </div>
-                </div>
-
                 {/* Chat messages — scrollable */}
                 <div className="flex-1 overflow-y-auto space-y-4 pb-4" ref={chatScrollRef}>
                   {messages.length === 0 && (
