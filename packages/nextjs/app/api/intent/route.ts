@@ -548,21 +548,26 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (lastTx && lastSim?.success) {
+    if (lastTx) {
+      // Build effects from simulation changes
+      interface SimChange {
+        direction: string;
+        amount: string;
+        symbol: string;
+      }
+      const simChanges = (lastSim?.changes || []) as SimChange[];
+      const outChange = simChanges.find(c => c.direction === "out");
+      const inChange = simChanges.find(c => c.direction === "in");
+      const effects = {
+        send: outChange ? `${outChange.amount} ${outChange.symbol}` : "",
+        receive: inChange ? `${inChange.amount} ${inChange.symbol}` : "",
+      };
+
       return NextResponse.json({
         transactions: [lastTx],
         description: result.text || "Transaction ready",
-        simulation: { verified: true, changes: lastSim.changes },
-        aiMessage: result.text,
-      });
-    }
-
-    if (lastTx && !lastSim) {
-      // Transaction built but no simulation — should not happen per system prompt, but handle gracefully
-      return NextResponse.json({
-        transactions: [lastTx],
-        description: result.text || "Transaction ready (unverified)",
-        simulation: { verified: false, changes: [] },
+        effects,
+        simulation: { verified: !!lastSim?.success, changes: lastSim?.changes || [] },
         aiMessage: result.text,
       });
     }

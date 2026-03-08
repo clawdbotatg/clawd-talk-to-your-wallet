@@ -14,15 +14,6 @@ function alchemyUrl(chainId: number): string {
   return urls[chainId] || urls[1];
 }
 
-function formatAmount(raw: string, decimals: number): string {
-  const val = BigInt(raw);
-  const divisor = BigInt(10 ** decimals);
-  const whole = val / divisor;
-  const frac = val % divisor;
-  const fracStr = frac.toString().padStart(decimals, "0").slice(0, 4).replace(/0+$/, "");
-  return fracStr ? `${whole}.${fracStr}` : whole.toString();
-}
-
 export async function POST(req: NextRequest) {
   try {
     const { calldata, address, chainId = 1 } = await req.json();
@@ -73,22 +64,15 @@ export async function POST(req: NextRequest) {
     const result = data.result;
     const changes: { type: string; symbol: string; amount: string; logo: string; direction: "in" | "out" }[] = [];
 
+    const userAddr = address.toLowerCase();
     for (const change of result.changes || []) {
-      const direction = change.changeType === "RECEIVE" ? "in" : "out";
-      let amount = "?";
-
-      if (change.rawAmount && change.decimals != null) {
-        try {
-          amount = formatAmount(change.rawAmount, change.decimals);
-        } catch {
-          amount = change.amount || "?";
-        }
-      } else {
-        amount = change.amount || "?";
-      }
+      // Direction relative to the user: if `to` is the user → incoming, otherwise outgoing
+      const toAddr = (change.to || "").toLowerCase();
+      const direction: "in" | "out" = toAddr === userAddr ? "in" : "out";
+      const amount = change.amount || "?";
 
       changes.push({
-        type: change.assetType, // "NATIVE" | "ERC20" | "ERC721" | "ERC1155"
+        type: change.assetType,
         symbol: change.symbol || change.name || "???",
         amount,
         logo: change.logo || "",
@@ -106,11 +90,11 @@ export async function POST(req: NextRequest) {
 
     let explanation = "";
     if (outChanges.length && inChanges.length) {
-      explanation = `${outChanges.map(c => `-${c.amount} ${c.symbol}`).join(", ")} → ${inChanges.map(c => `+${c.amount} ${c.symbol}`).join(", ")}`;
+      explanation = `${outChanges.map(c => `${c.amount} ${c.symbol}`).join(" + ")} → ${inChanges.map(c => `${c.amount} ${c.symbol}`).join(" + ")}`;
     } else if (outChanges.length) {
-      explanation = outChanges.map(c => `Send ${c.amount} ${c.symbol}`).join(", ");
+      explanation = `Send ${outChanges.map(c => `${c.amount} ${c.symbol}`).join(", ")}`;
     } else if (inChanges.length) {
-      explanation = inChanges.map(c => `Receive ${c.amount} ${c.symbol}`).join(", ");
+      explanation = `Receive ${inChanges.map(c => `${c.amount} ${c.symbol}`).join(", ")}`;
     } else {
       explanation = "No asset changes detected";
     }
