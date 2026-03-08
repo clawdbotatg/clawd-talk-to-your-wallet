@@ -52,9 +52,9 @@ export async function GET(req: NextRequest) {
 
     const positions: ZerionPosition[] = data.data || [];
 
-    // Filter: only displayable, non-zero value
+    // Filter: only displayable, meaningful value (>$1 to cut dust)
     const assets = positions
-      .filter(p => p.attributes.flags.displayable && (p.attributes.value || 0) > 0.01)
+      .filter(p => p.attributes.flags.displayable && (p.attributes.value || 0) > 1)
       .map(p => {
         const chain = p.relationships.chain.data.id;
         const info = p.attributes.fungible_info;
