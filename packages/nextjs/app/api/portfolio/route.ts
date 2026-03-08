@@ -19,17 +19,17 @@ export async function GET(req: NextRequest) {
       accept: "application/json",
     };
 
-    // Fetch wallet positions AND portfolio summary in parallel
-    const [positionsRes, portfolioRes] = await Promise.all([
-      fetch(
-        `https://api.zerion.io/v1/wallets/${walletAddress}/positions/?filter[position_types]=wallet&currency=usd&sort=-value&page[size]=100`,
-        { headers, next: { revalidate: 120 } },
-      ),
-      fetch(`https://api.zerion.io/v1/wallets/${walletAddress}/portfolio?currency=usd`, {
-        headers,
-        next: { revalidate: 120 },
-      }),
-    ]);
+    // Fetch sequentially to avoid hitting the 1 req/sec rate limit
+    const positionsRes = await fetch(
+      `https://api.zerion.io/v1/wallets/${walletAddress}/positions/?filter[position_types]=wallet&currency=usd&sort=-value&page[size]=100`,
+      { headers, next: { revalidate: 120 } },
+    );
+    // Small delay to stay under 1 req/sec
+    await new Promise(r => setTimeout(r, 1100));
+    const portfolioRes = await fetch(`https://api.zerion.io/v1/wallets/${walletAddress}/portfolio?currency=usd`, {
+      headers,
+      next: { revalidate: 120 },
+    });
 
     if (!positionsRes.ok) {
       const err = await positionsRes.text();
