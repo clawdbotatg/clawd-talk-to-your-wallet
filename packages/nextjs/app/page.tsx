@@ -418,31 +418,26 @@ const Home: NextPage = () => {
                   </div>
                 </div>
 
-                {/* Chat input */}
-                <div className="space-y-3">
-                  <input
-                    type="text"
-                    placeholder='Try: "swap 0.1 ETH to USDC" or "bridge 100 USDC to Base"'
-                    className="input input-bordered w-full text-lg"
-                    value={message}
-                    onChange={e => setMessage(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && !isProcessing && handleSubmit()}
-                    disabled={isProcessing}
-                  />
-                  <button
-                    className="btn btn-primary w-full"
-                    onClick={handleSubmit}
-                    disabled={isProcessing || !message.trim()}
-                  >
-                    {isProcessing ? (
-                      <>
-                        <span className="loading loading-spinner loading-sm"></span>
-                        Building transaction...
-                      </>
-                    ) : (
-                      "Submit"
-                    )}
-                  </button>
+                {/* Chat input — pinned to bottom */}
+                <div className="sticky bottom-4 mt-auto">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Swap, bridge, send — just say what you want"
+                      className="input input-bordered flex-1 text-base"
+                      value={message}
+                      onChange={e => setMessage(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && !isProcessing && handleSubmit()}
+                      disabled={isProcessing}
+                    />
+                    <button
+                      className="btn btn-primary px-6"
+                      onClick={handleSubmit}
+                      disabled={isProcessing || !message.trim()}
+                    >
+                      {isProcessing ? <span className="loading loading-spinner loading-sm"></span> : "→"}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Error */}
