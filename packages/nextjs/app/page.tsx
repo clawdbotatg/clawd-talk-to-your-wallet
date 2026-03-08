@@ -124,10 +124,11 @@ const Home: NextPage = () => {
     const fetchPortfolio = async () => {
       setIsLoadingPortfolio(true);
       try {
-        const res = await fetch(`/api/portfolio?address=${address}`);
+        const res = await fetch(`/api/portfolio?address=${address}&t=${Date.now()}`);
         const data = await res.json();
         if (data.error) {
           console.error("Portfolio error:", data.error);
+          setError(`Portfolio failed: ${data.error}`);
           return;
         }
         setPortfolio(data.assets || []);
