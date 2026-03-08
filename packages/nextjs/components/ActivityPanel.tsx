@@ -123,8 +123,10 @@ export default function ActivityPanel({ address }: ActivityPanelProps) {
 
     fetchActivity();
 
+    const interval = setInterval(fetchActivity, 60_000);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [address]);
 
