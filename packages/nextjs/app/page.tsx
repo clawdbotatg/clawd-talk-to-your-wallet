@@ -97,7 +97,19 @@ const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  // Chat persistence — load from localStorage keyed by address
+  const STORAGE_KEY = address ? `clawd-chat-${address.toLowerCase()}` : null;
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const key = `clawd-chat-${address?.toLowerCase() || "anon"}`;
+      const saved = localStorage.getItem(key);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Portfolio state
   const [portfolio, setPortfolio] = useState<PortfolioAsset[]>([]);
@@ -113,6 +125,36 @@ const Home: NextPage = () => {
 
   // Chat scroll ref
   const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  // Persist messages to localStorage whenever they change
+  useEffect(() => {
+    if (!STORAGE_KEY || messages.length === 0) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+    } catch {
+      // quota exceeded — trim oldest messages
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-20)));
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [messages, STORAGE_KEY]);
+
+  // Load saved messages when address changes
+  useEffect(() => {
+    if (!address) {
+      setMessages([]);
+      return;
+    }
+    try {
+      const key = `clawd-chat-${address.toLowerCase()}`;
+      const saved = localStorage.getItem(key);
+      setMessages(saved ? JSON.parse(saved) : []);
+    } catch {
+      setMessages([]);
+    }
+  }, [address]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -369,6 +411,20 @@ const Home: NextPage = () => {
 
               {/* CENTER: Chat */}
               <div className="flex-1 min-w-0 flex flex-col">
+                {/* Chat header with clear button */}
+                {messages.length > 0 && (
+                  <div className="flex justify-end pb-2">
+                    <button
+                      className="btn btn-ghost btn-xs text-base-content/40 hover:text-error"
+                      onClick={() => {
+                        setMessages([]);
+                        if (STORAGE_KEY) localStorage.removeItem(STORAGE_KEY);
+                      }}
+                    >
+                      Clear chat
+                    </button>
+                  </div>
+                )}
                 {/* Chat messages — scrollable */}
                 <div className="flex-1 overflow-y-auto space-y-4 pb-4" ref={chatScrollRef}>
                   {messages.length === 0 && (

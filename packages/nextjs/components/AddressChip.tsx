@@ -7,11 +7,52 @@ interface AddressChipProps {
   ens?: string;
 }
 
+// Deterministic blockie — 5x5 grid, mirrored, from address bytes
+function Blockie({ address }: { address: string }) {
+  const hex = address.toLowerCase().replace("0x", "").padEnd(40, "0");
+
+  // Use first 25 bytes for the 5x5 grid (mirrored left/right)
+  const cells: boolean[] = [];
+  for (let row = 0; row < 5; row++) {
+    // Only need 3 cols (0,1,2) — mirror to get 3,4
+    for (let col = 0; col < 3; col++) {
+      const idx = row * 3 + col;
+      const byte = parseInt(hex[idx * 2] || "0", 16);
+      cells.push(byte > 7); // threshold at half
+    }
+  }
+
+  // Color from address
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const hue = Math.round((r / 255) * 360);
+  const sat = 50 + Math.round((g / 255) * 20);
+  const color = `hsl(${hue}, ${sat}%, 52%)`;
+  const bg = `hsl(${hue}, ${sat}%, 92%)`;
+
+  return (
+    <span
+      className="inline-grid flex-shrink-0 rounded-sm overflow-hidden"
+      style={{ display: "inline-grid", gridTemplateColumns: "repeat(5, 1fr)", width: 16, height: 16, background: bg }}
+    >
+      {Array.from({ length: 5 }).map((_, row) =>
+        Array.from({ length: 5 }).map((_, col) => {
+          const mirrorCol = col < 3 ? col : 4 - col;
+          const on = cells[row * 3 + mirrorCol];
+          return <span key={`${row}-${col}`} style={{ display: "block", background: on ? color : "transparent" }} />;
+        }),
+      )}
+    </span>
+  );
+}
+
 export default function AddressChip({ address, ens }: AddressChipProps) {
   const [copied, setCopied] = useState(false);
 
   const short = `${address.slice(0, 6)}…${address.slice(-4)}`;
   const display = ens || short;
+
+  // Pick explorer based on address (default etherscan — user can navigate from there)
   const explorerUrl = `https://etherscan.io/address/${address}`;
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -22,12 +63,8 @@ export default function AddressChip({ address, ens }: AddressChipProps) {
   };
 
   return (
-    <span className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 rounded-full bg-base-300 border border-base-content/10 text-xs font-mono align-middle whitespace-nowrap">
-      {/* Blockies-style colored dot */}
-      <span
-        className="inline-block w-3 h-3 rounded-full flex-shrink-0"
-        style={{ backgroundColor: addressToColor(address) }}
-      />
+    <span className="inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 rounded-full bg-base-300 border border-base-content/10 text-xs font-mono align-middle whitespace-nowrap">
+      <Blockie address={address} />
       <a
         href={explorerUrl}
         target="_blank"
@@ -39,8 +76,8 @@ export default function AddressChip({ address, ens }: AddressChipProps) {
       </a>
       <button
         onClick={handleCopy}
-        className="text-base-content/40 hover:text-base-content transition-colors"
-        title="Copy address"
+        className="text-base-content/40 hover:text-base-content transition-colors ml-0.5"
+        title={copied ? "Copied!" : "Copy address"}
       >
         {copied ? (
           <svg className="w-3 h-3 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -59,15 +96,4 @@ export default function AddressChip({ address, ens }: AddressChipProps) {
       </button>
     </span>
   );
-}
-
-// Deterministic color from address — consistent across renders
-function addressToColor(address: string): string {
-  const hex = address.toLowerCase().replace("0x", "");
-  const r = parseInt(hex.slice(0, 2), 16);
-  // Use just r for hue, g for saturation tweak
-  const g = parseInt(hex.slice(2, 4), 16);
-  const hue = Math.round((r / 255) * 360);
-  const sat = 50 + Math.round((g / 255) * 20);
-  return `hsl(${hue}, ${sat}%, 55%)`;
 }

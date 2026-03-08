@@ -3,20 +3,17 @@
 import React from "react";
 import AddressChip from "./AddressChip";
 import AssetChip from "./AssetChip";
+import NetworkChip from "./NetworkChip";
 
 interface ChatMessageRendererProps {
   content: string;
   portfolio?: { tokenSymbol: string; thumbnail?: string }[];
 }
 
-// Matches 0x + 40 hex chars (Ethereum addresses)
 const ADDRESS_RE = /\b(0x[a-fA-F0-9]{40})\b/g;
-
-// Matches ENS names like austingriffith.eth, clawd.atg.eth
 const ENS_RE = /\b([a-zA-Z0-9][a-zA-Z0-9-]*(?:\.[a-zA-Z0-9-]+)*\.eth)\b/g;
 
-// Chain names we recognize (case-insensitive)
-const CHAIN_NAMES = [
+const CHAIN_NAMES_LIST = [
   "ethereum",
   "base",
   "arbitrum",
@@ -36,7 +33,6 @@ const CHAIN_NAMES = [
   "binance",
 ];
 
-// Normalize chain name to canonical key used by AssetChip/CHAIN_ICONS
 const CHAIN_NORMALIZE: Record<string, string> = {
   ethereum: "ethereum",
   base: "base",
@@ -57,21 +53,22 @@ const CHAIN_NORMALIZE: Record<string, string> = {
   binance: "binance-smart-chain",
 };
 
-const CHAIN_PATTERN = CHAIN_NAMES.join("|");
+const CHAIN_PAT = CHAIN_NAMES_LIST.join("|");
 
-// "179.08 USDC on Base" or "179 USDC on Base"
+// "179.08 USDC on Base"
 const ASSET_CHAIN_RE = new RegExp(
-  `\\b(\\d+(?:[.,]\\d+)?(?:e-?\\d+)?)\\s+([A-Z]{2,10})\\s+on\\s+(${CHAIN_PATTERN})\\b`,
+  `\\b(\\d+(?:[.,]\\d+)?(?:e-?\\d+)?)\\s+([A-Z]{2,10})\\s+on\\s+(${CHAIN_PAT})\\b`,
   "gi",
 );
-
-// "USDC on Base" (no amount)
-const SYMBOL_CHAIN_RE = new RegExp(`\\b([A-Z]{2,10})\\s+on\\s+(${CHAIN_PATTERN})\\b`, "gi");
-
-// "179.08 USDC" (amount + symbol, no chain)
+// "USDC on Base"
+const SYMBOL_CHAIN_RE = new RegExp(`\\b([A-Z]{2,10})\\s+on\\s+(${CHAIN_PAT})\\b`, "gi");
+// "179.08 USDC"
 const ASSET_AMOUNT_RE = /\b(\d+(?:[.,]\d+)?(?:e-?\d+)?)\s+([A-Z]{2,10})\b/g;
+// "on Base" standalone (after asset already consumed, or before it)
+const ON_CHAIN_RE = new RegExp(`\\bon\\s+(${CHAIN_PAT})\\b`, "gi");
+// Bare chain name at word boundary (only when clearly a network ref)
+const BARE_CHAIN_RE = new RegExp(`\\b(${CHAIN_PAT})\\s+(?:chain|network|mainnet)\\b`, "gi");
 
-// Known tokens — prevents false positives for bare symbol matches
 const KNOWN_SYMBOLS = new Set([
   "ETH",
   "WETH",
@@ -117,7 +114,6 @@ const KNOWN_SYMBOLS = new Set([
 ]);
 
 export default function ChatMessageRenderer({ content, portfolio }: ChatMessageRendererProps) {
-  // Build a symbol→thumbnail map from portfolio
   const thumbnailMap: Record<string, string> = {};
   if (portfolio) {
     for (const asset of portfolio) {
@@ -135,6 +131,7 @@ export default function ChatMessageRenderer({ content, portfolio }: ChatMessageR
         if (seg.type === "text") return <React.Fragment key={i}>{seg.value}</React.Fragment>;
         if (seg.type === "address") return <AddressChip key={i} address={seg.value} />;
         if (seg.type === "ens") return <AddressChip key={i} address={seg.value} ens={seg.value} />;
+        if (seg.type === "network") return <NetworkChip key={i} chain={seg.chain!} />;
         if (seg.type === "asset")
           return (
             <AssetChip
@@ -155,24 +152,19 @@ type Segment =
   | { type: "text"; value: string }
   | { type: "address"; value: string }
   | { type: "ens"; value: string }
+  | { type: "network"; value: string; chain: string }
   | { type: "asset"; value: string; symbol: string; amount?: string; chain?: string };
 
 function parseContent(text: string, thumbnailMap: Record<string, string>): Segment[] {
-  // We do a single pass with a combined regex.
-  // Priority order (most specific first):
-  // 1. 0x addresses
-  // 2. ENS names
-  // 3. "179 USDC on Base" (amount + symbol + chain)
-  // 4. "USDC on Base" (symbol + chain, no amount)
-  // 5. "179 USDC" (amount + symbol)
-
   const combined = new RegExp(
     [
-      `(${ADDRESS_RE.source})`, // group 1: address
-      `(${ENS_RE.source})`, // group 3: ENS
-      ASSET_CHAIN_RE.source, // groups 5,6,7: amount+symbol+chain
-      SYMBOL_CHAIN_RE.source, // groups 8,9: symbol+chain
-      `(${ASSET_AMOUNT_RE.source})`, // groups 10,11,12: amount+symbol
+      `(${ADDRESS_RE.source})`, // 1: address
+      `(${ENS_RE.source})`, // 3: ens
+      ASSET_CHAIN_RE.source, // 5,6,7: amount+symbol+chain
+      SYMBOL_CHAIN_RE.source, // 8,9: symbol+chain
+      `(${ASSET_AMOUNT_RE.source})`, // 10,11,12: amount+symbol
+      ON_CHAIN_RE.source, // 13: "on Base"
+      BARE_CHAIN_RE.source, // 14: "Base chain"
     ].join("|"),
     "gi",
   );
@@ -184,43 +176,50 @@ function parseContent(text: string, thumbnailMap: Record<string, string>): Segme
     const full = match[0];
     const start = match.index!;
 
-    // Push text before match
-    if (start > lastIndex) {
-      segments.push({ type: "text", value: text.slice(lastIndex, start) });
-    }
+    if (start > lastIndex) segments.push({ type: "text", value: text.slice(lastIndex, start) });
 
-    const [, addr, , ens, , amtChain, symChain, chainChain, symOnly, chainOnly, , amt, sym] = match;
+    const [, addr, , ens, , amtChain, symChain, chainChain, symOnly, chainOnly, , amt, sym, onChain, bareChain] = match;
 
     if (addr) {
       segments.push({ type: "address", value: addr });
     } else if (ens) {
       segments.push({ type: "ens", value: ens });
     } else if (amtChain && symChain && chainChain) {
-      // "179 USDC on Base"
       const symbol = symChain.toUpperCase();
       const chain = CHAIN_NORMALIZE[chainChain.toLowerCase()] || chainChain.toLowerCase();
       if (KNOWN_SYMBOLS.has(symbol) || thumbnailMap[symbol]) {
         segments.push({ type: "asset", value: full, symbol, amount: amtChain, chain });
       } else {
-        segments.push({ type: "text", value: full });
+        // still render the chain part as NetworkChip
+        segments.push({ type: "text", value: `${amtChain} ${symChain} on ` });
+        segments.push({ type: "network", value: chainChain, chain });
       }
     } else if (symOnly && chainOnly) {
-      // "USDC on Base"
       const symbol = symOnly.toUpperCase();
       const chain = CHAIN_NORMALIZE[chainOnly.toLowerCase()] || chainOnly.toLowerCase();
       if (KNOWN_SYMBOLS.has(symbol) || thumbnailMap[symbol]) {
         segments.push({ type: "asset", value: full, symbol, chain });
       } else {
-        segments.push({ type: "text", value: full });
+        segments.push({ type: "text", value: `${symOnly} on ` });
+        segments.push({ type: "network", value: chainOnly, chain });
       }
     } else if (amt && sym) {
-      // "179 USDC"
       const symbol = sym.toUpperCase();
       if (KNOWN_SYMBOLS.has(symbol) || thumbnailMap[symbol]) {
         segments.push({ type: "asset", value: full, symbol, amount: amt });
       } else {
         segments.push({ type: "text", value: full });
       }
+    } else if (onChain) {
+      // "on Base" — render "on " as text + NetworkChip
+      const chain = CHAIN_NORMALIZE[onChain.toLowerCase()] || onChain.toLowerCase();
+      segments.push({ type: "text", value: "on " });
+      segments.push({ type: "network", value: onChain, chain });
+    } else if (bareChain) {
+      // "Base chain" — render chain name + " chain" as NetworkChip + text
+      const chain = CHAIN_NORMALIZE[bareChain.toLowerCase()] || bareChain.toLowerCase();
+      segments.push({ type: "network", value: bareChain, chain });
+      segments.push({ type: "text", value: full.slice(bareChain.length) }); // " chain" suffix
     } else {
       segments.push({ type: "text", value: full });
     }
@@ -228,9 +227,7 @@ function parseContent(text: string, thumbnailMap: Record<string, string>): Segme
     lastIndex = start + full.length;
   }
 
-  if (lastIndex < text.length) {
-    segments.push({ type: "text", value: text.slice(lastIndex) });
-  }
+  if (lastIndex < text.length) segments.push({ type: "text", value: text.slice(lastIndex) });
 
   return segments;
 }

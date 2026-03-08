@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import AddressChip from "./AddressChip";
 import AssetChip from "./AssetChip";
+import NetworkChip from "./NetworkChip";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 
 interface SimulationChange {
@@ -210,7 +211,11 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-base-content/60">Network</span>
-                <AssetChip symbol={chainName || `Chain ${tx.chainId}`} chain={chainName} />
+                {chainName ? (
+                  <NetworkChip chain={chainName} />
+                ) : (
+                  <span className="text-xs font-mono">Chain {tx.chainId}</span>
+                )}
               </div>
               {tx.description && (
                 <p className="text-base-content/60 text-xs border-t border-base-300 pt-2">{tx.description}</p>
