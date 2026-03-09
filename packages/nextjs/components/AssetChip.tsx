@@ -5,7 +5,6 @@ interface AssetChipProps {
   amount?: string;
   thumbnail?: string;
   chain?: string;
-  usdValue?: number;
 }
 
 // Known token thumbnails from Zerion CDN
@@ -50,13 +49,7 @@ const CHAIN_ICONS: Record<string, string> = {
   "binance-smart-chain": "https://icons.llamao.fi/icons/chains/rsz_binance.jpg",
 };
 
-function formatUsd(value: number): string {
-  if (value >= 1000) return `$${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-  if (value >= 1) return `$${value.toFixed(2)}`;
-  return `$${value.toFixed(4)}`;
-}
-
-export default function AssetChip({ symbol, amount, thumbnail, chain, usdValue }: AssetChipProps) {
+export default function AssetChip({ symbol, amount, thumbnail, chain }: AssetChipProps) {
   const iconUrl = thumbnail || TOKEN_ICONS[symbol.toUpperCase()] || null;
   const chainIconUrl = chain ? CHAIN_ICONS[chain.toLowerCase()] : null;
 
@@ -95,9 +88,6 @@ export default function AssetChip({ symbol, amount, thumbnail, chain, usdValue }
         {amount && <span className="font-mono mr-0.5">{amount}</span>}
         {symbol}
       </span>
-      {usdValue !== undefined && usdValue > 0 && (
-        <span className="text-base-content/50 font-normal">{formatUsd(usdValue)}</span>
-      )}
     </span>
   );
 }

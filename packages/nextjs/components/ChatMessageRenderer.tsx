@@ -121,19 +121,11 @@ const KNOWN_SYMBOLS = new Set([
 
 export default function ChatMessageRenderer({ content, portfolio }: ChatMessageRendererProps) {
   const thumbnailMap: Record<string, string> = {};
-  // Build a map of symbol+chain → USD value per token for portfolio lookup
-  const usdValueMap: Record<string, number> = {};
   if (portfolio) {
     for (const asset of portfolio) {
       if (asset.thumbnail && !thumbnailMap[asset.tokenSymbol]) {
         thumbnailMap[asset.tokenSymbol] = asset.thumbnail;
       }
-      // Key by "SYMBOL:chain" and plain "SYMBOL" (first seen wins)
-      const sym = asset.tokenSymbol.toUpperCase();
-      const chainKey = asset.blockchain ? `${sym}:${asset.blockchain.toLowerCase()}` : null;
-      const usd = parseFloat(String(asset.balanceUsd ?? 0));
-      if (chainKey && !(chainKey in usdValueMap)) usdValueMap[chainKey] = usd;
-      if (!(sym in usdValueMap)) usdValueMap[sym] = usd;
     }
   }
 
@@ -147,9 +139,6 @@ export default function ChatMessageRenderer({ content, portfolio }: ChatMessageR
         if (seg.type === "ens") return <AddressChip key={i} address={seg.value} ens={seg.value} />;
         if (seg.type === "network") return <NetworkChip key={i} chain={seg.chain!} />;
         if (seg.type === "asset") {
-          const sym = seg.symbol!.toUpperCase();
-          const chainKey = seg.chain ? `${sym}:${seg.chain.toLowerCase()}` : null;
-          const usdValue = chainKey && chainKey in usdValueMap ? usdValueMap[chainKey] : usdValueMap[sym];
           return (
             <AssetChip
               key={i}
@@ -157,7 +146,6 @@ export default function ChatMessageRenderer({ content, portfolio }: ChatMessageR
               amount={seg.amount}
               chain={seg.chain}
               thumbnail={thumbnailMap[seg.symbol!]}
-              usdValue={usdValue}
             />
           );
         }
