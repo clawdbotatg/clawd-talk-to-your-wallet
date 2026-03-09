@@ -661,7 +661,11 @@ Always call this before saying you can't find something. It uses server-side tok
     execute: async ({ fromChain, toChain, fromToken, toToken, fromAmount, fromAddress }) => {
       const url = `https://li.quest/v1/quote?fromChain=${fromChain}&toChain=${toChain}&fromToken=${fromToken}&toToken=${toToken}&fromAmount=${fromAmount}&fromAddress=${fromAddress}&slippage=0.005`;
       try {
-        const res = await fetch(url);
+        const res = await fetch(url, {
+          headers: {
+            "x-lifi-api-key": process.env.LIFI_API_KEY || "",
+          },
+        });
         if (!res.ok) {
           const errText = await res.text();
           return { error: `LI.FI API error (${res.status}): ${errText}` };
