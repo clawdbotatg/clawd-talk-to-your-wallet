@@ -5,7 +5,6 @@ import type { NextPage } from "next";
 import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
 import ChatMessageRenderer from "~~/components/ChatMessageRenderer";
-import NetworkChip from "~~/components/NetworkChip";
 import TransactionCard from "~~/components/TransactionCard";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 
@@ -359,9 +358,6 @@ const Home: NextPage = () => {
                               </div>
                               <div>
                                 <div className="font-medium text-sm">{asset.tokenSymbol}</div>
-                                <div className="mt-0.5">
-                                  <NetworkChip chain={asset.blockchain} />
-                                </div>
                               </div>
                             </div>
                             <div className="text-right">
