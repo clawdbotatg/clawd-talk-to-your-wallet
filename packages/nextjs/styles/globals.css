@@ -9,34 +9,39 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @plugin "daisyui" {
-  themes:
-    classical;
+  themes: classical;
 }
 
 @plugin "daisyui/theme" {
   name: "classical";
 
-  --color-primary: #C9A84C;
+  --color-primary: #c9a84c;
   --color-primary-content: #0a0a0a;
   --color-secondary: #111111;
-  --color-secondary-content: #E8E4DC;
-  --color-accent: #C9A84C;
+  --color-secondary-content: #e8e4dc;
+  --color-accent: #c9a84c;
   --color-accent-content: #0a0a0a;
-  --color-neutral: #E8E4DC;
+  --color-neutral: #e8e4dc;
   --color-neutral-content: #0a0a0a;
   --color-base-100: #0a0a0a;
   --color-base-200: #111111;
   --color-base-300: #1a1a1a;
-  --color-base-content: #E8E4DC;
-  --color-info: #C9A84C;
-  --color-success: #C9A84C;
-  --color-warning: #C9A84C;
-  --color-error: #9B3D3D;
+  --color-base-content: #e8e4dc;
+  --color-info: #c9a84c;
+  --color-success: #c9a84c;
+  --color-warning: #c9a84c;
+  --color-error: #9b3d3d;
 
   --radius-field: 0;
   --radius-box: 0;
@@ -60,16 +65,19 @@
   body {
     min-height: 100vh;
     background-color: #0a0a0a;
-    color: #E8E4DC;
+    color: #e8e4dc;
     font-family: var(--font-inter), system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
 
-  h1, h2, h3, h4 {
+  h1,
+  h2,
+  h3,
+  h4 {
     margin-bottom: 0.5rem;
     line-height: 1.1;
     font-family: var(--font-cinzel), "Times New Roman", serif;
-    color: #C9A84C;
+    color: #c9a84c;
   }
 }
 
@@ -90,7 +98,7 @@
 
 .link {
   text-underline-offset: 2px;
-  color: #C9A84C;
+  color: #c9a84c;
 }
 
 .link:hover {
@@ -98,21 +106,25 @@
 }
 
 /* Override DaisyUI inputs to classical style */
-input, textarea, select {
+input,
+textarea,
+select {
   border-radius: 0 !important;
   background-color: #111111 !important;
   border-color: rgba(201, 168, 76, 0.15) !important;
-  color: #E8E4DC !important;
+  color: #e8e4dc !important;
 }
 
-input:focus, textarea:focus, select:focus {
+input:focus,
+textarea:focus,
+select:focus {
   border-color: rgba(201, 168, 76, 0.4) !important;
   outline: none !important;
   box-shadow: none !important;
 }
 
 input::placeholder {
-  color: #8A8578 !important;
+  color: #8a8578 !important;
 }
 
 /* Modal overrides */

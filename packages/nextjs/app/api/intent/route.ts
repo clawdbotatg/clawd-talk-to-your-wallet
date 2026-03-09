@@ -8,7 +8,7 @@ import { z } from "zod";
 const ALCHEMY_KEY = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || "8GVG8WjDs-sGFRr6Rm839";
 const WETH_MAINNET = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const WETH_BASE = "0x4200000000000000000000000000000000000006";
-const ETH_PLACEHOLDER = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const ETH_PLACEHOLDER = "0x0000000000000000000000000000000000000000"; // LI.FI native ETH address
 const USDC_MAINNET = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 
 const NETWORK_MAP: Record<number, string> = {
@@ -472,7 +472,10 @@ Always call this before saying you can't find something. It uses server-side tok
 
       try {
         const isNative =
-          !tokenAddress || tokenAddress === "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" || tokenAddress === "";
+          !tokenAddress ||
+          tokenAddress === "0x0000000000000000000000000000000000000000" ||
+          tokenAddress === "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" ||
+          tokenAddress === "";
 
         if (isNative) {
           // eth_getBalance
@@ -611,55 +614,29 @@ Always call this before saying you can't find something. It uses server-side tok
     },
   }),
 
-  buildSwap: tool({
+  buildRoute: tool({
     description:
-      "Build swap calldata via Enso Finance. Works on most EVM chains. After getting calldata, the AI MUST call simulateAssetChanges to verify before returning.",
+      "Build swap, bridge, or DeFi zap calldata via LI.FI. Handles same-chain swaps (fromChainId === toChainId), cross-chain bridges (fromChainId !== toChainId), AND DeFi deposits/staking (set toToken to a vault/staking token address). After getting calldata, the AI MUST call simulateAssetChanges to verify before returning.",
     inputSchema: z.object({
       fromToken: z
         .string()
-        .describe("Input token address (use 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE for native ETH)"),
-      toToken: z.string().describe("Output token address"),
+        .describe(
+          "Input token symbol (e.g. 'ETH', 'USDC') or address. For native ETH use 'ETH' or 0x0000000000000000000000000000000000000000",
+        ),
+      toToken: z
+        .string()
+        .describe(
+          "Output token symbol (e.g. 'USDC', 'ETH') or address. For DeFi zaps, use the vault/staking token contract address",
+        ),
       amountIn: z.string().describe("Amount in wei (raw units, not decimal)"),
-      chainId: z.number().describe("Chain ID (1=mainnet, 8453=Base, etc.)"),
+      fromChainId: z
+        .number()
+        .describe("Source chain ID (1=mainnet, 8453=Base, 42161=Arbitrum, 10=Optimism, 137=Polygon)"),
+      toChainId: z.number().describe("Destination chain ID. Same as fromChainId for same-chain swaps"),
       fromAddress: z.string().describe("The sender/user wallet address"),
     }),
-    execute: async ({ fromToken, toToken, amountIn, chainId, fromAddress }) => {
-      const url = `https://api.enso.finance/api/v1/shortcuts/route?chainId=${chainId}&fromAddress=${fromAddress}&receiver=${fromAddress}&spender=${fromAddress}&amountIn=${amountIn}&tokenIn=${fromToken}&tokenOut=${toToken}&routingStrategy=router`;
-      try {
-        const res = await fetch(url);
-        if (!res.ok) {
-          const errText = await res.text();
-          return { error: `Enso API error (${res.status}): ${errText}` };
-        }
-        const data = await res.json();
-        if (data.tx) {
-          return {
-            to: data.tx.to as string,
-            data: data.tx.data as string,
-            value: (data.tx.value as string) || "0x0",
-            chainId,
-          };
-        }
-        return { error: "No transaction returned from Enso", rawResponse: JSON.stringify(data).slice(0, 500) };
-      } catch (e) {
-        return { error: `Failed to fetch Enso route: ${e instanceof Error ? e.message : String(e)}` };
-      }
-    },
-  }),
-
-  buildBridge: tool({
-    description:
-      "Build bridge calldata via LI.FI for cross-chain transfers. After getting calldata, the AI MUST call simulateAssetChanges to verify before returning.",
-    inputSchema: z.object({
-      fromChain: z.number().describe("Source chain ID"),
-      toChain: z.number().describe("Destination chain ID"),
-      fromToken: z.string().describe("Source token address"),
-      toToken: z.string().describe("Destination token address"),
-      fromAmount: z.string().describe("Amount in wei (raw units)"),
-      fromAddress: z.string().describe("Sender wallet address"),
-    }),
-    execute: async ({ fromChain, toChain, fromToken, toToken, fromAmount, fromAddress }) => {
-      const url = `https://li.quest/v1/quote?fromChain=${fromChain}&toChain=${toChain}&fromToken=${fromToken}&toToken=${toToken}&fromAmount=${fromAmount}&fromAddress=${fromAddress}&slippage=0.005`;
+    execute: async ({ fromToken, toToken, amountIn, fromChainId, toChainId, fromAddress }) => {
+      const url = `https://li.quest/v1/quote?fromChain=${fromChainId}&toChain=${toChainId}&fromToken=${fromToken}&toToken=${toToken}&fromAmount=${amountIn}&fromAddress=${fromAddress}&slippage=0.005`;
       try {
         const res = await fetch(url, {
           headers: {
@@ -676,12 +653,69 @@ Always call this before saying you can't find something. It uses server-side tok
             to: data.transactionRequest.to as string,
             data: data.transactionRequest.data as string,
             value: (data.transactionRequest.value as string) || "0x0",
-            chainId: fromChain,
+            chainId: fromChainId,
+            estimate: data.estimate
+              ? {
+                  fromAmount: data.estimate.fromAmount,
+                  toAmount: data.estimate.toAmount,
+                  toAmountMin: data.estimate.toAmountMin,
+                  approvalAddress: data.estimate.approvalAddress,
+                  gasCosts: data.estimate.gasCosts,
+                }
+              : undefined,
           };
         }
         return { error: "No transactionRequest in LI.FI response", rawResponse: JSON.stringify(data).slice(0, 500) };
       } catch (e) {
         return { error: `Failed to fetch LI.FI quote: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }),
+
+  getRouteStatus: tool({
+    description:
+      "Check the status of a cross-chain LI.FI transfer after the user has submitted the transaction. Returns NOT_FOUND, PENDING, DONE, or FAILED with substatus details.",
+    inputSchema: z.object({
+      txHash: z.string().describe("The transaction hash from the source chain"),
+      fromChain: z.number().describe("Source chain ID"),
+      toChain: z.number().describe("Destination chain ID"),
+    }),
+    execute: async ({ txHash, fromChain, toChain }) => {
+      const url = `https://li.quest/v1/status?txHash=${txHash}&fromChain=${fromChain}&toChain=${toChain}`;
+      try {
+        const res = await fetch(url, {
+          headers: {
+            "x-lifi-api-key": process.env.LIFI_API_KEY || "",
+          },
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          return { error: `LI.FI status API error (${res.status}): ${errText}` };
+        }
+        const data = await res.json();
+        return {
+          status: data.status as string,
+          substatus: data.substatus as string | undefined,
+          substatusMessage: data.substatusMessage as string | undefined,
+          sending: data.sending
+            ? {
+                txHash: data.sending.txHash,
+                amount: data.sending.amount,
+                token: data.sending.token?.symbol,
+                chainId: data.sending.chainId,
+              }
+            : undefined,
+          receiving: data.receiving
+            ? {
+                txHash: data.receiving.txHash,
+                amount: data.receiving.amount,
+                token: data.receiving.token?.symbol,
+                chainId: data.receiving.chainId,
+              }
+            : undefined,
+        };
+      } catch (e) {
+        return { error: `Failed to check route status: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
   }),
@@ -870,22 +904,37 @@ AVAILABLE TOOLS:
 - getTransactionDetails: Look up full tx details by hash — sender, receiver, value. Use when you have a hash and need to answer "who sent this?" or "what address?"
 - getTokenPrice: Get current USD price and 24h change for any token.
 - getWalletActivity: Get recent cross-chain transaction history with full details (use when no specific token/filter needed).
-- buildSwap: Build swap calldata via Enso Finance.
-- buildBridge: Build bridge calldata via LI.FI (cross-chain).
+- buildRoute: Build swap, bridge, or DeFi zap calldata via LI.FI. This single tool handles:
+  • Same-chain swaps: set fromChainId === toChainId (e.g. swap ETH→USDC on mainnet)
+  • Cross-chain bridges: set fromChainId !== toChainId (e.g. bridge USDC from mainnet to Base)
+  • DeFi zaps (Composer): set toToken to a vault/staking token address to auto-compose deposits into Morpho, Aave, Lido, EtherFi, Pendle, etc.
+  Token symbols work directly (e.g. "ETH", "USDC") — no need to resolve addresses first.
+  For native ETH, use symbol "ETH" or address 0x0000000000000000000000000000000000000000.
+- getRouteStatus: Check the status of a cross-chain LI.FI transfer. Use AFTER the user submits a cross-chain tx to track delivery. Returns NOT_FOUND, PENDING, DONE, or FAILED.
 - buildTransfer: Build ETH or ERC-20 transfer calldata.
 - resolveENS: Resolve ENS name to address.
 - getTokenAddress: Look up token contract address by symbol.
-- wrapEth: Wrap ETH to WETH.
-- unwrapWeth: Unwrap WETH to ETH.
+- wrapEth: Wrap ETH to WETH (simpler/cheaper than routing through LI.FI for WETH specifically).
+- unwrapWeth: Unwrap WETH to ETH (simpler/cheaper than routing through LI.FI for WETH specifically).
+
+DEFI ZAPS (Composer):
+When the user says "deposit into Morpho", "stake on Lido", "deposit into Aave", "get yield on USDC", "stake ETH", or similar:
+→ Use buildRoute with toToken set to the vault/staking token contract address.
+LI.FI Composer handles the swap + deposit in a single transaction.
+Supported protocols: Morpho, Aave V3, Lido (wstETH), EtherFi, Pendle, Euler, Ethena, and more.
+You can even do cross-chain zaps (e.g. ETH on mainnet → Morpho vault on Base).
 
 MANDATORY WORKFLOW (for transactions only):
 1. If you need balance info → call getPortfolio first
 2. Resolve any ENS names → call resolveENS
-3. Look up unknown token addresses → call getTokenAddress
-4. Build the transaction calldata (buildSwap / buildBridge / buildTransfer / wrapEth / unwrapWeth)
-5. ALWAYS call simulateAssetChanges on the built calldata before returning
-6. If simulation shows unexpected results → call traceCall to diagnose
-7. Only return the transaction if simulation confirms the expected asset changes
+3. For swaps/bridges: use buildRoute directly with token symbols — no need to resolve addresses
+4. For DeFi zaps: look up the vault/staking token address, then use buildRoute with that as toToken
+5. For simple transfers: use buildTransfer
+6. For WETH wrap/unwrap specifically: use wrapEth / unwrapWeth (cheaper)
+7. ALWAYS call simulateAssetChanges on the built calldata before returning
+8. If simulation shows unexpected results → call traceCall to diagnose
+9. Only return the transaction if simulation confirms the expected asset changes
+10. For cross-chain txs: after the user submits, use getRouteStatus to track delivery
 
 RESPONSE FORMAT:
 
@@ -913,7 +962,7 @@ RULES:
 - Never invent token addresses — always look them up or use hardcoded well-known ones
 - Never return a transaction that failed simulation
 - Amount conversions: always work in wei internally, display in human units
-- For ETH: use address 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE in DEX contexts
+- For ETH in LI.FI: use symbol "ETH" or address 0x0000000000000000000000000000000000000000 (NOT the 0xEeee... placeholder)
 - WETH on mainnet: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 - WETH on Base: 0x4200000000000000000000000000000000000006
 - USDC on mainnet: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 (6 decimals!)
