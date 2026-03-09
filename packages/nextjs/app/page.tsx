@@ -28,6 +28,8 @@ interface PortfolioAsset {
   blockchain: string;
   tokenName: string;
   tokenSymbol: string;
+  positionType?: string;
+  protocol?: string | null;
   balance: string;
   balanceUsd: string;
   tokenDecimals: number;
@@ -107,6 +109,7 @@ const Home: NextPage = () => {
 
   // Portfolio state
   const [portfolio, setPortfolio] = useState<PortfolioAsset[]>([]);
+  const [defiPositions, setDefiPositions] = useState<PortfolioAsset[]>([]);
   const [totalBalanceUsd, setTotalBalanceUsd] = useState("0");
   const [totalPortfolioUsd, setTotalPortfolioUsd] = useState("0");
   const [change1dUsd, setChange1dUsd] = useState("0");
@@ -161,6 +164,7 @@ const Home: NextPage = () => {
   useEffect(() => {
     if (!address) {
       setPortfolio([]);
+      setDefiPositions([]);
       setTotalBalanceUsd("0");
       setTotalPortfolioUsd("0");
       setChange1dUsd("0");
@@ -179,6 +183,7 @@ const Home: NextPage = () => {
           return;
         }
         setPortfolio(data.assets || []);
+        setDefiPositions(data.defiPositions || []);
         setTotalBalanceUsd(data.totalBalanceUsd || "0");
         setTotalPortfolioUsd(data.totalPortfolioUsd || "0");
         setChange1dUsd(data.change1dUsd || "0");
@@ -385,8 +390,8 @@ const Home: NextPage = () => {
                     )}
                   </div>
 
-                  {/* PORTFOLIO (DeFi) section — only shown when Zerion returns DeFi positions */}
-                  {defiTotal >= 1 && (
+                  {/* PORTFOLIO (DeFi) section — staked, deposited, LP positions from Zerion only_complex */}
+                  {defiPositions.length > 0 && (
                     <>
                       <div className="border-t border-base-300" />
                       <div>
@@ -398,7 +403,50 @@ const Home: NextPage = () => {
                             {formatUsdValue(defiTotal)}
                           </span>
                         </div>
-                        <div className="text-sm text-base-content/60 py-1">DeFi positions loaded</div>
+                        <div className="space-y-0">
+                          {defiPositions.map((pos, i) => (
+                            <div
+                              key={`defi-${pos.blockchain}-${pos.contractAddress || pos.tokenSymbol}-${i}`}
+                              className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="relative w-7 h-7 shrink-0">
+                                  {pos.thumbnail ? (
+                                    <img
+                                      src={pos.thumbnail}
+                                      alt={pos.tokenSymbol}
+                                      className="w-7 h-7 rounded-full"
+                                      onError={e => {
+                                        (e.target as HTMLImageElement).style.display = "none";
+                                      }}
+                                    />
+                                  ) : (
+                                    <div className="w-7 h-7 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
+                                      {pos.tokenSymbol.slice(0, 2)}
+                                    </div>
+                                  )}
+                                  {CHAIN_ICONS[pos.blockchain] && (
+                                    <img
+                                      src={CHAIN_ICONS[pos.blockchain]}
+                                      alt={pos.blockchain}
+                                      className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-base-200"
+                                    />
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="font-medium text-xs">{pos.tokenSymbol}</div>
+                                  <div className="text-[10px] text-base-content/40 capitalize">
+                                    {pos.positionType}
+                                    {pos.protocol ? ` · ${pos.protocol}` : ""}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-xs font-medium">{formatUsdValue(pos.balanceUsd)}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </>
                   )}
