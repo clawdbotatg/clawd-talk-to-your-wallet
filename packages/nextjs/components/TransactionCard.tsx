@@ -5,7 +5,7 @@ import AddressChip from "./AddressChip";
 import AssetChip from "./AssetChip";
 import ChatMessageRenderer from "./ChatMessageRenderer";
 import NetworkChip from "./NetworkChip";
-import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
+import { useChainId, useSendTransaction, useSwitchChain, useWaitForTransactionReceipt } from "wagmi";
 
 interface SimulationChange {
   direction: "in" | "out";
@@ -64,6 +64,8 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
   const [execError, setExecError] = useState("");
 
   const { sendTransactionAsync } = useSendTransaction();
+  const { switchChainAsync } = useSwitchChain();
+  const currentChainId = useChainId();
   const { isLoading: isTxConfirming, isSuccess: isTxConfirmed } = useWaitForTransactionReceipt({ hash: txHash });
 
   const explorerBase = EXPLORER_URLS[tx.chainId] || "https://etherscan.io/tx/";
@@ -98,10 +100,22 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
     setExecError("");
 
     try {
+      // Switch chain if wallet is on wrong network
+      if (tx.chainId && currentChainId !== tx.chainId) {
+        try {
+          await switchChainAsync({ chainId: tx.chainId });
+        } catch {
+          setExecError(`Please switch your wallet to ${chainName || `chain ${tx.chainId}`} and try again.`);
+          setIsExecuting(false);
+          return;
+        }
+      }
+
       const promise = sendTransactionAsync({
         to: tx.to as `0x${string}`,
         data: (tx.data && tx.data !== "0x" ? tx.data : undefined) as `0x${string}` | undefined,
         value: BigInt(tx.value || "0"),
+        chainId: tx.chainId,
       });
       setTimeout(openWallet, 2000);
       const hash = await promise;
