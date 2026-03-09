@@ -265,15 +265,15 @@ const Home: NextPage = () => {
   // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex items-center flex-col flex-grow pt-10">
+    <div className="flex items-center flex-col flex-grow pt-2">
       <div className="px-5 w-full max-w-7xl">
         {!isConnected ? (
           <div className="flex flex-col items-center mt-10 gap-4">
             <RainbowKitCustomConnectButton />
           </div>
         ) : (
-          <div className="mt-8">
-            <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 160px)" }}>
+          <div className="mt-2">
+            <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 80px)" }}>
               {/* LEFT SIDEBAR: Portfolio */}
               <div className="w-full lg:w-72 shrink-0 space-y-4 overflow-y-auto">
                 <div className="bg-base-200 rounded-xl p-4 space-y-4">
