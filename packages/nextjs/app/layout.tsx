@@ -6,8 +6,8 @@ import "~~/styles/globals.css";
 import { getMetadata } from "~~/utils/scaffold-eth/getMetadata";
 
 export const metadata = getMetadata({
-  title: "Talk to Your Wallet",
-  description: "Wrap and unwrap WETH using natural language on Ethereum mainnet",
+  title: "DENAR.AI",
+  description: "Talk to your wallet",
 });
 
 const ScaffoldEthApp = ({ children }: { children: React.ReactNode }) => {
