@@ -5,32 +5,38 @@
 @theme {
   --shadow-center: 0 0 0 0 transparent;
   --animate-pulse-fast: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-fade-in: fadeIn 0.6s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @plugin "daisyui" {
   themes:
-    brutalist;
+    classical;
 }
 
 @plugin "daisyui/theme" {
-  name: "brutalist";
+  name: "classical";
 
-  --color-primary: #FF4500;
-  --color-primary-content: #000000;
-  --color-secondary: #0d0d0d;
-  --color-secondary-content: #FFFFFF;
-  --color-accent: #FF4500;
-  --color-accent-content: #000000;
-  --color-neutral: #FFFFFF;
-  --color-neutral-content: #1a1a1a;
-  --color-base-100: #1a1a1a;
-  --color-base-200: #0d0d0d;
-  --color-base-300: #333333;
-  --color-base-content: #FFFFFF;
-  --color-info: #FFFFFF;
-  --color-success: #00FF41;
-  --color-warning: #FF4500;
-  --color-error: #FF4500;
+  --color-primary: #C9A84C;
+  --color-primary-content: #0a0a0a;
+  --color-secondary: #111111;
+  --color-secondary-content: #E8E4DC;
+  --color-accent: #C9A84C;
+  --color-accent-content: #0a0a0a;
+  --color-neutral: #E8E4DC;
+  --color-neutral-content: #0a0a0a;
+  --color-base-100: #0a0a0a;
+  --color-base-200: #111111;
+  --color-base-300: #1a1a1a;
+  --color-base-content: #E8E4DC;
+  --color-info: #C9A84C;
+  --color-success: #C9A84C;
+  --color-warning: #C9A84C;
+  --color-error: #9B3D3D;
 
   --radius-field: 0;
   --radius-box: 0;
@@ -44,7 +50,7 @@
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: #FFFFFF;
+    border-color: rgba(201, 168, 76, 0.15);
   }
 
   p {
@@ -53,33 +59,29 @@
 
   body {
     min-height: 100vh;
-    background-color: #1a1a1a;
-    color: #FFFFFF;
-    font-family: var(--font-ibm-plex-sans), system-ui, sans-serif;
+    background-color: #0a0a0a;
+    color: #E8E4DC;
+    font-family: var(--font-inter), system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
-    text-transform: uppercase;
   }
 
   h1, h2, h3, h4 {
     margin-bottom: 0.5rem;
-    line-height: 1;
-    font-family: var(--font-space-grotesk), system-ui, sans-serif;
-    font-weight: 700;
-    text-transform: uppercase;
+    line-height: 1.1;
+    font-family: var(--font-cinzel), "Times New Roman", serif;
+    color: #C9A84C;
   }
 }
 
 :root,
 [data-theme] {
-  background: #1a1a1a;
+  background: #0a0a0a;
 }
 
-/* Kill all shadows */
+/* Kill all shadows, rounded corners */
 .btn {
   @apply shadow-none;
   border-radius: 0 !important;
-  text-transform: uppercase;
-  font-weight: 700;
 }
 
 .btn.btn-ghost {
@@ -88,45 +90,42 @@
 
 .link {
   text-underline-offset: 2px;
-  color: #FFFFFF;
+  color: #C9A84C;
 }
 
 .link:hover {
-  color: #FF4500;
+  opacity: 80%;
 }
 
-/* Override DaisyUI inputs to brutalist style */
+/* Override DaisyUI inputs to classical style */
 input, textarea, select {
   border-radius: 0 !important;
-  background-color: #0d0d0d !important;
-  border: 2px solid #FFFFFF !important;
-  color: #FFFFFF !important;
-  text-transform: uppercase !important;
+  background-color: #111111 !important;
+  border-color: rgba(201, 168, 76, 0.15) !important;
+  color: #E8E4DC !important;
 }
 
 input:focus, textarea:focus, select:focus {
-  border-color: #FF4500 !important;
+  border-color: rgba(201, 168, 76, 0.4) !important;
   outline: none !important;
   box-shadow: none !important;
 }
 
 input::placeholder {
-  color: #666666 !important;
-  text-transform: uppercase !important;
+  color: #8A8578 !important;
 }
 
 /* Modal overrides */
 .modal-box {
   border-radius: 0 !important;
-  background-color: #0d0d0d !important;
-  border: 2px solid #FFFFFF !important;
+  background-color: #111111 !important;
+  border: 1px solid rgba(201, 168, 76, 0.15) !important;
   box-shadow: none !important;
 }
 
 /* Badge overrides */
 .badge {
   border-radius: 0 !important;
-  text-transform: uppercase;
 }
 
 /* Alert overrides */
@@ -136,17 +135,17 @@ input::placeholder {
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #1a1a1a;
+  background: #0a0a0a;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #666666;
+  background: rgba(201, 168, 76, 0.2);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #FF4500;
+  background: rgba(201, 168, 76, 0.4);
 }

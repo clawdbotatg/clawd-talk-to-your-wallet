@@ -233,7 +233,7 @@ const Home: NextPage = () => {
         ...prev,
         {
           role: "assistant",
-          content: "SOMETHING WENT WRONG. TRY AGAIN.",
+          content: "Sorry, something went wrong. Please try again.",
           timestamp: Date.now(),
         },
       ]);
@@ -257,263 +257,262 @@ const Home: NextPage = () => {
   // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex items-center flex-col flex-grow pt-2" style={{ backgroundColor: "#1a1a1a" }}>
+    <div className="flex items-center flex-col flex-grow pt-2" style={{ backgroundColor: "#0a0a0a" }}>
       <div className="px-5 w-full max-w-7xl">
         {!isConnected ? (
           <div className="flex flex-col items-center mt-20 gap-6">
             <h1
-              className="font-[family-name:var(--font-space-grotesk)] text-7xl sm:text-9xl font-bold uppercase leading-[0.85] tracking-tight text-center"
-              style={{ color: "#FFFFFF" }}
+              className="font-[family-name:var(--font-cinzel)] text-4xl sm:text-5xl font-semibold tracking-[0.35em] text-center"
+              style={{ color: "#C9A84C" }}
             >
-              DENARAI
+              D E N A R A I
             </h1>
-            <div className="h-1" style={{ backgroundColor: "#FF4500", width: "120px" }} />
-            <p
-              className="font-[family-name:var(--font-space-grotesk)] text-sm uppercase tracking-[0.2em] font-bold"
-              style={{ color: "#FF4500" }}
-            >
-              YOUR MONEY. DEFENDED.
+            <p className="text-sm tracking-[0.2em] italic" style={{ color: "#8A8578" }}>
+              The ancient art of guarding wealth
             </p>
+            <div className="h-px w-48" style={{ backgroundColor: "rgba(201, 168, 76, 0.15)" }} />
             <RainbowKitCustomConnectButton />
           </div>
         ) : (
           <div className="mt-2">
             <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 80px)" }}>
               {/* LEFT SIDEBAR: Portfolio */}
-              <div className="w-full lg:w-72 shrink-0 space-y-0 overflow-y-auto">
-                {/* Total portfolio block */}
-                <div className="p-6 border-2" style={{ backgroundColor: "#0d0d0d", borderColor: "#FFFFFF" }}>
-                  <p
-                    className="font-[family-name:var(--font-ibm-plex-mono)] text-xs uppercase tracking-[0.15em] mb-4"
-                    style={{ color: "#666666" }}
-                  >
-                    TOTAL PORTFOLIO VALUE
-                  </p>
-                  {isLoadingPortfolio ? (
-                    <div className="flex items-center gap-2">
-                      <span className="loading loading-spinner loading-sm"></span>
-                      <span
-                        className="font-[family-name:var(--font-ibm-plex-mono)] text-sm uppercase"
-                        style={{ color: "#666666" }}
-                      >
-                        LOADING...
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex items-end gap-4">
-                      <span className="font-[family-name:var(--font-ibm-plex-mono)] text-3xl font-bold uppercase">
-                        {formatUsdValue(grandTotal)}
-                      </span>
-                      {changeUsd !== 0 && (
-                        <span
-                          className="font-[family-name:var(--font-ibm-plex-mono)] text-lg font-bold uppercase mb-0.5"
-                          style={{ color: isChangeNegative ? "#FF4500" : "#00FF41" }}
-                        >
-                          {isChangeNegative ? "" : "+"}
-                          {changePct.toFixed(1)}%
+              <div className="w-full lg:w-72 shrink-0 space-y-4 overflow-y-auto">
+                <div
+                  className="p-4 space-y-4"
+                  style={{
+                    backgroundColor: "#111111",
+                    border: "1px solid rgba(201, 168, 76, 0.15)",
+                  }}
+                >
+                  {/* Total + daily change header */}
+                  <div>
+                    {isLoadingPortfolio ? (
+                      <div className="flex items-center gap-2">
+                        <span className="loading loading-spinner loading-sm" style={{ color: "#C9A84C" }}></span>
+                        <span className="text-sm" style={{ color: "#8A8578" }}>
+                          Loading...
                         </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Wallet assets */}
-                <div className="border-2 -mt-0.5" style={{ backgroundColor: "#0d0d0d", borderColor: "#FFFFFF" }}>
-                  <div
-                    className="flex items-center justify-between px-6 py-3"
-                    style={{ borderBottom: "2px solid #FFFFFF" }}
-                  >
-                    <span
-                      className="font-[family-name:var(--font-space-grotesk)] text-sm uppercase font-bold tracking-wider"
-                      style={{ color: "#E8E8E8" }}
-                    >
-                      WALLET
-                    </span>
-                    <span className="font-[family-name:var(--font-ibm-plex-mono)] text-sm font-bold uppercase">
-                      {formatUsdValue(walletTotal)}
-                    </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className="font-[family-name:var(--font-jetbrains)] text-2xl font-light"
+                          style={{ color: "#E8E4DC" }}
+                        >
+                          {formatUsdValue(grandTotal)}
+                        </span>
+                        {changeUsd !== 0 && (
+                          <span
+                            className="font-[family-name:var(--font-jetbrains)] text-sm"
+                            style={{ color: isChangeNegative ? "#9B3D3D" : "#C9A84C" }}
+                          >
+                            {isChangeNegative ? "" : "+"}
+                            {changePct.toFixed(1)}%
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
 
-                  {isLoadingPortfolio ? (
-                    <div
-                      className="text-center py-4 font-[family-name:var(--font-ibm-plex-mono)] text-sm uppercase"
-                      style={{ color: "#666666" }}
-                    >
-                      LOADING ASSETS...
-                    </div>
-                  ) : portfolio.length === 0 ? (
-                    <div
-                      className="text-center py-4 font-[family-name:var(--font-ibm-plex-mono)] text-sm uppercase"
-                      style={{ color: "#666666" }}
-                    >
-                      NO ASSETS FOUND
-                    </div>
-                  ) : (
-                    <div>
-                      {displayedAssets.map((asset, i) => (
-                        <div
-                          key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
-                          className="flex items-center justify-between px-6 py-2 transition-colors duration-150 hover:bg-white/5"
-                          style={{
-                            borderBottom: i < displayedAssets.length - 1 ? "1px solid #333333" : "none",
-                          }}
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="relative w-7 h-7 shrink-0">
-                              {asset.thumbnail ? (
-                                <img
-                                  src={asset.thumbnail}
-                                  alt={asset.tokenSymbol}
-                                  className="w-7 h-7 rounded-full"
-                                  onError={e => {
-                                    (e.target as HTMLImageElement).src = "";
-                                    (e.target as HTMLImageElement).style.display = "none";
-                                    const parent = (e.target as HTMLImageElement).parentElement;
-                                    if (parent) {
-                                      const fallback = document.createElement("div");
-                                      fallback.className =
-                                        "w-7 h-7 flex items-center justify-center text-xs font-bold absolute inset-0 uppercase";
-                                      fallback.style.backgroundColor = "#333333";
-                                      fallback.style.color = "#FFFFFF";
-                                      fallback.textContent = asset.tokenSymbol.slice(0, 2);
-                                      parent.appendChild(fallback);
-                                    }
-                                  }}
-                                />
-                              ) : (
-                                <div
-                                  className="w-7 h-7 flex items-center justify-center text-xs font-bold uppercase"
-                                  style={{ backgroundColor: "#333333", color: "#FFFFFF" }}
-                                >
-                                  {asset.tokenSymbol.slice(0, 2)}
-                                </div>
-                              )}
-                              {CHAIN_ICONS[asset.blockchain] && (
-                                <img
-                                  src={CHAIN_ICONS[asset.blockchain]}
-                                  alt={asset.blockchain}
-                                  className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2"
-                                  style={{ borderColor: "#0d0d0d" }}
-                                />
-                              )}
-                            </div>
-                            <div>
-                              <div className="font-[family-name:var(--font-space-grotesk)] text-sm font-bold uppercase">
-                                {asset.tokenSymbol}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className="font-[family-name:var(--font-ibm-plex-mono)] text-sm font-bold uppercase">
-                              {formatUsdValue(asset.balanceUsd)}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-
-                      {!showAllAssets && hiddenCount > 0 && (
-                        <button
-                          className="w-full text-center font-[family-name:var(--font-ibm-plex-mono)] text-sm font-bold uppercase py-2 transition-colors duration-150"
-                          style={{ color: "#FF4500" }}
-                          onMouseEnter={e => (e.currentTarget.style.color = "#FFFFFF")}
-                          onMouseLeave={e => (e.currentTarget.style.color = "#FF4500")}
-                          onClick={() => setShowAllAssets(true)}
-                        >
-                          AND {hiddenCount} MORE...
-                        </button>
-                      )}
-                      {showAllAssets && hiddenCount > 0 && (
-                        <button
-                          className="w-full text-center font-[family-name:var(--font-ibm-plex-mono)] text-sm font-bold uppercase py-2 transition-colors duration-150"
-                          style={{ color: "#FF4500" }}
-                          onMouseEnter={e => (e.currentTarget.style.color = "#FFFFFF")}
-                          onMouseLeave={e => (e.currentTarget.style.color = "#FF4500")}
-                          onClick={() => setShowAllAssets(false)}
-                        >
-                          SHOW LESS
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* PORTFOLIO (DeFi) section */}
-                {defiPositions.length > 0 && (
-                  <div className="border-2 -mt-0.5" style={{ backgroundColor: "#0d0d0d", borderColor: "#FFFFFF" }}>
-                    <div
-                      className="flex items-center justify-between px-6 py-3"
-                      style={{ borderBottom: "2px solid #FFFFFF" }}
-                    >
-                      <span
-                        className="font-[family-name:var(--font-space-grotesk)] text-sm uppercase font-bold tracking-wider"
-                        style={{ color: "#E8E8E8" }}
-                      >
-                        PORTFOLIO
+                  {/* WALLET section */}
+                  <div>
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-xs tracking-[0.2em] uppercase" style={{ color: "#8A8578" }}>
+                        Wallet
                       </span>
-                      <span className="font-[family-name:var(--font-ibm-plex-mono)] text-sm font-bold uppercase">
-                        {formatUsdValue(defiTotal)}
+                      <span className="font-[family-name:var(--font-jetbrains)] text-sm" style={{ color: "#8A8578" }}>
+                        {formatUsdValue(walletTotal)}
                       </span>
                     </div>
-                    <div>
-                      {defiPositions.map((pos, i) => (
-                        <div
-                          key={`defi-${pos.blockchain}-${pos.contractAddress || pos.tokenSymbol}-${i}`}
-                          className="flex items-center justify-between px-6 py-2 transition-colors duration-150 hover:bg-white/5"
-                          style={{
-                            borderBottom: i < defiPositions.length - 1 ? "1px solid #333333" : "none",
-                          }}
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="relative w-7 h-7 shrink-0">
-                              {pos.thumbnail ? (
-                                <img
-                                  src={pos.thumbnail}
-                                  alt={pos.tokenSymbol}
-                                  className="w-7 h-7 rounded-full"
-                                  onError={e => {
-                                    (e.target as HTMLImageElement).style.display = "none";
-                                  }}
-                                />
-                              ) : (
-                                <div
-                                  className="w-7 h-7 flex items-center justify-center text-xs font-bold uppercase"
-                                  style={{ backgroundColor: "#333333", color: "#FFFFFF" }}
-                                >
-                                  {pos.tokenSymbol.slice(0, 2)}
-                                </div>
-                              )}
-                              {CHAIN_ICONS[pos.blockchain] && (
-                                <img
-                                  src={CHAIN_ICONS[pos.blockchain]}
-                                  alt={pos.blockchain}
-                                  className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2"
-                                  style={{ borderColor: "#0d0d0d" }}
-                                />
-                              )}
-                            </div>
-                            <div>
-                              <div className="font-[family-name:var(--font-space-grotesk)] text-xs font-bold uppercase">
-                                {pos.tokenSymbol}
+
+                    {isLoadingPortfolio ? (
+                      <div className="text-center py-4" style={{ color: "#8A8578" }}>
+                        Loading assets...
+                      </div>
+                    ) : portfolio.length === 0 ? (
+                      <div className="text-center py-4" style={{ color: "#8A8578" }}>
+                        No assets found
+                      </div>
+                    ) : (
+                      <div className="space-y-0">
+                        {displayedAssets.map((asset, i) => (
+                          <div
+                            key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
+                            className="flex items-center justify-between py-2 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02]"
+                            style={{
+                              borderBottom: "1px solid rgba(201, 168, 76, 0.06)",
+                            }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="relative w-7 h-7 shrink-0">
+                                {asset.thumbnail ? (
+                                  <img
+                                    src={asset.thumbnail}
+                                    alt={asset.tokenSymbol}
+                                    className="w-7 h-7 rounded-full"
+                                    onError={e => {
+                                      (e.target as HTMLImageElement).src = "";
+                                      (e.target as HTMLImageElement).style.display = "none";
+                                      const parent = (e.target as HTMLImageElement).parentElement;
+                                      if (parent) {
+                                        const fallback = document.createElement("div");
+                                        fallback.className =
+                                          "w-7 h-7 flex items-center justify-center text-xs font-bold absolute inset-0";
+                                        fallback.style.backgroundColor = "#111111";
+                                        fallback.style.border = "1px solid rgba(201, 168, 76, 0.2)";
+                                        fallback.style.color = "#C9A84C";
+                                        fallback.textContent = asset.tokenSymbol.slice(0, 2);
+                                        parent.appendChild(fallback);
+                                      }
+                                    }}
+                                  />
+                                ) : (
+                                  <div
+                                    className="w-7 h-7 flex items-center justify-center text-xs font-[family-name:var(--font-cinzel)] font-semibold"
+                                    style={{
+                                      backgroundColor: "#111111",
+                                      border: "1px solid rgba(201, 168, 76, 0.2)",
+                                      color: "#C9A84C",
+                                    }}
+                                  >
+                                    {asset.tokenSymbol.slice(0, 1)}
+                                  </div>
+                                )}
+                                {CHAIN_ICONS[asset.blockchain] && (
+                                  <img
+                                    src={CHAIN_ICONS[asset.blockchain]}
+                                    alt={asset.blockchain}
+                                    className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2"
+                                    style={{ borderColor: "#111111" }}
+                                  />
+                                )}
                               </div>
+                              <div>
+                                <div className="text-sm" style={{ color: "#E8E4DC" }}>
+                                  {asset.tokenSymbol}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right">
                               <div
-                                className="font-[family-name:var(--font-ibm-plex-mono)] text-[10px] uppercase"
-                                style={{ color: "#666666" }}
+                                className="font-[family-name:var(--font-jetbrains)] text-sm"
+                                style={{ color: "#E8E4DC" }}
                               >
-                                {pos.positionType}
-                                {pos.protocol ? ` · ${pos.protocol}` : ""}
+                                {formatUsdValue(asset.balanceUsd)}
                               </div>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="font-[family-name:var(--font-ibm-plex-mono)] text-xs font-bold uppercase">
-                              {formatUsdValue(pos.balanceUsd)}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+
+                        {!showAllAssets && hiddenCount > 0 && (
+                          <button
+                            className="w-full text-center text-sm py-2 transition-colors"
+                            style={{ color: "#C9A84C" }}
+                            onMouseEnter={e => (e.currentTarget.style.color = "#B8963E")}
+                            onMouseLeave={e => (e.currentTarget.style.color = "#C9A84C")}
+                            onClick={() => setShowAllAssets(true)}
+                          >
+                            and {hiddenCount} more...
+                          </button>
+                        )}
+                        {showAllAssets && hiddenCount > 0 && (
+                          <button
+                            className="w-full text-center text-sm py-2 transition-colors"
+                            style={{ color: "#C9A84C" }}
+                            onMouseEnter={e => (e.currentTarget.style.color = "#B8963E")}
+                            onMouseLeave={e => (e.currentTarget.style.color = "#C9A84C")}
+                            onClick={() => setShowAllAssets(false)}
+                          >
+                            Show less
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
-                )}
+
+                  {/* PORTFOLIO (DeFi) section */}
+                  {defiPositions.length > 0 && (
+                    <>
+                      <div className="h-px" style={{ backgroundColor: "rgba(201, 168, 76, 0.15)" }} />
+                      <div>
+                        <div className="flex justify-between items-center mb-3">
+                          <span className="text-xs tracking-[0.2em] uppercase" style={{ color: "#8A8578" }}>
+                            Portfolio
+                          </span>
+                          <span
+                            className="font-[family-name:var(--font-jetbrains)] text-sm"
+                            style={{ color: "#8A8578" }}
+                          >
+                            {formatUsdValue(defiTotal)}
+                          </span>
+                        </div>
+                        <div className="space-y-0">
+                          {defiPositions.map((pos, i) => (
+                            <div
+                              key={`defi-${pos.blockchain}-${pos.contractAddress || pos.tokenSymbol}-${i}`}
+                              className="flex items-center justify-between py-1.5 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02]"
+                              style={{
+                                borderBottom: "1px solid rgba(201, 168, 76, 0.06)",
+                              }}
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="relative w-7 h-7 shrink-0">
+                                  {pos.thumbnail ? (
+                                    <img
+                                      src={pos.thumbnail}
+                                      alt={pos.tokenSymbol}
+                                      className="w-7 h-7 rounded-full"
+                                      onError={e => {
+                                        (e.target as HTMLImageElement).style.display = "none";
+                                      }}
+                                    />
+                                  ) : (
+                                    <div
+                                      className="w-7 h-7 flex items-center justify-center text-xs font-[family-name:var(--font-cinzel)] font-semibold"
+                                      style={{
+                                        backgroundColor: "#111111",
+                                        border: "1px solid rgba(201, 168, 76, 0.2)",
+                                        color: "#C9A84C",
+                                      }}
+                                    >
+                                      {pos.tokenSymbol.slice(0, 1)}
+                                    </div>
+                                  )}
+                                  {CHAIN_ICONS[pos.blockchain] && (
+                                    <img
+                                      src={CHAIN_ICONS[pos.blockchain]}
+                                      alt={pos.blockchain}
+                                      className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2"
+                                      style={{ borderColor: "#111111" }}
+                                    />
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="text-xs" style={{ color: "#E8E4DC" }}>
+                                    {pos.tokenSymbol}
+                                  </div>
+                                  <div className="text-[10px] capitalize" style={{ color: "#8A8578" }}>
+                                    {pos.positionType}
+                                    {pos.protocol ? ` · ${pos.protocol}` : ""}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div
+                                  className="font-[family-name:var(--font-jetbrains)] text-xs"
+                                  style={{ color: "#E8E4DC" }}
+                                >
+                                  {formatUsdValue(pos.balanceUsd)}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* CENTER: Chat */}
@@ -522,16 +521,16 @@ const Home: NextPage = () => {
                 {messages.length > 0 && (
                   <div className="flex justify-end pb-2">
                     <button
-                      className="btn btn-ghost btn-xs font-bold uppercase transition-colors duration-150"
-                      style={{ color: "#666666" }}
-                      onMouseEnter={e => (e.currentTarget.style.color = "#FF4500")}
-                      onMouseLeave={e => (e.currentTarget.style.color = "#666666")}
+                      className="btn btn-ghost btn-xs transition-colors"
+                      style={{ color: "#8A8578" }}
+                      onMouseEnter={e => (e.currentTarget.style.color = "#9B3D3D")}
+                      onMouseLeave={e => (e.currentTarget.style.color = "#8A8578")}
                       onClick={() => {
                         setMessages([]);
                         if (STORAGE_KEY) localStorage.removeItem(STORAGE_KEY);
                       }}
                     >
-                      CLEAR CHAT
+                      Clear chat
                     </button>
                   </div>
                 )}
@@ -539,44 +538,36 @@ const Home: NextPage = () => {
                 <div className="flex-1 overflow-y-auto space-y-2 pb-4" ref={chatScrollRef}>
                   {messages.length === 0 && (
                     <div className="text-center mt-20">
-                      <p
-                        className="font-[family-name:var(--font-space-grotesk)] text-lg font-bold uppercase"
-                        style={{ color: "#666666" }}
-                      >
-                        ASK ANYTHING ABOUT YOUR WALLET
+                      <p className="text-lg" style={{ color: "#8A8578" }}>
+                        Ask anything about your wallet
                       </p>
-                      <p
-                        className="font-[family-name:var(--font-ibm-plex-mono)] text-sm uppercase mt-2"
-                        style={{ color: "#333333" }}
-                      >
-                        OR SAY &quot;SWAP 0.1 ETH FOR USDC&quot; TO MAKE A MOVE
+                      <p className="text-sm mt-2" style={{ color: "rgba(138, 133, 120, 0.6)" }}>
+                        or say &quot;swap 0.1 ETH for USDC&quot; to make a move
                       </p>
                     </div>
                   )}
                   {messages.map((msg, i) => (
                     <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                       <div
-                        className="max-w-[85%] px-4 py-2 border-2"
+                        className="max-w-[85%] px-3 py-1.5"
                         style={
                           msg.role === "user"
                             ? {
-                                backgroundColor: "#FF4500",
-                                borderColor: "#FF4500",
-                                color: "#000000",
+                                backgroundColor: "rgba(201, 168, 76, 0.15)",
+                                border: "1px solid rgba(201, 168, 76, 0.2)",
+                                color: "#E8E4DC",
                               }
                             : {
-                                backgroundColor: "#0d0d0d",
-                                borderColor: "#FFFFFF",
-                                color: "#FFFFFF",
+                                backgroundColor: "#111111",
+                                border: "1px solid rgba(201, 168, 76, 0.08)",
+                                color: "#E8E4DC",
                               }
                         }
                       >
                         {msg.role === "assistant" ? (
                           <ChatMessageRenderer content={msg.content} portfolio={portfolio} />
                         ) : (
-                          <p className="text-sm whitespace-pre-wrap leading-snug m-0 font-[family-name:var(--font-ibm-plex-mono)] font-bold uppercase">
-                            {msg.content}
-                          </p>
+                          <p className="text-sm whitespace-pre-wrap leading-snug m-0">{msg.content}</p>
                         )}
 
                         {msg.transaction && <TransactionCard tx={msg.transaction} address={address!} />}
@@ -586,26 +577,29 @@ const Home: NextPage = () => {
                   {isProcessing && (
                     <div className="flex justify-start">
                       <div
-                        className="px-4 py-2 border-2"
-                        style={{ backgroundColor: "#0d0d0d", borderColor: "#FFFFFF" }}
+                        className="px-3 py-1.5"
+                        style={{
+                          backgroundColor: "#111111",
+                          border: "1px solid rgba(201, 168, 76, 0.08)",
+                        }}
                       >
-                        <span className="loading loading-dots loading-sm"></span>
+                        <span className="loading loading-dots loading-sm" style={{ color: "#C9A84C" }}></span>
                       </div>
                     </div>
                   )}
                 </div>
 
                 {/* Input — sticky bottom */}
-                <div className="sticky bottom-0 pb-4 pt-2" style={{ backgroundColor: "#1a1a1a" }}>
-                  <div className="flex gap-0">
+                <div className="sticky bottom-0 pb-4 pt-2" style={{ backgroundColor: "#0a0a0a" }}>
+                  <div className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="ASK ABOUT YOUR WALLET, OR SAY WHAT YOU WANT TO DO..."
-                      className="flex-1 text-base px-4 py-2 font-[family-name:var(--font-ibm-plex-mono)] font-bold uppercase border-2"
+                      placeholder="Ask about your wallet, or say what you want to do..."
+                      className="flex-1 text-base px-4 py-2"
                       style={{
-                        backgroundColor: "#0d0d0d",
-                        borderColor: "#FFFFFF",
-                        color: "#FFFFFF",
+                        backgroundColor: "#111111",
+                        border: "1px solid rgba(201, 168, 76, 0.15)",
+                        color: "#E8E4DC",
                         outline: "none",
                       }}
                       value={message}
@@ -614,29 +608,20 @@ const Home: NextPage = () => {
                       disabled={isProcessing}
                     />
                     <button
-                      className="px-6 py-2 border-2 -ml-0.5 font-bold uppercase transition-colors duration-150"
+                      className="px-6 py-2 transition-colors duration-300"
                       style={{
-                        backgroundColor: "#FF4500",
-                        color: "#000000",
-                        borderColor: "#FF4500",
+                        backgroundColor: "#C9A84C",
+                        color: "#0a0a0a",
                       }}
-                      onMouseEnter={e => {
-                        e.currentTarget.style.backgroundColor = "#000000";
-                        e.currentTarget.style.color = "#FF4500";
-                        e.currentTarget.style.borderColor = "#FF4500";
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.backgroundColor = "#FF4500";
-                        e.currentTarget.style.color = "#000000";
-                        e.currentTarget.style.borderColor = "#FF4500";
-                      }}
+                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
+                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
                       onClick={handleSubmit}
                       disabled={isProcessing || !message.trim()}
                     >
                       {isProcessing ? (
                         <span className="loading loading-spinner loading-sm"></span>
                       ) : (
-                        <span className="font-[family-name:var(--font-space-grotesk)] text-lg font-bold">→</span>
+                        <span className="font-[family-name:var(--font-cinzel)] text-sm">→</span>
                       )}
                     </button>
                   </div>

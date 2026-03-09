@@ -17,14 +17,14 @@ interface ActivityItem {
 }
 
 const TYPE_LABELS: Record<string, { label: string; color: string }> = {
-  send: { label: "SENT", color: "#FFFFFF" },
-  receive: { label: "RECEIVED", color: "#00FF41" },
-  trade: { label: "SWAPPED", color: "#FFFFFF" },
-  bridge: { label: "BRIDGED", color: "#FFFFFF" },
-  approve: { label: "APPROVED", color: "#FFFFFF" },
-  deposit: { label: "DEPOSITED", color: "#FFFFFF" },
-  withdraw: { label: "WITHDREW", color: "#FF4500" },
-  mint: { label: "MINTED", color: "#00FF41" },
+  send: { label: "Sent", color: "#8A8578" },
+  receive: { label: "Received", color: "#C9A84C" },
+  trade: { label: "Swapped", color: "#8A8578" },
+  bridge: { label: "Bridged", color: "#8A8578" },
+  approve: { label: "Approved", color: "#8A8578" },
+  deposit: { label: "Deposited", color: "#8A8578" },
+  withdraw: { label: "Withdrew", color: "#9B3D3D" },
+  mint: { label: "Minted", color: "#C9A84C" },
 };
 
 function relativeTime(dateStr: string): string {
@@ -36,12 +36,12 @@ function relativeTime(dateStr: string): string {
   const diffHr = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHr / 24);
 
-  if (diffMin < 1) return "NOW";
-  if (diffMin < 60) return `${diffMin}M AGO`;
-  if (diffHr < 24) return `${diffHr}H AGO`;
-  if (diffDay === 1) return "1D AGO";
-  if (diffDay < 7) return `${diffDay}D AGO`;
-  return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase();
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHr < 24) return `${diffHr}h ago`;
+  if (diffDay === 1) return "yesterday";
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function formatUsdValue(value: number | null): string {
@@ -60,7 +60,7 @@ function TransferChips({ item }: { item: ActivityItem }) {
     return (
       <span className="inline-flex items-center gap-1 flex-wrap">
         <AssetChip symbol={outT.symbol} amount={outT.amount} thumbnail={outT.icon} chain={chain} />
-        <span style={{ color: "#666666" }} className="text-xs">
+        <span style={{ color: "#8A8578" }} className="text-xs">
           →
         </span>
         <AssetChip symbol={inT.symbol} amount={inT.amount} thumbnail={inT.icon} chain={chain} />
@@ -123,27 +123,30 @@ export default function ActivityPanel({ address, initialItems }: ActivityPanelPr
   }, [address, initialItems]);
 
   return (
-    <div className="border-2" style={{ backgroundColor: "#0d0d0d", borderColor: "#FFFFFF" }}>
-      {/* Header */}
-      <div className="flex items-center gap-4 px-6 py-4" style={{ borderBottom: "2px solid #FFFFFF" }}>
+    <div className="p-4" style={{ backgroundColor: "#111111", border: "1px solid rgba(201, 168, 76, 0.15)" }}>
+      <div className="flex justify-between items-center mb-4">
         <span
-          className="font-[family-name:var(--font-space-grotesk)] text-xl uppercase font-bold tracking-wider"
-          style={{ color: "#E8E8E8" }}
+          className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.15em] uppercase"
+          style={{ color: "#C9A84C" }}
         >
-          ACTIVITY LOG
+          Activity
         </span>
-        <div className="flex-1 h-0.5" style={{ backgroundColor: "#666666" }} />
-        {isLoading && items.length > 0 && <span className="loading loading-spinner loading-xs"></span>}
+        {isLoading && items.length > 0 && (
+          <span className="loading loading-spinner loading-xs" style={{ color: "#C9A84C" }}></span>
+        )}
       </div>
 
       {/* Loading skeleton */}
       {isLoading && items.length === 0 && (
-        <div className="p-6 space-y-3">
+        <div className="space-y-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex items-center gap-3 animate-pulse">
-              <div className="w-24 h-3" style={{ backgroundColor: "#333333" }} />
-              <div className="flex-1 h-3" style={{ backgroundColor: "#333333" }} />
-              <div className="w-12 h-3" style={{ backgroundColor: "#333333" }} />
+              <div className="w-8 h-8 shrink-0" style={{ backgroundColor: "#1a1a1a" }} />
+              <div className="flex-1 space-y-1">
+                <div className="h-3 w-3/4" style={{ backgroundColor: "#1a1a1a" }} />
+                <div className="h-2 w-1/2" style={{ backgroundColor: "#1a1a1a" }} />
+              </div>
+              <div className="h-3 w-12" style={{ backgroundColor: "#1a1a1a" }} />
             </div>
           ))}
         </div>
@@ -151,70 +154,60 @@ export default function ActivityPanel({ address, initialItems }: ActivityPanelPr
 
       {/* Error */}
       {error && !isLoading && (
-        <div
-          className="text-center py-8 font-[family-name:var(--font-ibm-plex-mono)] text-sm uppercase"
-          style={{ color: "#666666" }}
-        >
+        <div className="text-center py-8 text-sm" style={{ color: "#8A8578" }}>
           {error}
         </div>
       )}
 
       {/* Empty */}
       {!isLoading && !error && items.length === 0 && (
-        <div
-          className="text-center py-8 font-[family-name:var(--font-ibm-plex-mono)] text-sm uppercase"
-          style={{ color: "#666666" }}
-        >
-          NO ACTIVITY YET
+        <div className="text-center py-8 text-sm" style={{ color: "#8A8578" }}>
+          No activity yet
         </div>
       )}
 
       {/* Items */}
       {items.length > 0 && (
-        <div>
-          {items.map((item, idx) => {
-            const typeInfo = TYPE_LABELS[item.type] || { label: item.type.toUpperCase(), color: "#FFFFFF" };
+        <div className="space-y-0">
+          {items.map(item => {
+            const typeInfo = TYPE_LABELS[item.type] || { label: item.type, color: "#8A8578" };
             const isFailed = item.status === "failed";
 
             return (
               <div
                 key={item.id}
-                className={`flex items-center justify-between px-6 py-4 transition-colors duration-150 hover:bg-white/5 ${isFailed ? "opacity-50" : ""}`}
+                className={`flex items-center gap-2 py-3 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02] ${isFailed ? "opacity-50" : ""}`}
                 style={{
-                  borderBottom: idx < items.length - 1 ? "2px solid #FFFFFF" : "none",
+                  borderBottom: "1px solid rgba(201, 168, 76, 0.06)",
                 }}
               >
-                <div className="flex items-center gap-6">
-                  <span
-                    className="font-[family-name:var(--font-ibm-plex-mono)] text-xs font-bold uppercase w-24"
-                    style={{ color: typeInfo.color }}
-                  >
-                    {typeInfo.label}
-                  </span>
-                  <div>
-                    {isFailed && (
-                      <span
-                        className="font-[family-name:var(--font-ibm-plex-mono)] text-[10px] uppercase font-bold mr-2"
-                        style={{ color: "#FF4500" }}
-                      >
-                        FAILED
-                      </span>
-                    )}
-                    <TransferChips item={item} />
-                  </div>
+                {/* Action label */}
+                <span
+                  className="font-[family-name:var(--font-cinzel)] text-xs w-20 shrink-0"
+                  style={{ color: typeInfo.color }}
+                >
+                  {typeInfo.label}
+                </span>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  {isFailed && (
+                    <span className="text-[10px] uppercase tracking-wider mr-1" style={{ color: "#9B3D3D" }}>
+                      Failed
+                    </span>
+                  )}
+                  <TransferChips item={item} />
                 </div>
 
-                <div className="text-right shrink-0 flex items-center gap-3">
+                {/* Right side: value + time + link */}
+                <div className="text-right shrink-0 flex items-center gap-1.5">
                   <div>
                     {item.valueUsd != null && (
-                      <div className="font-[family-name:var(--font-ibm-plex-mono)] text-xs font-bold uppercase">
+                      <div className="font-[family-name:var(--font-jetbrains)] text-xs" style={{ color: "#E8E4DC" }}>
                         {formatUsdValue(item.valueUsd)}
                       </div>
                     )}
-                    <div
-                      className="font-[family-name:var(--font-ibm-plex-mono)] text-xs uppercase"
-                      style={{ color: "#666666" }}
-                    >
+                    <div className="text-[10px]" style={{ color: "#8A8578" }}>
                       {relativeTime(item.minedAt)}
                     </div>
                   </div>
@@ -223,9 +216,9 @@ export default function ActivityPanel({ address, initialItems }: ActivityPanelPr
                     target="_blank"
                     rel="noopener noreferrer"
                     className="transition-colors"
-                    style={{ color: "#666666" }}
-                    onMouseEnter={e => (e.currentTarget.style.color = "#FF4500")}
-                    onMouseLeave={e => (e.currentTarget.style.color = "#666666")}
+                    style={{ color: "#8A8578" }}
+                    onMouseEnter={e => (e.currentTarget.style.color = "#C9A84C")}
+                    onMouseLeave={e => (e.currentTarget.style.color = "#8A8578")}
                     title="View on explorer"
                   >
                     <svg

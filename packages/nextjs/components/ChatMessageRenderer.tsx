@@ -127,7 +127,10 @@ export default function ChatMessageRenderer({ content, portfolio }: ChatMessageR
   const segments = parseContent(content, thumbnailMap);
 
   return (
-    <p className="text-sm whitespace-pre-wrap leading-snug m-0 font-[family-name:var(--font-ibm-plex-mono)] uppercase">
+    <p
+      className="text-sm whitespace-pre-wrap leading-snug m-0 font-[family-name:var(--font-inter)]"
+      style={{ color: "#E8E4DC" }}
+    >
       {segments.map((seg, i) => {
         if (seg.type === "text") return <React.Fragment key={i}>{seg.value}</React.Fragment>;
         if (seg.type === "address") return <AddressChip key={i} address={seg.value} />;

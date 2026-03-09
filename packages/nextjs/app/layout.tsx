@@ -1,4 +1,4 @@
-import { IBM_Plex_Mono, IBM_Plex_Sans, Space_Grotesk } from "next/font/google";
+import { Cinzel, Inter, JetBrains_Mono } from "next/font/google";
 import "@rainbow-me/rainbowkit/styles.css";
 import "@scaffold-ui/components/styles.css";
 import { ScaffoldEthAppWithProviders } from "~~/components/ScaffoldEthAppWithProviders";
@@ -6,21 +6,19 @@ import { ThemeProvider } from "~~/components/ThemeProvider";
 import "~~/styles/globals.css";
 import { getMetadata } from "~~/utils/scaffold-eth/getMetadata";
 
-const spaceGrotesk = Space_Grotesk({
+const cinzel = Cinzel({
   subsets: ["latin"],
-  variable: "--font-space-grotesk",
+  variable: "--font-cinzel",
 });
 
-const ibmPlexSans = IBM_Plex_Sans({
-  weight: ["400", "500", "700"],
+const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-ibm-plex-sans",
+  variable: "--font-inter",
 });
 
-const ibmPlexMono = IBM_Plex_Mono({
-  weight: ["400", "700"],
+const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  variable: "--font-ibm-plex-mono",
+  variable: "--font-jetbrains",
 });
 
 export const metadata = getMetadata({
@@ -32,14 +30,11 @@ const ScaffoldEthApp = ({ children }: { children: React.ReactNode }) => {
   return (
     <html
       suppressHydrationWarning
-      data-theme="brutalist"
-      className={`${spaceGrotesk.variable} ${ibmPlexSans.variable} ${ibmPlexMono.variable}`}
+      data-theme="classical"
+      className={`${cinzel.variable} ${inter.variable} ${jetbrainsMono.variable}`}
     >
-      <body
-        className="font-[family-name:var(--font-ibm-plex-sans)]"
-        style={{ backgroundColor: "#1a1a1a", color: "#FFFFFF" }}
-      >
-        <ThemeProvider forcedTheme="brutalist" enableSystem={false}>
+      <body className="font-[family-name:var(--font-inter)]" style={{ backgroundColor: "#0a0a0a", color: "#E8E4DC" }}>
+        <ThemeProvider forcedTheme="classical" enableSystem={false}>
           <ScaffoldEthAppWithProviders>{children}</ScaffoldEthAppWithProviders>
         </ThemeProvider>
       </body>

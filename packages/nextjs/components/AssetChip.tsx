@@ -53,11 +53,11 @@ export default function AssetChip({ symbol, amount, thumbnail, chain }: AssetChi
 
   return (
     <span
-      className="inline-flex items-center gap-1.5 mx-0.5 px-2 py-0.5 text-xs font-bold align-middle whitespace-nowrap uppercase border-2 font-[family-name:var(--font-ibm-plex-mono)] transition-colors duration-150 hover:border-[#FF4500]"
+      className="inline-flex items-center gap-1.5 mx-0.5 px-2 py-0.5 text-xs font-semibold align-middle whitespace-nowrap"
       style={{
-        backgroundColor: "#0d0d0d",
-        borderColor: "#FFFFFF",
-        color: "#FFFFFF",
+        backgroundColor: "#111111",
+        border: "1px solid rgba(201, 168, 76, 0.2)",
+        color: "#E8E4DC",
       }}
     >
       <span className="relative flex-shrink-0 w-4 h-4">
@@ -72,8 +72,12 @@ export default function AssetChip({ symbol, amount, thumbnail, chain }: AssetChi
           />
         ) : (
           <span
-            className="w-4 h-4 flex items-center justify-center text-[8px] font-[family-name:var(--font-space-grotesk)] font-bold uppercase"
-            style={{ backgroundColor: "#333333", color: "#FFFFFF" }}
+            className="w-4 h-4 flex items-center justify-center text-[8px] font-[family-name:var(--font-cinzel)] font-semibold"
+            style={{
+              backgroundColor: "#111111",
+              border: "1px solid rgba(201, 168, 76, 0.2)",
+              color: "#C9A84C",
+            }}
           >
             {symbol.slice(0, 1)}
           </span>
@@ -82,16 +86,16 @@ export default function AssetChip({ symbol, amount, thumbnail, chain }: AssetChi
           <img
             src={chainIconUrl}
             alt={chain}
-            className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-1 ring-[#1a1a1a]"
+            className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-1 ring-[#0a0a0a]"
             onError={e => {
               (e.target as HTMLImageElement).style.display = "none";
             }}
           />
         )}
       </span>
-      <span>
-        {amount && <span className="mr-0.5">{amount}</span>}
-        {symbol.toUpperCase()}
+      <span style={{ color: "#C9A84C" }}>
+        {amount && <span className="font-[family-name:var(--font-jetbrains)] mr-0.5">{amount}</span>}
+        {symbol}
       </span>
     </span>
   );

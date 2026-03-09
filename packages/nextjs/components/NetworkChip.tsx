@@ -25,37 +25,37 @@ const CHAIN_ICONS: Record<string, string> = {
 };
 
 const CHAIN_DISPLAY: Record<string, string> = {
-  ethereum: "ETHEREUM",
-  base: "BASE",
-  arbitrum: "ARBITRUM",
-  optimism: "OPTIMISM",
-  polygon: "POLYGON",
-  xdai: "GNOSIS",
-  gnosis: "GNOSIS",
-  linea: "LINEA",
-  scroll: "SCROLL",
-  "zksync-era": "ZKSYNC",
-  zksync: "ZKSYNC",
-  mantle: "MANTLE",
-  monad: "MONAD",
-  abstract: "ABSTRACT",
-  zora: "ZORA",
-  unichain: "UNICHAIN",
+  ethereum: "Ethereum",
+  base: "Base",
+  arbitrum: "Arbitrum",
+  optimism: "Optimism",
+  polygon: "Polygon",
+  xdai: "Gnosis",
+  gnosis: "Gnosis",
+  linea: "Linea",
+  scroll: "Scroll",
+  "zksync-era": "zkSync",
+  zksync: "zkSync",
+  mantle: "Mantle",
+  monad: "Monad",
+  abstract: "Abstract",
+  zora: "Zora",
+  unichain: "Unichain",
   "binance-smart-chain": "BSC",
 };
 
 export default function NetworkChip({ chain }: NetworkChipProps) {
   const key = chain.toLowerCase();
   const iconUrl = CHAIN_ICONS[key];
-  const displayName = CHAIN_DISPLAY[key] || chain.toUpperCase();
+  const displayName = CHAIN_DISPLAY[key] || chain;
 
   return (
     <span
-      className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 text-xs font-bold align-middle whitespace-nowrap uppercase border-2 font-[family-name:var(--font-ibm-plex-mono)]"
+      className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 text-xs font-medium align-middle whitespace-nowrap"
       style={{
-        backgroundColor: "#0d0d0d",
-        borderColor: "#FFFFFF",
-        color: "#FFFFFF",
+        backgroundColor: "#111111",
+        border: "1px solid rgba(201, 168, 76, 0.15)",
+        color: "#8A8578",
       }}
     >
       {iconUrl ? (
@@ -68,7 +68,10 @@ export default function NetworkChip({ chain }: NetworkChipProps) {
           }}
         />
       ) : (
-        <span className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: "#666666" }} />
+        <span
+          className="w-3.5 h-3.5 rounded-full flex-shrink-0"
+          style={{ backgroundColor: "rgba(201, 168, 76, 0.2)" }}
+        />
       )}
       <span>{displayName}</span>
     </span>

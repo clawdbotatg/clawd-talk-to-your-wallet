@@ -11,9 +11,9 @@ import { Header } from "~~/components/Header";
 import { BlockieAvatar } from "~~/components/scaffold-eth";
 import { wagmiConfig } from "~~/services/web3/wagmiConfig";
 
-const brutalistRainbowTheme = darkTheme({
-  accentColor: "#FF4500",
-  accentColorForeground: "#000000",
+const classicalRainbowTheme = darkTheme({
+  accentColor: "#C9A84C",
+  accentColorForeground: "#0a0a0a",
   borderRadius: "none",
   fontStack: "system",
 });
@@ -21,7 +21,7 @@ const brutalistRainbowTheme = darkTheme({
 const ScaffoldEthApp = ({ children }: { children: React.ReactNode }) => {
   return (
     <>
-      <div className="flex flex-col min-h-screen" style={{ backgroundColor: "#1a1a1a" }}>
+      <div className="flex flex-col min-h-screen" style={{ backgroundColor: "#0a0a0a" }}>
         <Header />
         <main className="relative flex flex-col flex-1">{children}</main>
         <Footer />
@@ -49,8 +49,8 @@ export const ScaffoldEthAppWithProviders = ({ children }: { children: React.Reac
   return (
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider avatar={BlockieAvatar} theme={mounted ? brutalistRainbowTheme : brutalistRainbowTheme}>
-          <ProgressBar height="4px" color="#FF4500" />
+        <RainbowKitProvider avatar={BlockieAvatar} theme={mounted ? classicalRainbowTheme : classicalRainbowTheme}>
+          <ProgressBar height="2px" color="#C9A84C" />
           <ScaffoldEthApp>{children}</ScaffoldEthApp>
         </RainbowKitProvider>
       </QueryClientProvider>
