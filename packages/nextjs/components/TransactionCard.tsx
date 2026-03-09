@@ -224,10 +224,13 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
                 <span className="text-base-content/60">From</span>
                 <AddressChip address={address} />
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-base-content/60">To</span>
-                <AddressChip address={tx.to} />
-              </div>
+              {/* Only show "To" if it's a plain ETH send (no calldata) — otherwise tx.to is a contract and description explains intent */}
+              {(!tx.data || tx.data === "0x") && (
+                <div className="flex justify-between items-center">
+                  <span className="text-base-content/60">To</span>
+                  <AddressChip address={tx.to} />
+                </div>
+              )}
               <div className="flex justify-between items-center">
                 <span className="text-base-content/60">Network</span>
                 {chainName ? (
