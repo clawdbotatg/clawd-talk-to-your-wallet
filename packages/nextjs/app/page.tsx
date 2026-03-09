@@ -385,23 +385,23 @@ const Home: NextPage = () => {
                     )}
                   </div>
 
-                  {/* Divider */}
-                  <div className="border-t border-base-300" />
-
-                  {/* PORTFOLIO (DeFi) section */}
-                  <div>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-semibold tracking-wider text-base-content/50 uppercase">
-                        Portfolio
-                      </span>
-                      <span className="text-sm font-semibold text-base-content/70">{formatUsdValue(defiTotal)}</span>
-                    </div>
-                    {defiTotal < 1 ? (
-                      <div className="text-sm text-base-content/40 py-2">No DeFi positions</div>
-                    ) : (
-                      <div className="text-sm text-base-content/60 py-2">DeFi positions loaded</div>
-                    )}
-                  </div>
+                  {/* PORTFOLIO (DeFi) section — only shown when Zerion returns DeFi positions */}
+                  {defiTotal >= 1 && (
+                    <>
+                      <div className="border-t border-base-300" />
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-xs font-semibold tracking-wider text-base-content/50 uppercase">
+                            Portfolio
+                          </span>
+                          <span className="text-sm font-semibold text-base-content/70">
+                            {formatUsdValue(defiTotal)}
+                          </span>
+                        </div>
+                        <div className="text-sm text-base-content/60 py-1">DeFi positions loaded</div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
