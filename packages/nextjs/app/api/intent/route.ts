@@ -218,52 +218,79 @@ const intentTools = {
 
   getTokenActivity: tool({
     description:
-      "Get all transactions involving a specific token symbol or contract address for the user's wallet. Use this when user asks where a token came from, when they got it, or details about a specific token's history.",
+      "Search ALL transaction history for a specific token symbol. Paginates through up to 500 transactions to find matches. Use this when user asks where a token came from, when they got it, acquisition price, or peak value. ALWAYS use this for 'where did X come from?' questions — do NOT give up after one page.",
     inputSchema: z.object({
       address: z.string(),
-      tokenSymbol: z.string().optional().describe("Token symbol to filter by, e.g. 'GNO', 'ETH'"),
-      chainId: z.string().optional().describe("e.g. 'xdai', 'base', 'ethereum'"),
+      tokenSymbol: z.string().describe("Token symbol to search for, e.g. 'CLAWNCH', 'GNO', 'ETH'"),
+      chainId: z.string().optional().describe("e.g. 'xdai', 'base', 'ethereum' — optional filter"),
     }),
     execute: async ({ address, tokenSymbol, chainId }) => {
       const ZERION_KEY = process.env.ZERION_API_KEY || "";
       const auth = Buffer.from(`${ZERION_KEY}:`).toString("base64");
+      const headers = { Authorization: `Basic ${auth}`, accept: "application/json" };
 
-      let url = `https://api.zerion.io/v1/wallets/${address}/transactions/?currency=usd&page[size]=100&sort=-mined_at`;
-      if (chainId) url += `&filter[chain_ids]=${chainId}`;
+      const matches: any[] = [];
+      const baseUrl =
+        `https://api.zerion.io/v1/wallets/${address}/transactions/?currency=usd&page[size]=100&sort=-mined_at` +
+        (chainId ? `&filter[chain_ids]=${chainId}` : "");
+      let cursor: string | null = baseUrl;
+      let pagesChecked = 0;
+      const MAX_PAGES = 5; // up to 500 txs
 
       try {
-        const res = await fetch(url, {
-          headers: { Authorization: `Basic ${auth}`, accept: "application/json" },
-        });
-        const data = await res.json();
+        while (cursor && pagesChecked < MAX_PAGES) {
+          const pageUrl: string = cursor;
+          const res = await fetch(pageUrl, { headers });
+          const data = await res.json();
+          const items: any[] = data.data || [];
+          pagesChecked++;
 
-        const items = (data.data || [])
-          .filter((tx: any) => {
-            if (!tokenSymbol) return true;
+          for (const tx of items) {
             const transfers = tx.attributes?.transfers || [];
-            return transfers.some((t: any) => t.fungible_info?.symbol?.toLowerCase() === tokenSymbol.toLowerCase());
-          })
-          .slice(0, 20)
-          .map((tx: any) => {
-            const attrs = tx.attributes;
-            const transfers = attrs.transfers || [];
-            return {
-              date: attrs.mined_at?.slice(0, 10),
-              type: attrs.operation_type,
-              chain: tx.relationships?.chain?.data?.id,
-              transfers: transfers.map((t: any) => ({
-                direction: t.direction,
-                symbol: t.fungible_info?.symbol,
-                amount: t.quantity?.float,
-                valueUsd: t.value,
-              })),
-              hash: attrs.hash,
-            };
-          });
+            const relevant = transfers.filter(
+              (t: any) => t.fungible_info?.symbol?.toLowerCase() === tokenSymbol.toLowerCase(),
+            );
+            if (relevant.length > 0) {
+              const attrs = tx.attributes;
+              matches.push({
+                date: attrs.mined_at,
+                type: attrs.operation_type,
+                chain: tx.relationships?.chain?.data?.id,
+                hash: attrs.hash,
+                transfers: transfers.map((t: any) => ({
+                  direction: t.direction,
+                  symbol: t.fungible_info?.symbol,
+                  name: t.fungible_info?.name,
+                  amount: t.quantity?.float,
+                  valueUsd: t.value,
+                  price: t.price,
+                })),
+              });
+            }
+          }
 
-        return { transactions: items, total: items.length };
+          // Follow next page link from Zerion
+          const nextLink: string | undefined = data.links?.next;
+          cursor = nextLink && items.length === 100 ? nextLink : null;
+        }
+
+        if (matches.length === 0) {
+          return {
+            found: false,
+            pagesSearched: pagesChecked,
+            message: `No transactions found for ${tokenSymbol} in the last ${pagesChecked * 100} transactions. Token may have been acquired earlier or via airdrop/contract not indexed as a transfer.`,
+          };
+        }
+
+        return {
+          found: true,
+          tokenSymbol,
+          pagesSearched: pagesChecked,
+          totalMatches: matches.length,
+          transactions: matches,
+        };
       } catch (e) {
-        return { error: `Failed to fetch token activity: ${e instanceof Error ? e.message : String(e)}` };
+        return { error: `Failed to search token activity: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
   }),
@@ -760,11 +787,13 @@ WHEN ANSWERING QUESTIONS:
 - Injected portfolio = your starting point for overviews ("what do I have?", "show me my portfolio")
 - For ANY specific question about a token/balance on a specific chain → call getOnChainBalance to get the LIVE on-chain value. Don't trust the snapshot for specific queries.
 - For "how much X do I have on Y chain?" → ALWAYS call getOnChainBalance. The injected snapshot may be stale.
-- For "where did X come from?" → check activity context first. If not visible, call getTokenActivity. Once you have a tx hash, call getTransactionDetails to get the sender address — NEVER say "check a block explorer" when you have a hash
-- For "what address sent it?" or "who sent me X?" → call getTransactionDetails with the hash and chain
+- For "where did X come from?" or "when did I buy X?" or "what did I pay for X?" → ALWAYS call getTokenActivity first. It paginates through 500 transactions. NEVER give up and say you can't find it without calling this tool.
+- For "what was X worth when I got it?" or "when was X highest?" → call getTokenActivity to find acquisition tx, then getTokenPrice for current price. Report the acquisition date, amount paid (valueUsd of outgoing transfer), and current value.
+- Once you have a tx hash from getTokenActivity, call getTransactionDetails for full sender/receiver info. NEVER say "check a block explorer".
 - For "how is X doing?" or "what's the price of X?" → call getTokenPrice for current price/change
 - For "what have I been doing?" → summarize from the activity context
-- Be specific: give dates, amounts, chains. Never say "I don't have access to your history"
+- Be specific: give dates, amounts, chains, USD values. NEVER say "I don't have access to your history" or "I couldn't find it" without having called getTokenActivity first.
+- If getTokenActivity returns found=false, TELL THE USER what you searched and how many pages, then explain what might have happened (airdrop, farm reward, etc)
 - Keep answers concise — 2-4 sentences unless they ask for more detail
 
 WHEN TO BUILD A TRANSACTION:
@@ -925,7 +954,7 @@ export async function POST(req: NextRequest) {
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userPrompt }],
       tools: intentTools,
-      stopWhen: stepCountIs(10),
+      stopWhen: stepCountIs(15),
     });
 
     // Try to parse the AI's final text as JSON
