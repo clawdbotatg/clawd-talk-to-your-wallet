@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import AddressChip from "./AddressChip";
 import AssetChip from "./AssetChip";
+import ChatMessageRenderer from "./ChatMessageRenderer";
 import NetworkChip from "./NetworkChip";
 import { useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
 
@@ -139,7 +140,11 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
         )}
 
         {/* Description */}
-        {tx.description && <p className="text-xs text-base-content/50">{tx.description}</p>}
+        {tx.description && (
+          <div className="text-xs text-base-content/50">
+            <ChatMessageRenderer content={tx.description} />
+          </div>
+        )}
 
         {/* Tx confirmed inline */}
         {txHash && isTxConfirmed && (
@@ -218,7 +223,9 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
                 )}
               </div>
               {tx.description && (
-                <p className="text-base-content/60 text-xs border-t border-base-300 pt-2">{tx.description}</p>
+                <div className="text-base-content/60 text-xs border-t border-base-300 pt-2">
+                  <ChatMessageRenderer content={tx.description} />
+                </div>
               )}
             </div>
 
