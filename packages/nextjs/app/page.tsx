@@ -317,7 +317,7 @@ const Home: NextPage = () => {
                         {displayedAssets.map((asset, i) => (
                           <div
                             key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
-                            className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
+                            className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
                           >
                             <div className="flex items-center gap-3">
                               <div className="relative w-8 h-8 shrink-0">

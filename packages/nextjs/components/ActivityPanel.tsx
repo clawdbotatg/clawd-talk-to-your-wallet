@@ -183,7 +183,7 @@ export default function ActivityPanel({ address, initialItems }: ActivityPanelPr
             return (
               <div
                 key={item.id}
-                className={`flex items-center gap-2 py-2 px-2 rounded-lg hover:bg-base-300/50 transition-colors ${isFailed ? "opacity-50" : ""}`}
+                className={`flex items-center gap-2 py-1 px-2 rounded-lg hover:bg-base-300/50 transition-colors ${isFailed ? "opacity-50" : ""}`}
               >
                 {/* Token icon with chain badge */}
                 <div className="relative w-8 h-8 shrink-0">
