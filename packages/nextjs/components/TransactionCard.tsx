@@ -224,8 +224,18 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
                 <span className="text-base-content/60">From</span>
                 <AddressChip address={address} />
               </div>
-              {/* Only show "To" if it's a plain ETH send (no calldata) — otherwise tx.to is a contract and description explains intent */}
-              {(!tx.data || tx.data === "0x") && (
+              {/* "To" row: plain ETH send → recipient address. Contract call with known asset → "Contract" + AssetChip. Fallback → address */}
+              {!tx.data || tx.data === "0x" ? (
+                <div className="flex justify-between items-center">
+                  <span className="text-base-content/60">To</span>
+                  <AddressChip address={tx.to} />
+                </div>
+              ) : outChanges.length > 0 ? (
+                <div className="flex justify-between items-center">
+                  <span className="text-base-content/60">Contract</span>
+                  <AssetChip symbol={outChanges[0].symbol} chain={outChanges[0].chain || chainName} />
+                </div>
+              ) : (
                 <div className="flex justify-between items-center">
                   <span className="text-base-content/60">To</span>
                   <AddressChip address={tx.to} />
