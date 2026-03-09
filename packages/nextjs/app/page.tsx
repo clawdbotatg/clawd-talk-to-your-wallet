@@ -82,8 +82,6 @@ const formatUsdValue = (value: string | number): string => {
   return `$${num.toFixed(2)}`;
 };
 
-// formatBalance removed — balance shown via NetworkChip subtitle instead
-
 const MAX_DISPLAY_ASSETS = 8;
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -93,7 +91,7 @@ const Home: NextPage = () => {
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Chat persistence — load from localStorage keyed by address
+  // Chat persistence
   const STORAGE_KEY = address ? `clawd-chat-${address.toLowerCase()}` : null;
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     if (typeof window === "undefined") return [];
@@ -116,19 +114,18 @@ const Home: NextPage = () => {
   const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
 
-  // Activity state (lifted from ActivityPanel for AI context)
+  // Activity state
   const [activity, setActivity] = useState<ActivityItem[]>([]);
 
   // Chat scroll ref
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
-  // Persist messages to localStorage whenever they change
+  // Persist messages
   useEffect(() => {
     if (!STORAGE_KEY || messages.length === 0) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
     } catch {
-      // quota exceeded — trim oldest messages
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-20)));
       } catch {
@@ -152,14 +149,14 @@ const Home: NextPage = () => {
     }
   }, [address]);
 
-  // Auto-scroll on new messages
+  // Auto-scroll
   useEffect(() => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
   }, [messages, isProcessing]);
 
-  // Fetch portfolio + activity on wallet connect
+  // Fetch portfolio + activity
   useEffect(() => {
     if (!address) {
       setPortfolio([]);
@@ -205,7 +202,6 @@ const Home: NextPage = () => {
     };
 
     fetchPortfolio();
-    // Stagger activity fetch to avoid concurrent Zerion calls
     setTimeout(fetchActivity, 1500);
   }, [address]);
 
@@ -269,233 +265,318 @@ const Home: NextPage = () => {
   // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex items-center flex-col flex-grow pt-2">
-      <div className="px-5 w-full max-w-7xl">
+    <div className="flex items-center flex-col flex-grow pt-0">
+      <div className="px-4 w-full max-w-7xl">
         {!isConnected ? (
-          <div className="flex flex-col items-center mt-10 gap-4">
+          /* ─── Not Connected: Gazette welcome ─── */
+          <div className="flex flex-col items-center mt-16 gap-6">
+            <p
+              className="font-[family-name:var(--font-newsreader)] italic text-center"
+              style={{ fontSize: "1.5rem", color: "#2C2C2C", maxWidth: "480px" }}
+            >
+              Connect your wallet to read the day&apos;s financial report
+            </p>
             <RainbowKitCustomConnectButton />
           </div>
         ) : (
-          <div className="mt-2">
-            <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 80px)" }}>
-              {/* LEFT SIDEBAR: Portfolio */}
-              <div className="w-full lg:w-72 shrink-0 space-y-4 overflow-y-auto">
-                <div className="bg-base-200 rounded-xl p-4 space-y-4">
-                  {/* Total + daily change header */}
-                  <div>
-                    {isLoadingPortfolio ? (
-                      <div className="flex items-center gap-2">
-                        <span className="loading loading-spinner loading-sm"></span>
-                        <span className="text-sm text-base-content/50">Loading...</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-2xl font-bold">{formatUsdValue(grandTotal)}</span>
-                        {changeUsd !== 0 && (
-                          <span className={`text-sm font-medium ${isChangeNegative ? "text-error" : "text-success"}`}>
+          /* ─── Connected: Three-column gazette layout ─── */
+          <div className="mt-0">
+            <div className="flex flex-col lg:flex-row gap-0" style={{ height: "calc(100vh - 110px)" }}>
+
+              {/* ═══ LEFT COLUMN: Portfolio ═══ */}
+              <div
+                className="w-full lg:w-72 shrink-0 overflow-y-auto p-4"
+                style={{ borderRight: "1px solid #DDD5C8" }}
+              >
+                {/* Section header */}
+                <div className="mb-4 pb-2" style={{ borderBottom: "2px solid #2C2C2C" }}>
+                  <p
+                    className="font-semibold m-0"
+                    style={{ color: "#2C2C2C", fontVariant: "small-caps", letterSpacing: "0.15em", fontSize: "13px" }}
+                  >
+                    PORTFOLIO
+                  </p>
+                </div>
+
+                {/* Total value */}
+                <div className="mb-4">
+                  {isLoadingPortfolio ? (
+                    <div className="flex items-center gap-2">
+                      <span className="loading loading-spinner loading-sm"></span>
+                      <span style={{ fontSize: "13px", color: "#8B8680" }}>Loading...</span>
+                    </div>
+                  ) : (
+                    <div>
+                      <span
+                        className="font-[family-name:var(--font-victor-mono)] font-bold"
+                        style={{ fontSize: "2rem", color: "#2C2C2C" }}
+                      >
+                        {formatUsdValue(grandTotal)}
+                      </span>
+                      {changeUsd !== 0 && (
+                        <div className="mt-1">
+                          <span
+                            className="font-[family-name:var(--font-victor-mono)]"
+                            style={{
+                              fontSize: "13px",
+                              color: isChangeNegative ? "#C41E3A" : "#2C2C2C",
+                            }}
+                          >
                             {isChangeNegative ? "▼" : "▲"} $
                             {Math.abs(changeUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })} (
                             {isChangeNegative ? "" : "+"}
                             {changePct.toFixed(1)}%)
                           </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* WALLET section */}
-                  <div>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-semibold tracking-wider text-base-content/50 uppercase">
-                        Wallet
-                      </span>
-                      <span className="text-sm font-semibold text-base-content/70">{formatUsdValue(walletTotal)}</span>
-                    </div>
-
-                    {isLoadingPortfolio ? (
-                      <div className="text-center py-4 text-base-content/50">Loading assets...</div>
-                    ) : portfolio.length === 0 ? (
-                      <div className="text-center py-4 text-base-content/50">No assets found</div>
-                    ) : (
-                      <div className="space-y-0">
-                        {displayedAssets.map((asset, i) => (
-                          <div
-                            key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
-                            className="flex items-center justify-between py-0.5 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
-                          >
-                            <div className="flex items-center gap-2">
-                              <div className="relative w-7 h-7 shrink-0">
-                                {asset.thumbnail ? (
-                                  <img
-                                    src={asset.thumbnail}
-                                    alt={asset.tokenSymbol}
-                                    className="w-7 h-7 rounded-full"
-                                    onError={e => {
-                                      (e.target as HTMLImageElement).src = "";
-                                      (e.target as HTMLImageElement).style.display = "none";
-                                      const parent = (e.target as HTMLImageElement).parentElement;
-                                      if (parent) {
-                                        const fallback = document.createElement("div");
-                                        fallback.className =
-                                          "w-7 h-7 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold absolute inset-0";
-                                        fallback.textContent = asset.tokenSymbol.slice(0, 2);
-                                        parent.appendChild(fallback);
-                                      }
-                                    }}
-                                  />
-                                ) : (
-                                  <div className="w-7 h-7 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
-                                    {asset.tokenSymbol.slice(0, 2)}
-                                  </div>
-                                )}
-                                {CHAIN_ICONS[asset.blockchain] && (
-                                  <img
-                                    src={CHAIN_ICONS[asset.blockchain]}
-                                    alt={asset.blockchain}
-                                    className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-base-200"
-                                  />
-                                )}
-                              </div>
-                              <div>
-                                <div className="font-medium text-sm">{asset.tokenSymbol}</div>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-sm font-medium">{formatUsdValue(asset.balanceUsd)}</div>
-                            </div>
-                          </div>
-                        ))}
-
-                        {!showAllAssets && hiddenCount > 0 && (
-                          <button
-                            className="w-full text-center text-sm text-primary hover:underline py-2"
-                            onClick={() => setShowAllAssets(true)}
-                          >
-                            and {hiddenCount} more...
-                          </button>
-                        )}
-                        {showAllAssets && hiddenCount > 0 && (
-                          <button
-                            className="w-full text-center text-sm text-primary hover:underline py-2"
-                            onClick={() => setShowAllAssets(false)}
-                          >
-                            Show less
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* PORTFOLIO (DeFi) section — staked, deposited, LP positions from Zerion only_complex */}
-                  {defiPositions.length > 0 && (
-                    <>
-                      <div className="border-t border-base-300" />
-                      <div>
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-xs font-semibold tracking-wider text-base-content/50 uppercase">
-                            Portfolio
-                          </span>
-                          <span className="text-sm font-semibold text-base-content/70">
-                            {formatUsdValue(defiTotal)}
-                          </span>
                         </div>
-                        <div className="space-y-0">
-                          {defiPositions.map((pos, i) => (
-                            <div
-                              key={`defi-${pos.blockchain}-${pos.contractAddress || pos.tokenSymbol}-${i}`}
-                              className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
-                            >
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* WALLET section */}
+                <div className="mb-4">
+                  <div className="flex justify-between items-center mb-2 pb-1" style={{ borderBottom: "1px solid #DDD5C8" }}>
+                    <span
+                      className="font-semibold"
+                      style={{ fontVariant: "small-caps", letterSpacing: "0.15em", fontSize: "11px", color: "#8B8680" }}
+                    >
+                      WALLET
+                    </span>
+                    <span
+                      className="font-[family-name:var(--font-victor-mono)] font-semibold"
+                      style={{ fontSize: "12px", color: "#2C2C2C" }}
+                    >
+                      {formatUsdValue(walletTotal)}
+                    </span>
+                  </div>
+
+                  {isLoadingPortfolio ? (
+                    <div className="text-center py-4" style={{ color: "#8B8680", fontSize: "13px" }}>Loading assets...</div>
+                  ) : portfolio.length === 0 ? (
+                    <div className="text-center py-4" style={{ color: "#8B8680", fontSize: "13px" }}>No assets found</div>
+                  ) : (
+                    <table className="w-full">
+                      <tbody>
+                        {displayedAssets.map((asset, i) => (
+                          <tr
+                            key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
+                            style={{ borderBottom: "1px solid #DDD5C8" }}
+                          >
+                            <td className="py-2 pr-2">
                               <div className="flex items-center gap-2">
-                                <div className="relative w-7 h-7 shrink-0">
-                                  {pos.thumbnail ? (
+                                <div className="relative w-6 h-6 shrink-0">
+                                  {asset.thumbnail ? (
                                     <img
-                                      src={pos.thumbnail}
-                                      alt={pos.tokenSymbol}
-                                      className="w-7 h-7 rounded-full"
+                                      src={asset.thumbnail}
+                                      alt={asset.tokenSymbol}
+                                      className="w-6 h-6 rounded-full"
                                       onError={e => {
                                         (e.target as HTMLImageElement).style.display = "none";
                                       }}
                                     />
                                   ) : (
-                                    <div className="w-7 h-7 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
-                                      {pos.tokenSymbol.slice(0, 2)}
+                                    <div
+                                      className="w-6 h-6 rounded-full flex items-center justify-center"
+                                      style={{ backgroundColor: "#DDD5C8", fontSize: "10px", fontWeight: "bold" }}
+                                    >
+                                      {asset.tokenSymbol.slice(0, 2)}
                                     </div>
                                   )}
-                                  {CHAIN_ICONS[pos.blockchain] && (
+                                  {CHAIN_ICONS[asset.blockchain] && (
                                     <img
-                                      src={CHAIN_ICONS[pos.blockchain]}
-                                      alt={pos.blockchain}
-                                      className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-base-200"
+                                      src={CHAIN_ICONS[asset.blockchain]}
+                                      alt={asset.blockchain}
+                                      className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full"
+                                      style={{ border: "1.5px solid #FFF8EE" }}
                                     />
                                   )}
                                 </div>
+                                <span className="font-semibold" style={{ fontSize: "13px" }}>
+                                  {asset.tokenSymbol}
+                                </span>
+                              </div>
+                            </td>
+                            <td
+                              className="py-2 text-right font-[family-name:var(--font-victor-mono)]"
+                              style={{ fontSize: "13px", fontWeight: 600 }}
+                            >
+                              {formatUsdValue(asset.balanceUsd)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+
+                  {!showAllAssets && hiddenCount > 0 && (
+                    <button
+                      className="w-full text-center py-2"
+                      style={{ fontSize: "12px", color: "#8B8680", background: "none", border: "none", cursor: "pointer" }}
+                      onClick={() => setShowAllAssets(true)}
+                    >
+                      and {hiddenCount} more...
+                    </button>
+                  )}
+                  {showAllAssets && hiddenCount > 0 && (
+                    <button
+                      className="w-full text-center py-2"
+                      style={{ fontSize: "12px", color: "#8B8680", background: "none", border: "none", cursor: "pointer" }}
+                      onClick={() => setShowAllAssets(false)}
+                    >
+                      Show less
+                    </button>
+                  )}
+                </div>
+
+                {/* PORTFOLIO (DeFi) section */}
+                {defiPositions.length > 0 && (
+                  <div>
+                    <div className="flex justify-between items-center mb-2 pb-1" style={{ borderBottom: "1px solid #DDD5C8" }}>
+                      <span
+                        className="font-semibold"
+                        style={{ fontVariant: "small-caps", letterSpacing: "0.15em", fontSize: "11px", color: "#8B8680" }}
+                      >
+                        POSITIONS
+                      </span>
+                      <span
+                        className="font-[family-name:var(--font-victor-mono)] font-semibold"
+                        style={{ fontSize: "12px", color: "#2C2C2C" }}
+                      >
+                        {formatUsdValue(defiTotal)}
+                      </span>
+                    </div>
+                    <table className="w-full">
+                      <tbody>
+                        {defiPositions.map((pos, i) => (
+                          <tr
+                            key={`defi-${pos.blockchain}-${pos.contractAddress || pos.tokenSymbol}-${i}`}
+                            style={{ borderBottom: "1px solid #DDD5C8" }}
+                          >
+                            <td className="py-2 pr-2">
+                              <div className="flex items-center gap-2">
+                                <div className="relative w-5 h-5 shrink-0">
+                                  {pos.thumbnail ? (
+                                    <img
+                                      src={pos.thumbnail}
+                                      alt={pos.tokenSymbol}
+                                      className="w-5 h-5 rounded-full"
+                                      onError={e => {
+                                        (e.target as HTMLImageElement).style.display = "none";
+                                      }}
+                                    />
+                                  ) : (
+                                    <div
+                                      className="w-5 h-5 rounded-full flex items-center justify-center"
+                                      style={{ backgroundColor: "#DDD5C8", fontSize: "9px", fontWeight: "bold" }}
+                                    >
+                                      {pos.tokenSymbol.slice(0, 2)}
+                                    </div>
+                                  )}
+                                </div>
                                 <div>
-                                  <div className="font-medium text-xs">{pos.tokenSymbol}</div>
-                                  <div className="text-[10px] text-base-content/40 capitalize">
+                                  <div style={{ fontSize: "12px", fontWeight: 600 }}>{pos.tokenSymbol}</div>
+                                  <div
+                                    style={{ fontSize: "10px", color: "#8B8680", textTransform: "capitalize" }}
+                                  >
                                     {pos.positionType}
                                     {pos.protocol ? ` · ${pos.protocol}` : ""}
                                   </div>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <div className="text-xs font-medium">{formatUsdValue(pos.balanceUsd)}</div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* CENTER: Chat */}
-              <div className="flex-1 min-w-0 flex flex-col">
-                {/* Chat header with clear button */}
-                {messages.length > 0 && (
-                  <div className="flex justify-end pb-2">
-                    <button
-                      className="btn btn-ghost btn-xs text-base-content/40 hover:text-error"
-                      onClick={() => {
-                        setMessages([]);
-                        if (STORAGE_KEY) localStorage.removeItem(STORAGE_KEY);
-                      }}
-                    >
-                      Clear chat
-                    </button>
+                            </td>
+                            <td
+                              className="py-2 text-right font-[family-name:var(--font-victor-mono)]"
+                              style={{ fontSize: "12px", fontWeight: 600 }}
+                            >
+                              {formatUsdValue(pos.balanceUsd)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
-                {/* Chat messages — scrollable */}
-                <div className="flex-1 overflow-y-auto space-y-2 pb-4" ref={chatScrollRef}>
+              </div>
+
+              {/* ═══ CENTER COLUMN: Chat ═══ */}
+              <div className="flex-1 min-w-0 flex flex-col" style={{ borderRight: "1px solid #DDD5C8" }}>
+                {/* Section header */}
+                <div className="px-4 pt-4 pb-0">
+                  <div className="flex justify-between items-center mb-3 pb-2" style={{ borderBottom: "2px solid #2C2C2C" }}>
+                    <p
+                      className="font-semibold m-0"
+                      style={{ color: "#2C2C2C", fontVariant: "small-caps", letterSpacing: "0.15em", fontSize: "13px" }}
+                    >
+                      CORRESPONDENCE
+                    </p>
+                    {messages.length > 0 && (
+                      <button
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          fontSize: "11px",
+                          color: "#8B8680",
+                          fontFamily: "var(--font-victor-mono)",
+                        }}
+                        onClick={() => {
+                          setMessages([]);
+                          if (STORAGE_KEY) localStorage.removeItem(STORAGE_KEY);
+                        }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Chat messages */}
+                <div className="flex-1 overflow-y-auto px-4 pb-4" ref={chatScrollRef}>
                   {messages.length === 0 && (
-                    <div className="text-center text-base-content/40 mt-20">
-                      <p className="text-lg">Ask anything about your wallet</p>
-                      <p className="text-sm mt-2">or say &quot;swap 0.1 ETH for USDC&quot; to make a move</p>
+                    <div className="text-center mt-16">
+                      <p
+                        className="font-[family-name:var(--font-newsreader)] italic"
+                        style={{ fontSize: "1.15rem", color: "#8B8680" }}
+                      >
+                        Inquire about your holdings
+                      </p>
+                      <p style={{ fontSize: "13px", color: "#8B8680", marginTop: "0.5rem" }}>
+                        or instruct: &quot;swap 0.1 ETH for USDC&quot;
+                      </p>
                     </div>
                   )}
                   {messages.map((msg, i) => (
-                    <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div
+                      key={i}
+                      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                      style={{ marginBottom: "0.5rem" }}
+                    >
                       <div
-                        className={`max-w-[85%] rounded-2xl px-3 py-1.5 ${
-                          msg.role === "user"
-                            ? "bg-primary text-primary-content rounded-br-sm"
-                            : "bg-base-200 text-base-content rounded-bl-sm"
-                        }`}
+                        className="max-w-[85%] px-3 py-2"
+                        style={{
+                          backgroundColor: msg.role === "user" ? "#2C2C2C" : "#FFF4E6",
+                          color: msg.role === "user" ? "#FFF8EE" : "#2C2C2C",
+                          border: msg.role === "user" ? "none" : "1px solid #DDD5C8",
+                        }}
                       >
                         {msg.role === "assistant" ? (
                           <ChatMessageRenderer content={msg.content} portfolio={portfolio} />
                         ) : (
-                          <p className="text-sm whitespace-pre-wrap leading-snug m-0">{msg.content}</p>
+                          <p
+                            className="whitespace-pre-wrap leading-snug m-0 font-[family-name:var(--font-literata)]"
+                            style={{ fontSize: "14px" }}
+                          >
+                            {msg.content}
+                          </p>
                         )}
 
-                        {/* Transaction card — only shown when msg has a transaction */}
                         {msg.transaction && <TransactionCard tx={msg.transaction} address={address!} />}
                       </div>
                     </div>
                   ))}
                   {isProcessing && (
                     <div className="flex justify-start">
-                      <div className="bg-base-200 rounded-2xl rounded-bl-sm px-3 py-1.5">
+                      <div className="px-3 py-2" style={{ backgroundColor: "#FFF4E6", border: "1px solid #DDD5C8" }}>
                         <span className="loading loading-dots loading-sm"></span>
                       </div>
                     </div>
@@ -503,30 +584,49 @@ const Home: NextPage = () => {
                 </div>
 
                 {/* Input — sticky bottom */}
-                <div className="sticky bottom-0 pb-4 pt-2 bg-base-100">
-                  <div className="flex gap-2">
+                <div className="sticky bottom-0 pb-4 pt-2 px-4" style={{ backgroundColor: "#FFF8EE" }}>
+                  <div className="flex gap-0">
                     <input
                       type="text"
-                      placeholder="Ask about your wallet, or say what you want to do..."
-                      className="input input-bordered flex-1 text-base"
+                      placeholder="Inquire about your wallet, or instruct a transaction..."
+                      className="flex-1 px-3 py-2 font-[family-name:var(--font-literata)]"
+                      style={{
+                        fontSize: "14px",
+                        backgroundColor: "#FFF8EE",
+                        border: "1px solid #DDD5C8",
+                        borderRight: "none",
+                        outline: "none",
+                        color: "#2C2C2C",
+                      }}
                       value={message}
                       onChange={e => setMessage(e.target.value)}
                       onKeyDown={e => e.key === "Enter" && !isProcessing && handleSubmit()}
                       disabled={isProcessing}
                     />
                     <button
-                      className="btn btn-primary px-6"
+                      className="px-4 py-2"
+                      style={{
+                        backgroundColor: "#2C2C2C",
+                        color: "#FFF8EE",
+                        border: "1px solid #2C2C2C",
+                        cursor: isProcessing || !message.trim() ? "not-allowed" : "pointer",
+                        opacity: isProcessing || !message.trim() ? 0.4 : 1,
+                      }}
                       onClick={handleSubmit}
                       disabled={isProcessing || !message.trim()}
                     >
-                      {isProcessing ? <span className="loading loading-spinner loading-sm"></span> : "→"}
+                      {isProcessing ? (
+                        <span className="loading loading-spinner loading-sm"></span>
+                      ) : (
+                        <span style={{ fontFamily: "var(--font-victor-mono)", fontSize: "14px" }}>→</span>
+                      )}
                     </button>
                   </div>
                 </div>
               </div>
 
-              {/* RIGHT SIDEBAR: Activity */}
-              <div className="w-full lg:w-80 shrink-0 overflow-y-auto">
+              {/* ═══ RIGHT COLUMN: Activity ═══ */}
+              <div className="w-full lg:w-80 shrink-0 overflow-y-auto p-4">
                 <ActivityPanel address={address!} initialItems={activity} />
               </div>
             </div>

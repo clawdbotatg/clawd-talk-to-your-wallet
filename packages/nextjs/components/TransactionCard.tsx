@@ -71,14 +71,12 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
   const explorerBase = EXPLORER_URLS[tx.chainId] || "https://etherscan.io/tx/";
   const chainName = CHAIN_NAMES[tx.chainId];
 
-  // Mobile deep-link to wallet
   const openWallet = useCallback(() => {
     if (typeof window === "undefined") return;
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (!isMobile || window.ethereum) return;
 
     const search = [localStorage.getItem("wagmi.recentConnectorId")].filter(Boolean).join(" ").toLowerCase();
-
     const schemes: [string[], string][] = [
       [["rainbow"], "rainbow://"],
       [["metamask"], "metamask://"],
@@ -100,7 +98,6 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
     setExecError("");
 
     try {
-      // Switch chain if wallet is on wrong network
       if (tx.chainId && currentChainId !== tx.chainId) {
         try {
           await switchChainAsync({ chainId: tx.chainId });
@@ -132,21 +129,33 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
 
   return (
     <>
-      {/* Inline card within the chat bubble */}
-      <div className="mt-3 bg-base-300/50 rounded-xl p-3 space-y-2">
+      {/* Inline card — gazette style */}
+      <div className="mt-3 p-3 space-y-2" style={{ backgroundColor: "#FFF4E6", border: "1px solid #DDD5C8" }}>
         {/* Simulation preview */}
         {tx.simulation && tx.simulation.changes.length > 0 && (
-          <div className="space-y-2 text-sm">
+          <div className="space-y-2">
             {outChanges.map((c, i) => (
               <div key={`out-${i}`} className="flex justify-between items-center">
-                <span className="text-base-content/60 text-xs">You send</span>
+                <span
+                  className="font-[family-name:var(--font-newsreader)] italic"
+                  style={{ fontSize: "12px", color: "#8B8680" }}
+                >
+                  You send
+                </span>
                 <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
               </div>
             ))}
-            {outChanges.length > 0 && inChanges.length > 0 && <div className="border-t border-base-content/10" />}
+            {outChanges.length > 0 && inChanges.length > 0 && (
+              <div style={{ borderTop: "1px solid #DDD5C8" }} />
+            )}
             {inChanges.map((c, i) => (
               <div key={`in-${i}`} className="flex justify-between items-center">
-                <span className="text-base-content/60 text-xs">You receive</span>
+                <span
+                  className="font-[family-name:var(--font-newsreader)] italic"
+                  style={{ fontSize: "12px", color: "#8B8680" }}
+                >
+                  You receive
+                </span>
                 <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
               </div>
             ))}
@@ -155,20 +164,20 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
 
         {/* Description */}
         {tx.description && (
-          <div className="text-xs text-base-content/50">
+          <div style={{ fontSize: "12px", color: "#8B8680" }}>
             <ChatMessageRenderer content={tx.description} />
           </div>
         )}
 
-        {/* Tx confirmed inline */}
+        {/* Tx confirmed */}
         {txHash && isTxConfirmed && (
-          <div className="text-sm text-success flex items-center gap-1">
-            ✅ Confirmed —{" "}
+          <div style={{ fontSize: "13px", color: "#2C2C2C" }} className="flex items-center gap-1">
+            ✓ Confirmed —{" "}
             <a
               href={`${explorerBase}${txHash}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="link link-primary"
+              style={{ color: "#2C2C2C", textDecoration: "underline" }}
             >
               view tx
             </a>
@@ -176,100 +185,168 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
         )}
 
         {txHash && isTxConfirming && !isTxConfirmed && (
-          <div className="text-sm text-base-content/60 flex items-center gap-2">
+          <div style={{ fontSize: "13px", color: "#8B8680" }} className="flex items-center gap-2">
             <span className="loading loading-spinner loading-xs"></span>
             Confirming...
           </div>
         )}
 
-        {/* Execute button — opens confirmation modal */}
+        {/* Execute button */}
         {!txHash && (
-          <button className="btn btn-success btn-sm w-full" onClick={() => setShowModal(true)}>
+          <button
+            className="w-full py-2 mt-1"
+            style={{
+              backgroundColor: "#2C2C2C",
+              color: "#FFF8EE",
+              border: "none",
+              cursor: "pointer",
+              fontFamily: "var(--font-literata)",
+              fontSize: "13px",
+              fontWeight: 600,
+            }}
+            onClick={() => setShowModal(true)}
+          >
             Execute
           </button>
         )}
       </div>
 
-      {/* Confirmation modal */}
+      {/* Confirmation modal — gazette style */}
       {showModal && (
         <dialog className="modal modal-open" onClick={() => !isExecuting && setShowModal(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold text-lg mb-4">Confirm Transaction</h3>
+          <div
+            className="modal-box"
+            onClick={e => e.stopPropagation()}
+            style={{
+              backgroundColor: "#FFF4E6",
+              border: "2px solid #2C2C2C",
+              borderRadius: 0,
+              boxShadow: "none",
+            }}
+          >
+            <h3
+              className="font-[family-name:var(--font-newsreader)] italic mb-4"
+              style={{ fontSize: "1.25rem", color: "#2C2C2C" }}
+            >
+              Confirm Transaction
+            </h3>
 
-            {/* Full simulation details */}
+            {/* Simulation details */}
             {tx.simulation && tx.simulation.changes.length > 0 && (
-              <div className="bg-base-200 rounded-xl p-4 space-y-3 mb-4">
+              <div className="p-4 space-y-3 mb-4" style={{ backgroundColor: "#FFF8EE", border: "1px solid #DDD5C8" }}>
                 {outChanges.map((c, i) => (
                   <div key={`modal-out-${i}`} className="flex justify-between items-center">
-                    <span className="text-base-content/60 text-sm">You send</span>
+                    <span
+                      className="font-[family-name:var(--font-newsreader)] italic"
+                      style={{ fontSize: "13px", color: "#8B8680" }}
+                    >
+                      You send
+                    </span>
                     <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
                   </div>
                 ))}
-                {outChanges.length > 0 && inChanges.length > 0 && <div className="border-t border-base-300" />}
+                {outChanges.length > 0 && inChanges.length > 0 && (
+                  <div style={{ borderTop: "1px solid #DDD5C8" }} />
+                )}
                 {inChanges.map((c, i) => (
                   <div key={`modal-in-${i}`} className="flex justify-between items-center">
-                    <span className="text-base-content/60 text-sm">You receive</span>
+                    <span
+                      className="font-[family-name:var(--font-newsreader)] italic"
+                      style={{ fontSize: "13px", color: "#8B8680" }}
+                    >
+                      You receive
+                    </span>
                     <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
                   </div>
                 ))}
                 {tx.simulation.verified && (
-                  <div className="text-xs text-success/70 text-center mt-1">✓ Simulation verified on-chain</div>
+                  <div
+                    className="text-center mt-1 font-[family-name:var(--font-victor-mono)]"
+                    style={{ fontSize: "10px", color: "#8B8680" }}
+                  >
+                    ✓ Simulation verified onchain
+                  </div>
                 )}
               </div>
             )}
 
             {/* Tx details */}
-            <div className="bg-base-200 rounded-xl p-4 space-y-3 text-sm mb-4">
+            <div className="p-4 space-y-3 mb-4" style={{ backgroundColor: "#FFF8EE", border: "1px solid #DDD5C8", fontSize: "13px" }}>
               <div className="flex justify-between items-center">
-                <span className="text-base-content/60">From</span>
+                <span style={{ color: "#8B8680" }}>From</span>
                 <AddressChip address={address} />
               </div>
-              {/* "To" row: plain ETH send → recipient address. Contract call with known asset → "Contract" + AssetChip. Fallback → address */}
               {!tx.data || tx.data === "0x" ? (
                 <div className="flex justify-between items-center">
-                  <span className="text-base-content/60">To</span>
+                  <span style={{ color: "#8B8680" }}>To</span>
                   <AddressChip address={tx.to} />
                 </div>
               ) : outChanges.length > 0 ? (
                 <div className="flex justify-between items-center">
-                  <span className="text-base-content/60">Contract</span>
+                  <span style={{ color: "#8B8680" }}>Contract</span>
                   <AssetChip symbol={outChanges[0].symbol} chain={outChanges[0].chain || chainName} />
                 </div>
               ) : (
                 <div className="flex justify-between items-center">
-                  <span className="text-base-content/60">To</span>
+                  <span style={{ color: "#8B8680" }}>To</span>
                   <AddressChip address={tx.to} />
                 </div>
               )}
               <div className="flex justify-between items-center">
-                <span className="text-base-content/60">Network</span>
+                <span style={{ color: "#8B8680" }}>Network</span>
                 {chainName ? (
                   <NetworkChip chain={chainName} />
                 ) : (
-                  <span className="text-xs font-mono">Chain {tx.chainId}</span>
+                  <span className="font-[family-name:var(--font-victor-mono)]" style={{ fontSize: "12px" }}>
+                    Chain {tx.chainId}
+                  </span>
                 )}
               </div>
               {tx.description && (
-                <div className="text-base-content/60 text-xs border-t border-base-300 pt-2">
+                <div style={{ borderTop: "1px solid #DDD5C8", paddingTop: "0.5rem", color: "#8B8680", fontSize: "12px" }}>
                   <ChatMessageRenderer content={tx.description} />
                 </div>
               )}
             </div>
 
             {execError && (
-              <div className="alert alert-error mb-4 text-sm">
-                <span>{execError}</span>
+              <div className="mb-4 p-3" style={{ border: "1px solid #C41E3A", backgroundColor: "#FFF8EE", fontSize: "13px", color: "#C41E3A" }}>
+                {execError}
               </div>
             )}
 
-            <div className="modal-action">
-              <button className="btn btn-ghost" onClick={() => setShowModal(false)} disabled={isExecuting}>
+            <div className="flex justify-end gap-3">
+              <button
+                style={{
+                  background: "none",
+                  border: "1px solid #DDD5C8",
+                  padding: "0.5rem 1rem",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  color: "#8B8680",
+                }}
+                onClick={() => setShowModal(false)}
+                disabled={isExecuting}
+              >
                 Cancel
               </button>
-              <button className="btn btn-success" onClick={handleExecute} disabled={isExecuting}>
+              <button
+                style={{
+                  backgroundColor: "#2C2C2C",
+                  color: "#FFF8EE",
+                  border: "none",
+                  padding: "0.5rem 1.5rem",
+                  cursor: isExecuting ? "not-allowed" : "pointer",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  opacity: isExecuting ? 0.6 : 1,
+                }}
+                onClick={handleExecute}
+                disabled={isExecuting}
+              >
                 {isExecuting ? (
                   <>
-                    <span className="loading loading-spinner loading-sm"></span>
+                    <span className="loading loading-spinner loading-sm mr-1"></span>
                     Sending...
                   </>
                 ) : (

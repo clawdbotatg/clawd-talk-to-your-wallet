@@ -28,7 +28,6 @@ const TOKEN_ICONS: Record<string, string> = {
   BNB: "https://cdn.zerion.io/0xb8c77482e45f1f44de1745f52c74426c631bdd52.png",
 };
 
-// Chain icon URLs (DefiLlama)
 const CHAIN_ICONS: Record<string, string> = {
   ethereum: "https://icons.llamao.fi/icons/chains/rsz_ethereum.jpg",
   base: "https://icons.llamao.fi/icons/chains/rsz_base.jpg",
@@ -54,7 +53,14 @@ export default function AssetChip({ symbol, amount, thumbnail, chain }: AssetChi
   const chainIconUrl = chain ? CHAIN_ICONS[chain.toLowerCase()] : null;
 
   return (
-    <span className="inline-flex items-center gap-1.5 mx-0.5 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-xs font-semibold align-middle whitespace-nowrap">
+    <span
+      className="inline-flex items-center gap-1.5 mx-0.5 px-2 py-0.5 align-middle whitespace-nowrap"
+      style={{
+        backgroundColor: "#FFF4E6",
+        border: "1px solid #DDD5C8",
+        fontSize: "12px",
+      }}
+    >
       {/* Token icon with chain badge */}
       <span className="relative flex-shrink-0 w-4 h-4">
         {iconUrl ? (
@@ -67,16 +73,19 @@ export default function AssetChip({ symbol, amount, thumbnail, chain }: AssetChi
             }}
           />
         ) : (
-          <span className="w-4 h-4 rounded-full bg-primary/30 flex items-center justify-center text-[8px] font-bold text-primary">
+          <span
+            className="w-4 h-4 rounded-full flex items-center justify-center"
+            style={{ backgroundColor: "#DDD5C8", fontSize: "8px", fontWeight: "bold", color: "#2C2C2C" }}
+          >
             {symbol.slice(0, 1)}
           </span>
         )}
-        {/* Chain badge — bottom-right corner */}
         {chainIconUrl && (
           <img
             src={chainIconUrl}
             alt={chain}
-            className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-1 ring-base-100"
+            className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full"
+            style={{ border: "1px solid #FFF8EE" }}
             onError={e => {
               (e.target as HTMLImageElement).style.display = "none";
             }}
@@ -84,9 +93,13 @@ export default function AssetChip({ symbol, amount, thumbnail, chain }: AssetChi
         )}
       </span>
 
-      <span className="text-primary">
-        {amount && <span className="font-mono mr-0.5">{amount}</span>}
-        {symbol}
+      <span style={{ color: "#2C2C2C" }}>
+        {amount && (
+          <span className="font-[family-name:var(--font-victor-mono)] mr-0.5" style={{ fontWeight: 600 }}>
+            {amount}
+          </span>
+        )}
+        <span className="font-semibold">{symbol}</span>
       </span>
     </span>
   );
