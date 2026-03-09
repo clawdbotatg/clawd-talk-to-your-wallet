@@ -16,34 +16,15 @@ interface ActivityItem {
   explorerUrl: string;
 }
 
-const CHAIN_ICONS: Record<string, string> = {
-  ethereum: "https://icons.llamao.fi/icons/chains/rsz_ethereum.jpg",
-  base: "https://icons.llamao.fi/icons/chains/rsz_base.jpg",
-  arbitrum: "https://icons.llamao.fi/icons/chains/rsz_arbitrum.jpg",
-  optimism: "https://icons.llamao.fi/icons/chains/rsz_optimism.jpg",
-  polygon: "https://icons.llamao.fi/icons/chains/rsz_polygon.jpg",
-  bsc: "https://icons.llamao.fi/icons/chains/rsz_binance.jpg",
-  avalanche: "https://icons.llamao.fi/icons/chains/rsz_avalanche.jpg",
-  gnosis: "https://icons.llamao.fi/icons/chains/rsz_xdai.jpg",
-  xdai: "https://icons.llamao.fi/icons/chains/rsz_xdai.jpg",
-  linea: "https://icons.llamao.fi/icons/chains/rsz_linea.jpg",
-  scroll: "https://icons.llamao.fi/icons/chains/rsz_scroll.jpg",
-  zksync: "https://icons.llamao.fi/icons/chains/rsz_zksync%20era.jpg",
-  fantom: "https://icons.llamao.fi/icons/chains/rsz_fantom.jpg",
-  monad: "https://icons.llamao.fi/icons/chains/rsz_monad.jpg",
-  abstract: "https://icons.llamao.fi/icons/chains/rsz_abstract.jpg",
-  celo: "https://icons.llamao.fi/icons/chains/rsz_celo.jpg",
-};
-
-const TYPE_BADGES: Record<string, { label: string; className: string }> = {
-  send: { label: "Send", className: "badge-ghost" },
-  receive: { label: "Receive", className: "badge-success" },
-  trade: { label: "Swap", className: "badge-info" },
-  bridge: { label: "Bridge", className: "badge-primary" },
-  approve: { label: "Approve", className: "badge-warning" },
-  deposit: { label: "Deposit", className: "badge-accent" },
-  withdraw: { label: "Withdraw", className: "badge-secondary" },
-  mint: { label: "Mint", className: "badge-error" },
+const TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  send: { label: "SENT", color: "#FFFFFF" },
+  receive: { label: "RECEIVED", color: "#00FF41" },
+  trade: { label: "SWAPPED", color: "#FFFFFF" },
+  bridge: { label: "BRIDGED", color: "#FFFFFF" },
+  approve: { label: "APPROVED", color: "#FFFFFF" },
+  deposit: { label: "DEPOSITED", color: "#FFFFFF" },
+  withdraw: { label: "WITHDREW", color: "#FF4500" },
+  mint: { label: "MINTED", color: "#00FF41" },
 };
 
 function relativeTime(dateStr: string): string {
@@ -55,12 +36,12 @@ function relativeTime(dateStr: string): string {
   const diffHr = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHr / 24);
 
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDay === 1) return "yesterday";
-  if (diffDay < 7) return `${diffDay}d ago`;
-  return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (diffMin < 1) return "NOW";
+  if (diffMin < 60) return `${diffMin}M AGO`;
+  if (diffHr < 24) return `${diffHr}H AGO`;
+  if (diffDay === 1) return "1D AGO";
+  if (diffDay < 7) return `${diffDay}D AGO`;
+  return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase();
 }
 
 function formatUsdValue(value: number | null): string {
@@ -79,7 +60,9 @@ function TransferChips({ item }: { item: ActivityItem }) {
     return (
       <span className="inline-flex items-center gap-1 flex-wrap">
         <AssetChip symbol={outT.symbol} amount={outT.amount} thumbnail={outT.icon} chain={chain} />
-        <span className="text-base-content/40 text-xs">→</span>
+        <span style={{ color: "#666666" }} className="text-xs">
+          →
+        </span>
         <AssetChip symbol={inT.symbol} amount={inT.amount} thumbnail={inT.icon} chain={chain} />
       </span>
     );
@@ -100,7 +83,6 @@ export default function ActivityPanel({ address, initialItems }: ActivityPanelPr
   const [error, setError] = useState("");
 
   useEffect(() => {
-    // If items were passed as props, use them (no self-fetch to avoid rate limits)
     if (initialItems !== undefined) {
       setItems(initialItems);
       setIsLoading(false);
@@ -141,97 +123,109 @@ export default function ActivityPanel({ address, initialItems }: ActivityPanelPr
   }, [address, initialItems]);
 
   return (
-    <div className="bg-base-200 rounded-xl p-4">
-      <div className="flex justify-between items-center mb-3">
-        <span className="text-sm font-semibold text-base-content/60">Activity</span>
+    <div className="border-2" style={{ backgroundColor: "#0d0d0d", borderColor: "#FFFFFF" }}>
+      {/* Header */}
+      <div className="flex items-center gap-4 px-6 py-4" style={{ borderBottom: "2px solid #FFFFFF" }}>
+        <span
+          className="font-[family-name:var(--font-space-grotesk)] text-xl uppercase font-bold tracking-wider"
+          style={{ color: "#E8E8E8" }}
+        >
+          ACTIVITY LOG
+        </span>
+        <div className="flex-1 h-0.5" style={{ backgroundColor: "#666666" }} />
         {isLoading && items.length > 0 && <span className="loading loading-spinner loading-xs"></span>}
       </div>
 
       {/* Loading skeleton */}
       {isLoading && items.length === 0 && (
-        <div className="space-y-3">
+        <div className="p-6 space-y-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex items-center gap-3 animate-pulse">
-              <div className="w-8 h-8 rounded-full bg-base-300 shrink-0" />
-              <div className="flex-1 space-y-1">
-                <div className="h-3 bg-base-300 rounded w-3/4" />
-                <div className="h-2 bg-base-300 rounded w-1/2" />
-              </div>
-              <div className="h-3 bg-base-300 rounded w-12" />
+              <div className="w-24 h-3" style={{ backgroundColor: "#333333" }} />
+              <div className="flex-1 h-3" style={{ backgroundColor: "#333333" }} />
+              <div className="w-12 h-3" style={{ backgroundColor: "#333333" }} />
             </div>
           ))}
         </div>
       )}
 
       {/* Error */}
-      {error && !isLoading && <div className="text-center py-8 text-base-content/50 text-sm">{error}</div>}
+      {error && !isLoading && (
+        <div
+          className="text-center py-8 font-[family-name:var(--font-ibm-plex-mono)] text-sm uppercase"
+          style={{ color: "#666666" }}
+        >
+          {error}
+        </div>
+      )}
 
       {/* Empty */}
       {!isLoading && !error && items.length === 0 && (
-        <div className="text-center py-8 text-base-content/50 text-sm">No activity yet</div>
+        <div
+          className="text-center py-8 font-[family-name:var(--font-ibm-plex-mono)] text-sm uppercase"
+          style={{ color: "#666666" }}
+        >
+          NO ACTIVITY YET
+        </div>
       )}
 
       {/* Items */}
       {items.length > 0 && (
-        <div className="space-y-1">
-          {items.map(item => {
-            const badge = TYPE_BADGES[item.type] || { label: item.type, className: "badge-ghost" };
-            const tokenIcon = item.out?.icon || item.in?.icon || "";
-            const chainIcon = CHAIN_ICONS[item.chain] || "";
+        <div>
+          {items.map((item, idx) => {
+            const typeInfo = TYPE_LABELS[item.type] || { label: item.type.toUpperCase(), color: "#FFFFFF" };
             const isFailed = item.status === "failed";
 
             return (
               <div
                 key={item.id}
-                className={`flex items-center gap-2 py-1 px-2 rounded-lg hover:bg-base-300/50 transition-colors ${isFailed ? "opacity-50" : ""}`}
+                className={`flex items-center justify-between px-6 py-4 transition-colors duration-150 hover:bg-white/5 ${isFailed ? "opacity-50" : ""}`}
+                style={{
+                  borderBottom: idx < items.length - 1 ? "2px solid #FFFFFF" : "none",
+                }}
               >
-                {/* Token icon with chain badge */}
-                <div className="relative w-8 h-8 shrink-0">
-                  {tokenIcon ? (
-                    <img
-                      src={tokenIcon}
-                      alt=""
-                      className="w-8 h-8 rounded-full"
-                      onError={e => {
-                        (e.target as HTMLImageElement).style.display = "none";
-                      }}
-                    />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs">⟠</div>
-                  )}
-                  {chainIcon && (
-                    <img
-                      src={chainIcon}
-                      alt={item.chain}
-                      className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-base-200"
-                    />
-                  )}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`badge badge-xs ${badge.className}`}>{badge.label}</span>
-                    {isFailed && <span className="badge badge-xs badge-error">Failed</span>}
-                  </div>
-                  <div className="mt-0.5">
+                <div className="flex items-center gap-6">
+                  <span
+                    className="font-[family-name:var(--font-ibm-plex-mono)] text-xs font-bold uppercase w-24"
+                    style={{ color: typeInfo.color }}
+                  >
+                    {typeInfo.label}
+                  </span>
+                  <div>
+                    {isFailed && (
+                      <span
+                        className="font-[family-name:var(--font-ibm-plex-mono)] text-[10px] uppercase font-bold mr-2"
+                        style={{ color: "#FF4500" }}
+                      >
+                        FAILED
+                      </span>
+                    )}
                     <TransferChips item={item} />
                   </div>
                 </div>
 
-                {/* Right side: value + time + link */}
-                <div className="text-right shrink-0 flex items-center gap-1.5">
+                <div className="text-right shrink-0 flex items-center gap-3">
                   <div>
                     {item.valueUsd != null && (
-                      <div className="text-xs font-medium">{formatUsdValue(item.valueUsd)}</div>
+                      <div className="font-[family-name:var(--font-ibm-plex-mono)] text-xs font-bold uppercase">
+                        {formatUsdValue(item.valueUsd)}
+                      </div>
                     )}
-                    <div className="text-[10px] text-base-content/50">{relativeTime(item.minedAt)}</div>
+                    <div
+                      className="font-[family-name:var(--font-ibm-plex-mono)] text-xs uppercase"
+                      style={{ color: "#666666" }}
+                    >
+                      {relativeTime(item.minedAt)}
+                    </div>
                   </div>
                   <a
                     href={item.explorerUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-base-content/40 hover:text-primary transition-colors"
+                    className="transition-colors"
+                    style={{ color: "#666666" }}
+                    onMouseEnter={e => (e.currentTarget.style.color = "#FF4500")}
+                    onMouseLeave={e => (e.currentTarget.style.color = "#666666")}
                     title="View on explorer"
                   >
                     <svg

@@ -71,7 +71,6 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
   const explorerBase = EXPLORER_URLS[tx.chainId] || "https://etherscan.io/tx/";
   const chainName = CHAIN_NAMES[tx.chainId];
 
-  // Mobile deep-link to wallet
   const openWallet = useCallback(() => {
     if (typeof window === "undefined") return;
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -100,12 +99,11 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
     setExecError("");
 
     try {
-      // Switch chain if wallet is on wrong network
       if (tx.chainId && currentChainId !== tx.chainId) {
         try {
           await switchChainAsync({ chainId: tx.chainId });
         } catch {
-          setExecError(`Please switch your wallet to ${chainName || `chain ${tx.chainId}`} and try again.`);
+          setExecError(`SWITCH YOUR WALLET TO ${chainName?.toUpperCase() || `CHAIN ${tx.chainId}`} AND TRY AGAIN.`);
           setIsExecuting(false);
           return;
         }
@@ -121,7 +119,7 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
       const hash = await promise;
       setTxHash(hash);
     } catch (e: unknown) {
-      setExecError(e instanceof Error ? e.message : "Transaction failed");
+      setExecError(e instanceof Error ? e.message : "TRANSACTION FAILED");
     } finally {
       setIsExecuting(false);
     }
@@ -133,20 +131,38 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
   return (
     <>
       {/* Inline card within the chat bubble */}
-      <div className="mt-3 bg-base-300/50 rounded-xl p-3 space-y-2">
+      <div
+        className="mt-3 p-4 space-y-2 border-2"
+        style={{
+          backgroundColor: "#0d0d0d",
+          borderColor: "#FFFFFF",
+        }}
+      >
         {/* Simulation preview */}
         {tx.simulation && tx.simulation.changes.length > 0 && (
           <div className="space-y-2 text-sm">
             {outChanges.map((c, i) => (
               <div key={`out-${i}`} className="flex justify-between items-center">
-                <span className="text-base-content/60 text-xs">You send</span>
+                <span
+                  className="font-[family-name:var(--font-ibm-plex-mono)] text-xs uppercase font-bold"
+                  style={{ color: "#666666" }}
+                >
+                  YOU SEND
+                </span>
                 <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
               </div>
             ))}
-            {outChanges.length > 0 && inChanges.length > 0 && <div className="border-t border-base-content/10" />}
+            {outChanges.length > 0 && inChanges.length > 0 && (
+              <div className="h-0.5" style={{ backgroundColor: "#FFFFFF" }} />
+            )}
             {inChanges.map((c, i) => (
               <div key={`in-${i}`} className="flex justify-between items-center">
-                <span className="text-base-content/60 text-xs">You receive</span>
+                <span
+                  className="font-[family-name:var(--font-ibm-plex-mono)] text-xs uppercase font-bold"
+                  style={{ color: "#666666" }}
+                >
+                  YOU RECEIVE
+                </span>
                 <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
               </div>
             ))}
@@ -155,37 +171,63 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
 
         {/* Description */}
         {tx.description && (
-          <div className="text-xs text-base-content/50">
+          <div className="font-[family-name:var(--font-ibm-plex-mono)] text-xs uppercase" style={{ color: "#666666" }}>
             <ChatMessageRenderer content={tx.description} />
           </div>
         )}
 
         {/* Tx confirmed inline */}
         {txHash && isTxConfirmed && (
-          <div className="text-sm text-success flex items-center gap-1">
-            ✅ Confirmed —{" "}
+          <div
+            className="font-[family-name:var(--font-ibm-plex-mono)] text-sm font-bold uppercase flex items-center gap-1"
+            style={{ color: "#00FF41" }}
+          >
+            ✓ CONFIRMED —{" "}
             <a
               href={`${explorerBase}${txHash}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="link link-primary"
+              className="underline"
+              style={{ color: "#00FF41" }}
             >
-              view tx
+              VIEW TX
             </a>
           </div>
         )}
 
         {txHash && isTxConfirming && !isTxConfirmed && (
-          <div className="text-sm text-base-content/60 flex items-center gap-2">
+          <div
+            className="font-[family-name:var(--font-ibm-plex-mono)] text-sm uppercase flex items-center gap-2"
+            style={{ color: "#FFFFFF" }}
+          >
             <span className="loading loading-spinner loading-xs"></span>
-            Confirming...
+            CONFIRMING...
           </div>
         )}
 
-        {/* Execute button — opens confirmation modal */}
+        {/* Execute button */}
         {!txHash && (
-          <button className="btn btn-success btn-sm w-full" onClick={() => setShowModal(true)}>
-            Execute
+          <button
+            className="btn btn-sm w-full border-2 font-bold uppercase transition-colors duration-150"
+            style={{
+              backgroundColor: "#FF4500",
+              color: "#000000",
+              borderColor: "#FF4500",
+              borderRadius: "0",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.backgroundColor = "#000000";
+              e.currentTarget.style.color = "#FF4500";
+              e.currentTarget.style.borderColor = "#FF4500";
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.backgroundColor = "#FF4500";
+              e.currentTarget.style.color = "#000000";
+              e.currentTarget.style.borderColor = "#FF4500";
+            }}
+            onClick={() => setShowModal(true)}
+          >
+            <span className="font-[family-name:var(--font-space-grotesk)] text-sm tracking-wider">EXECUTE</span>
           </button>
         )}
       </div>
@@ -193,87 +235,176 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
       {/* Confirmation modal */}
       {showModal && (
         <dialog className="modal modal-open" onClick={() => !isExecuting && setShowModal(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()}>
-            <h3 className="font-bold text-lg mb-4">Confirm Transaction</h3>
+          <div
+            className="modal-box border-2"
+            style={{
+              backgroundColor: "#0d0d0d",
+              borderColor: "#FFFFFF",
+              borderRadius: "0",
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="font-[family-name:var(--font-space-grotesk)] text-xl font-bold uppercase tracking-wider mb-6">
+              CONFIRM TRANSACTION
+            </h3>
 
             {/* Full simulation details */}
             {tx.simulation && tx.simulation.changes.length > 0 && (
-              <div className="bg-base-200 rounded-xl p-4 space-y-3 mb-4">
+              <div
+                className="p-4 space-y-3 mb-4 border-2"
+                style={{ backgroundColor: "#1a1a1a", borderColor: "#FFFFFF" }}
+              >
                 {outChanges.map((c, i) => (
                   <div key={`modal-out-${i}`} className="flex justify-between items-center">
-                    <span className="text-base-content/60 text-sm">You send</span>
+                    <span
+                      className="font-[family-name:var(--font-ibm-plex-mono)] text-sm uppercase font-bold"
+                      style={{ color: "#666666" }}
+                    >
+                      YOU SEND
+                    </span>
                     <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
                   </div>
                 ))}
-                {outChanges.length > 0 && inChanges.length > 0 && <div className="border-t border-base-300" />}
+                {outChanges.length > 0 && inChanges.length > 0 && (
+                  <div className="h-0.5" style={{ backgroundColor: "#FFFFFF" }} />
+                )}
                 {inChanges.map((c, i) => (
                   <div key={`modal-in-${i}`} className="flex justify-between items-center">
-                    <span className="text-base-content/60 text-sm">You receive</span>
+                    <span
+                      className="font-[family-name:var(--font-ibm-plex-mono)] text-sm uppercase font-bold"
+                      style={{ color: "#666666" }}
+                    >
+                      YOU RECEIVE
+                    </span>
                     <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
                   </div>
                 ))}
                 {tx.simulation.verified && (
-                  <div className="text-xs text-success/70 text-center mt-1">✓ Simulation verified on-chain</div>
+                  <div
+                    className="font-[family-name:var(--font-ibm-plex-mono)] text-xs text-center mt-1 uppercase"
+                    style={{ color: "#00FF41" }}
+                  >
+                    ✓ SIMULATION VERIFIED ONCHAIN
+                  </div>
                 )}
               </div>
             )}
 
             {/* Tx details */}
-            <div className="bg-base-200 rounded-xl p-4 space-y-3 text-sm mb-4">
+            <div
+              className="p-4 space-y-3 text-sm mb-4 border-2"
+              style={{ backgroundColor: "#1a1a1a", borderColor: "#FFFFFF" }}
+            >
               <div className="flex justify-between items-center">
-                <span className="text-base-content/60">From</span>
+                <span
+                  className="font-[family-name:var(--font-ibm-plex-mono)] uppercase font-bold"
+                  style={{ color: "#666666" }}
+                >
+                  FROM
+                </span>
                 <AddressChip address={address} />
               </div>
-              {/* "To" row: plain ETH send → recipient address. Contract call with known asset → "Contract" + AssetChip. Fallback → address */}
               {!tx.data || tx.data === "0x" ? (
                 <div className="flex justify-between items-center">
-                  <span className="text-base-content/60">To</span>
+                  <span
+                    className="font-[family-name:var(--font-ibm-plex-mono)] uppercase font-bold"
+                    style={{ color: "#666666" }}
+                  >
+                    TO
+                  </span>
                   <AddressChip address={tx.to} />
                 </div>
               ) : outChanges.length > 0 ? (
                 <div className="flex justify-between items-center">
-                  <span className="text-base-content/60">Contract</span>
+                  <span
+                    className="font-[family-name:var(--font-ibm-plex-mono)] uppercase font-bold"
+                    style={{ color: "#666666" }}
+                  >
+                    CONTRACT
+                  </span>
                   <AssetChip symbol={outChanges[0].symbol} chain={outChanges[0].chain || chainName} />
                 </div>
               ) : (
                 <div className="flex justify-between items-center">
-                  <span className="text-base-content/60">To</span>
+                  <span
+                    className="font-[family-name:var(--font-ibm-plex-mono)] uppercase font-bold"
+                    style={{ color: "#666666" }}
+                  >
+                    TO
+                  </span>
                   <AddressChip address={tx.to} />
                 </div>
               )}
               <div className="flex justify-between items-center">
-                <span className="text-base-content/60">Network</span>
+                <span
+                  className="font-[family-name:var(--font-ibm-plex-mono)] uppercase font-bold"
+                  style={{ color: "#666666" }}
+                >
+                  NETWORK
+                </span>
                 {chainName ? (
                   <NetworkChip chain={chainName} />
                 ) : (
-                  <span className="text-xs font-mono">Chain {tx.chainId}</span>
+                  <span className="font-[family-name:var(--font-ibm-plex-mono)] text-xs uppercase">
+                    CHAIN {tx.chainId}
+                  </span>
                 )}
               </div>
               {tx.description && (
-                <div className="text-base-content/60 text-xs border-t border-base-300 pt-2">
+                <div className="text-xs pt-2 uppercase" style={{ color: "#666666", borderTop: "2px solid #FFFFFF" }}>
                   <ChatMessageRenderer content={tx.description} />
                 </div>
               )}
             </div>
 
             {execError && (
-              <div className="alert alert-error mb-4 text-sm">
+              <div
+                className="mb-4 p-3 font-[family-name:var(--font-ibm-plex-mono)] text-sm font-bold uppercase border-2"
+                style={{
+                  backgroundColor: "rgba(255, 69, 0, 0.1)",
+                  borderColor: "#FF4500",
+                  color: "#FF4500",
+                }}
+              >
                 <span>{execError}</span>
               </div>
             )}
 
-            <div className="modal-action">
-              <button className="btn btn-ghost" onClick={() => setShowModal(false)} disabled={isExecuting}>
-                Cancel
+            <div className="flex justify-end gap-3">
+              <button
+                className="btn btn-ghost btn-sm font-bold uppercase"
+                style={{ color: "#666666" }}
+                onClick={() => setShowModal(false)}
+                disabled={isExecuting}
+              >
+                CANCEL
               </button>
-              <button className="btn btn-success" onClick={handleExecute} disabled={isExecuting}>
+              <button
+                className="btn btn-sm border-2 font-bold uppercase transition-colors duration-150"
+                style={{
+                  backgroundColor: "#FF4500",
+                  color: "#000000",
+                  borderColor: "#FF4500",
+                  borderRadius: "0",
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.backgroundColor = "#000000";
+                  e.currentTarget.style.color = "#FF4500";
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.backgroundColor = "#FF4500";
+                  e.currentTarget.style.color = "#000000";
+                }}
+                onClick={handleExecute}
+                disabled={isExecuting}
+              >
                 {isExecuting ? (
                   <>
                     <span className="loading loading-spinner loading-sm"></span>
-                    Sending...
+                    SENDING...
                   </>
                 ) : (
-                  "Confirm & Send"
+                  <span className="font-[family-name:var(--font-space-grotesk)] tracking-wider">CONFIRM & SEND</span>
                 )}
               </button>
             </div>

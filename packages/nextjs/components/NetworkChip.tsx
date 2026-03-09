@@ -1,7 +1,7 @@
 "use client";
 
 interface NetworkChipProps {
-  chain: string; // "base", "ethereum", "arbitrum", etc.
+  chain: string;
 }
 
 const CHAIN_ICONS: Record<string, string> = {
@@ -25,32 +25,39 @@ const CHAIN_ICONS: Record<string, string> = {
 };
 
 const CHAIN_DISPLAY: Record<string, string> = {
-  ethereum: "Ethereum",
-  base: "Base",
-  arbitrum: "Arbitrum",
-  optimism: "Optimism",
-  polygon: "Polygon",
-  xdai: "Gnosis",
-  gnosis: "Gnosis",
-  linea: "Linea",
-  scroll: "Scroll",
-  "zksync-era": "zkSync",
-  zksync: "zkSync",
-  mantle: "Mantle",
-  monad: "Monad",
-  abstract: "Abstract",
-  zora: "Zora",
-  unichain: "Unichain",
+  ethereum: "ETHEREUM",
+  base: "BASE",
+  arbitrum: "ARBITRUM",
+  optimism: "OPTIMISM",
+  polygon: "POLYGON",
+  xdai: "GNOSIS",
+  gnosis: "GNOSIS",
+  linea: "LINEA",
+  scroll: "SCROLL",
+  "zksync-era": "ZKSYNC",
+  zksync: "ZKSYNC",
+  mantle: "MANTLE",
+  monad: "MONAD",
+  abstract: "ABSTRACT",
+  zora: "ZORA",
+  unichain: "UNICHAIN",
   "binance-smart-chain": "BSC",
 };
 
 export default function NetworkChip({ chain }: NetworkChipProps) {
   const key = chain.toLowerCase();
   const iconUrl = CHAIN_ICONS[key];
-  const displayName = CHAIN_DISPLAY[key] || chain;
+  const displayName = CHAIN_DISPLAY[key] || chain.toUpperCase();
 
   return (
-    <span className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 rounded-full bg-base-300 border border-base-content/10 text-xs font-medium align-middle whitespace-nowrap">
+    <span
+      className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 text-xs font-bold align-middle whitespace-nowrap uppercase border-2 font-[family-name:var(--font-ibm-plex-mono)]"
+      style={{
+        backgroundColor: "#0d0d0d",
+        borderColor: "#FFFFFF",
+        color: "#FFFFFF",
+      }}
+    >
       {iconUrl ? (
         <img
           src={iconUrl}
@@ -61,9 +68,9 @@ export default function NetworkChip({ chain }: NetworkChipProps) {
           }}
         />
       ) : (
-        <span className="w-3.5 h-3.5 rounded-full bg-base-content/20 flex-shrink-0" />
+        <span className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: "#666666" }} />
       )}
-      <span className="text-base-content/80">{displayName}</span>
+      <span>{displayName}</span>
     </span>
   );
 }
