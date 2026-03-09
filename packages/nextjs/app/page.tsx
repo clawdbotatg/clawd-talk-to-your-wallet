@@ -422,7 +422,7 @@ const Home: NextPage = () => {
                   </div>
                 )}
                 {/* Chat messages — scrollable */}
-                <div className="flex-1 overflow-y-auto space-y-4 pb-4" ref={chatScrollRef}>
+                <div className="flex-1 overflow-y-auto space-y-2 pb-4" ref={chatScrollRef}>
                   {messages.length === 0 && (
                     <div className="text-center text-base-content/40 mt-20">
                       <p className="text-lg">Ask anything about your wallet</p>
@@ -432,7 +432,7 @@ const Home: NextPage = () => {
                   {messages.map((msg, i) => (
                     <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                       <div
-                        className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                        className={`max-w-[85%] rounded-2xl px-3 py-1.5 ${
                           msg.role === "user"
                             ? "bg-primary text-primary-content rounded-br-sm"
                             : "bg-base-200 text-base-content rounded-bl-sm"
@@ -451,7 +451,7 @@ const Home: NextPage = () => {
                   ))}
                   {isProcessing && (
                     <div className="flex justify-start">
-                      <div className="bg-base-200 rounded-2xl rounded-bl-sm px-4 py-3">
+                      <div className="bg-base-200 rounded-2xl rounded-bl-sm px-3 py-1.5">
                         <span className="loading loading-dots loading-sm"></span>
                       </div>
                     </div>
