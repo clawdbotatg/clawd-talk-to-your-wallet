@@ -216,81 +216,124 @@ const intentTools = {
     },
   }),
 
-  getTokenActivity: tool({
-    description:
-      "Search ALL transaction history for a specific token symbol. Paginates through up to 500 transactions to find matches. Use this when user asks where a token came from, when they got it, acquisition price, or peak value. ALWAYS use this for 'where did X come from?' questions — do NOT give up after one page.",
+  searchTransactions: tool({
+    description: `Search the wallet's full on-chain transaction history. Use for ANY question about past activity:
+- "where did X come from?" / "when did I buy X?" / "what did I pay for X?" → pass tokenSymbol
+- "show my recent swaps/trades" → pass operationType="trade"
+- "what did I do on Base?" → pass chainId="base"
+- "what happened in January?" → pass afterDate / beforeDate
+Always call this before saying you can't find something. It uses server-side token filtering so results are instant regardless of history depth.`,
     inputSchema: z.object({
-      address: z.string(),
-      tokenSymbol: z.string().describe("Token symbol to search for, e.g. 'CLAWNCH', 'GNO', 'ETH'"),
-      chainId: z.string().optional().describe("e.g. 'xdai', 'base', 'ethereum' — optional filter"),
+      address: z.string().describe("Wallet address"),
+      tokenSymbol: z.string().optional().describe("Token symbol to filter by, e.g. 'CLAWNCH', 'ETH', 'USDC'"),
+      chainId: z
+        .string()
+        .optional()
+        .describe("Chain to filter: 'ethereum', 'base', 'xdai', 'arbitrum', 'optimism', 'polygon'"),
+      operationType: z
+        .string()
+        .optional()
+        .describe(
+          "Filter by type: 'trade', 'send', 'receive', 'deposit', 'withdraw', 'approve', 'mint', 'burn', 'execute'",
+        ),
+      afterDate: z.string().optional().describe("ISO date string, e.g. '2026-01-01' — only return txs after this date"),
+      beforeDate: z
+        .string()
+        .optional()
+        .describe("ISO date string, e.g. '2026-02-01' — only return txs before this date"),
+      limit: z.number().optional().describe("Max results to return, default 20, max 100"),
     }),
-    execute: async ({ address, tokenSymbol, chainId }) => {
+    execute: async ({ address, tokenSymbol, chainId, operationType, afterDate, beforeDate, limit }) => {
       const ZERION_KEY = process.env.ZERION_API_KEY || "";
       const auth = Buffer.from(`${ZERION_KEY}:`).toString("base64");
       const headers = { Authorization: `Basic ${auth}`, accept: "application/json" };
-
-      const matches: any[] = [];
-      const baseUrl =
-        `https://api.zerion.io/v1/wallets/${address}/transactions/?currency=usd&page[size]=100&sort=-mined_at` +
-        (chainId ? `&filter[chain_ids]=${chainId}` : "");
-      let cursor: string | null = baseUrl;
-      let pagesChecked = 0;
-      const MAX_PAGES = 5; // up to 500 txs
+      const maxResults = Math.min(limit || 20, 100);
 
       try {
-        while (cursor && pagesChecked < MAX_PAGES) {
-          const pageUrl: string = cursor;
-          const res = await fetch(pageUrl, { headers });
-          const data = await res.json();
-          const items: any[] = data.data || [];
-          pagesChecked++;
-
-          for (const tx of items) {
-            const transfers = tx.attributes?.transfers || [];
-            const relevant = transfers.filter(
-              (t: any) => t.fungible_info?.symbol?.toLowerCase() === tokenSymbol.toLowerCase(),
+        // Step 1: If filtering by token symbol, resolve to Zerion fungible ID first (enables server-side filter)
+        let fungibleId: string | null = null;
+        if (tokenSymbol) {
+          const fRes = await fetch(
+            `https://api.zerion.io/v1/fungibles/?filter[search_query]=${encodeURIComponent(tokenSymbol)}&currency=usd`,
+            { headers },
+          );
+          if (fRes.ok) {
+            const fData = await fRes.json();
+            // Find exact symbol match
+            const match = (fData.data || []).find(
+              (f: any) => f.attributes?.symbol?.toLowerCase() === tokenSymbol.toLowerCase(),
             );
-            if (relevant.length > 0) {
-              const attrs = tx.attributes;
-              matches.push({
-                date: attrs.mined_at,
-                type: attrs.operation_type,
-                chain: tx.relationships?.chain?.data?.id,
-                hash: attrs.hash,
-                transfers: transfers.map((t: any) => ({
-                  direction: t.direction,
-                  symbol: t.fungible_info?.symbol,
-                  name: t.fungible_info?.name,
-                  amount: t.quantity?.float,
-                  valueUsd: t.value,
-                  price: t.price,
-                })),
-              });
-            }
+            fungibleId = match?.id || null;
           }
-
-          // Follow next page link from Zerion
-          const nextLink: string | undefined = data.links?.next;
-          cursor = nextLink && items.length === 100 ? nextLink : null;
         }
 
-        if (matches.length === 0) {
+        // Step 2: Build query URL with all available server-side filters
+        const params = new URLSearchParams();
+        params.set("currency", "usd");
+        params.set("page[size]", "100");
+        params.set("sort", "-mined_at");
+        if (fungibleId) params.set("filter[fungible_ids]", fungibleId);
+        if (chainId) params.set("filter[chain_ids]", chainId);
+        if (operationType) params.set("filter[operation_types]", operationType);
+
+        const url = `https://api.zerion.io/v1/wallets/${address}/transactions/?${params.toString()}`;
+        const res = await fetch(url, { headers });
+        if (!res.ok) {
+          return { error: `Zerion API error: ${res.status}` };
+        }
+        const data = await res.json();
+        const allItems: any[] = data.data || [];
+
+        // Step 3: Client-side date filter if requested
+        const items = allItems.filter((tx: any) => {
+          const minedAt = tx.attributes?.mined_at || "";
+          if (afterDate && minedAt < afterDate) return false;
+          if (beforeDate && minedAt > beforeDate) return false;
+          return true;
+        });
+
+        const results = items.slice(0, maxResults).map((tx: any) => {
+          const attrs = tx.attributes;
+          const transfers = (attrs.transfers || []).map((t: any) => ({
+            direction: t.direction,
+            symbol: t.fungible_info?.symbol,
+            name: t.fungible_info?.name,
+            amount: t.quantity?.float,
+            valueUsd: t.value,
+            pricePerToken: t.price,
+          }));
+          return {
+            date: attrs.mined_at,
+            type: attrs.operation_type,
+            chain: tx.relationships?.chain?.data?.id,
+            hash: attrs.hash,
+            from: attrs.sent_from,
+            to: attrs.sent_to,
+            transfers,
+          };
+        });
+
+        if (results.length === 0) {
           return {
             found: false,
-            pagesSearched: pagesChecked,
-            message: `No transactions found for ${tokenSymbol} in the last ${pagesChecked * 100} transactions. Token may have been acquired earlier or via airdrop/contract not indexed as a transfer.`,
+            tokenSymbol,
+            fungibleIdResolved: fungibleId,
+            message: fungibleId
+              ? `No transactions found for ${tokenSymbol} (Zerion ID: ${fungibleId}). Token may have been received via airdrop, farming, or contract interaction not indexed as a transfer.`
+              : `Token symbol '${tokenSymbol}' not found in Zerion's fungible index. Try a different symbol or contract address.`,
           };
         }
 
         return {
           found: true,
+          totalFound: items.length,
+          returned: results.length,
           tokenSymbol,
-          pagesSearched: pagesChecked,
-          totalMatches: matches.length,
-          transactions: matches,
+          fungibleIdResolved: fungibleId,
+          transactions: results,
         };
       } catch (e) {
-        return { error: `Failed to search token activity: ${e instanceof Error ? e.message : String(e)}` };
+        return { error: `searchTransactions failed: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
   }),
@@ -787,13 +830,13 @@ WHEN ANSWERING QUESTIONS:
 - Injected portfolio = your starting point for overviews ("what do I have?", "show me my portfolio")
 - For ANY specific question about a token/balance on a specific chain → call getOnChainBalance to get the LIVE on-chain value. Don't trust the snapshot for specific queries.
 - For "how much X do I have on Y chain?" → ALWAYS call getOnChainBalance. The injected snapshot may be stale.
-- For "where did X come from?" or "when did I buy X?" or "what did I pay for X?" → ALWAYS call getTokenActivity first. It paginates through 500 transactions. NEVER give up and say you can't find it without calling this tool.
-- For "what was X worth when I got it?" or "when was X highest?" → call getTokenActivity to find acquisition tx, then getTokenPrice for current price. Report the acquisition date, amount paid (valueUsd of outgoing transfer), and current value.
-- Once you have a tx hash from getTokenActivity, call getTransactionDetails for full sender/receiver info. NEVER say "check a block explorer".
-- For "how is X doing?" or "what's the price of X?" → call getTokenPrice for current price/change
-- For "what have I been doing?" → summarize from the activity context
-- Be specific: give dates, amounts, chains, USD values. NEVER say "I don't have access to your history" or "I couldn't find it" without having called getTokenActivity first.
-- If getTokenActivity returns found=false, TELL THE USER what you searched and how many pages, then explain what might have happened (airdrop, farm reward, etc)
+- For ANY question about past transactions — "where did X come from?", "when did I buy X?", "what did I pay?", "show my trades", "what did I do on Base?" → call searchTransactions. It resolves token symbols server-side and searches the full history instantly. NEVER say you can't find something without calling this first.
+- For "what was X worth when I got it?" → call searchTransactions with tokenSymbol, find the acquisition tx, compute P&L vs current price from getTokenPrice.
+- For "what have I been doing lately?" → call searchTransactions with a limit of 20 (no token filter).
+- Once you have a tx hash, call getTransactionDetails for sender/receiver. NEVER say "check a block explorer".
+- For "how is X doing?" or "what's the price of X?" → call getTokenPrice.
+- Be specific: always give dates, amounts, chains, USD values. NEVER say "I don't have access to your history".
+- If searchTransactions returns found=false with a resolved fungibleId, the token genuinely has no indexed transfer history (airdrop, farm reward, genesis allocation). Say so clearly.
 - Keep answers concise — 2-4 sentences unless they ask for more detail
 
 WHEN TO BUILD A TRANSACTION:
@@ -819,10 +862,10 @@ AVAILABLE TOOLS:
 - traceCall: Full EVM trace for debugging.
 - getPortfolio: Get user's current balances across all chains (with chain breakdown and totals).
 - getOnChainBalance: LIVE on-chain balance via RPC for ETH or any ERC-20. Use for specific "how much X on Y chain?" questions — more accurate than the snapshot.
-- getTokenActivity: Get all transactions involving a specific token. Use for "where did X come from?" questions.
+- searchTransactions: The primary history tool. Filters by token symbol (resolved server-side), chain, operation type, date range. Use for almost any "what happened / when / where did X come from" question.
 - getTransactionDetails: Look up full tx details by hash — sender, receiver, value. Use when you have a hash and need to answer "who sent this?" or "what address?"
 - getTokenPrice: Get current USD price and 24h change for any token.
-- getWalletActivity: Get recent cross-chain transaction history with full details.
+- getWalletActivity: Get recent cross-chain transaction history with full details (use when no specific token/filter needed).
 - buildSwap: Build swap calldata via Enso Finance.
 - buildBridge: Build bridge calldata via LI.FI (cross-chain).
 - buildTransfer: Build ETH or ERC-20 transfer calldata.
