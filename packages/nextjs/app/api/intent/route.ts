@@ -993,7 +993,7 @@ export async function POST(req: NextRequest) {
     const userPrompt = `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${activitySummary}${recentContext}\n\nUser: ${message}`;
 
     const result = await generateText({
-      model: anthropic("claude-sonnet-4-20250514"),
+      model: anthropic("claude-opus-4-6"),
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userPrompt }],
       tools: intentTools,
