@@ -173,7 +173,7 @@ export default function ActivityPanel({ address, initialItems }: ActivityPanelPr
 
       {/* Items */}
       {items.length > 0 && (
-        <div className="space-y-1 max-h-[600px] overflow-y-auto">
+        <div className="space-y-1">
           {items.map(item => {
             const badge = TYPE_BADGES[item.type] || { label: item.type, className: "badge-ghost" };
             const tokenIcon = item.out?.icon || item.in?.icon || "";

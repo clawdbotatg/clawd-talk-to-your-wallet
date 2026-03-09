@@ -229,7 +229,7 @@ const Home: NextPage = () => {
           address,
           portfolio,
           recentMessages: messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
-          recentActivity: activity.slice(0, 20),
+          recentActivity: activity.slice(0, 50),
         }),
       });
       const data = await res.json();
@@ -318,19 +318,19 @@ const Home: NextPage = () => {
                     ) : portfolio.length === 0 ? (
                       <div className="text-center py-4 text-base-content/50">No assets found</div>
                     ) : (
-                      <div className="space-y-1">
+                      <div className="space-y-0">
                         {displayedAssets.map((asset, i) => (
                           <div
                             key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
-                            className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
+                            className="flex items-center justify-between py-0.5 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="relative w-8 h-8 shrink-0">
+                            <div className="flex items-center gap-2">
+                              <div className="relative w-7 h-7 shrink-0">
                                 {asset.thumbnail ? (
                                   <img
                                     src={asset.thumbnail}
                                     alt={asset.tokenSymbol}
-                                    className="w-8 h-8 rounded-full"
+                                    className="w-7 h-7 rounded-full"
                                     onError={e => {
                                       (e.target as HTMLImageElement).src = "";
                                       (e.target as HTMLImageElement).style.display = "none";
@@ -338,14 +338,14 @@ const Home: NextPage = () => {
                                       if (parent) {
                                         const fallback = document.createElement("div");
                                         fallback.className =
-                                          "w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold absolute inset-0";
+                                          "w-7 h-7 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold absolute inset-0";
                                         fallback.textContent = asset.tokenSymbol.slice(0, 2);
                                         parent.appendChild(fallback);
                                       }
                                     }}
                                   />
                                 ) : (
-                                  <div className="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
+                                  <div className="w-7 h-7 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
                                     {asset.tokenSymbol.slice(0, 2)}
                                   </div>
                                 )}

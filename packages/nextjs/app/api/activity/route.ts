@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const pageNum = parseInt(page);
-    const url = `https://api.zerion.io/v1/wallets/${address}/transactions/?currency=usd&page[size]=20${pageNum > 1 ? `&page[after]=${(pageNum - 1) * 20}` : ""}&sort=-mined_at`;
+    const url = `https://api.zerion.io/v1/wallets/${address}/transactions/?currency=usd&page[size]=50${pageNum > 1 ? `&page[after]=${(pageNum - 1) * 50}` : ""}&sort=-mined_at`;
 
     const res = await fetch(url, {
       headers: {
