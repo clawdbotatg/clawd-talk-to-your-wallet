@@ -82,8 +82,6 @@ const formatUsdValue = (value: string | number): string => {
   return `$${num.toFixed(2)}`;
 };
 
-// formatBalance removed — balance shown via NetworkChip subtitle instead
-
 const MAX_DISPLAY_ASSETS = 8;
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -93,7 +91,6 @@ const Home: NextPage = () => {
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Chat persistence — load from localStorage keyed by address
   const STORAGE_KEY = address ? `clawd-chat-${address.toLowerCase()}` : null;
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     if (typeof window === "undefined") return [];
@@ -106,7 +103,6 @@ const Home: NextPage = () => {
     }
   });
 
-  // Portfolio state
   const [portfolio, setPortfolio] = useState<PortfolioAsset[]>([]);
   const [defiPositions, setDefiPositions] = useState<PortfolioAsset[]>([]);
   const [totalBalanceUsd, setTotalBalanceUsd] = useState("0");
@@ -116,19 +112,15 @@ const Home: NextPage = () => {
   const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(false);
   const [showAllAssets, setShowAllAssets] = useState(false);
 
-  // Activity state (lifted from ActivityPanel for AI context)
   const [activity, setActivity] = useState<ActivityItem[]>([]);
 
-  // Chat scroll ref
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
-  // Persist messages to localStorage whenever they change
   useEffect(() => {
     if (!STORAGE_KEY || messages.length === 0) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
     } catch {
-      // quota exceeded — trim oldest messages
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-20)));
       } catch {
@@ -137,7 +129,6 @@ const Home: NextPage = () => {
     }
   }, [messages, STORAGE_KEY]);
 
-  // Load saved messages when address changes
   useEffect(() => {
     if (!address) {
       setMessages([]);
@@ -152,14 +143,12 @@ const Home: NextPage = () => {
     }
   }, [address]);
 
-  // Auto-scroll on new messages
   useEffect(() => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
   }, [messages, isProcessing]);
 
-  // Fetch portfolio + activity on wallet connect
   useEffect(() => {
     if (!address) {
       setPortfolio([]);
@@ -205,7 +194,6 @@ const Home: NextPage = () => {
     };
 
     fetchPortfolio();
-    // Stagger activity fetch to avoid concurrent Zerion calls
     setTimeout(fetchActivity, 1500);
   }, [address]);
 
@@ -269,10 +257,20 @@ const Home: NextPage = () => {
   // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex items-center flex-col flex-grow pt-2">
+    <div className="flex items-center flex-col flex-grow pt-2" style={{ backgroundColor: "#0a0a0a" }}>
       <div className="px-5 w-full max-w-7xl">
         {!isConnected ? (
-          <div className="flex flex-col items-center mt-10 gap-4">
+          <div className="flex flex-col items-center mt-20 gap-6">
+            <h1
+              className="font-[family-name:var(--font-cinzel)] text-4xl sm:text-5xl font-semibold tracking-[0.35em] text-center"
+              style={{ color: "#C9A84C" }}
+            >
+              D E N A R A I
+            </h1>
+            <p className="text-sm tracking-[0.2em] italic" style={{ color: "#8A8578" }}>
+              The ancient art of guarding wealth
+            </p>
+            <div className="h-px w-48" style={{ backgroundColor: "rgba(201, 168, 76, 0.15)" }} />
             <RainbowKitCustomConnectButton />
           </div>
         ) : (
@@ -280,23 +278,37 @@ const Home: NextPage = () => {
             <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 80px)" }}>
               {/* LEFT SIDEBAR: Portfolio */}
               <div className="w-full lg:w-72 shrink-0 space-y-4 overflow-y-auto">
-                <div className="bg-base-200 rounded-xl p-4 space-y-4">
+                <div
+                  className="p-4 space-y-4"
+                  style={{
+                    backgroundColor: "#111111",
+                    border: "1px solid rgba(201, 168, 76, 0.15)",
+                  }}
+                >
                   {/* Total + daily change header */}
                   <div>
                     {isLoadingPortfolio ? (
                       <div className="flex items-center gap-2">
-                        <span className="loading loading-spinner loading-sm"></span>
-                        <span className="text-sm text-base-content/50">Loading...</span>
+                        <span className="loading loading-spinner loading-sm" style={{ color: "#C9A84C" }}></span>
+                        <span className="text-sm" style={{ color: "#8A8578" }}>
+                          Loading...
+                        </span>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-2xl font-bold">{formatUsdValue(grandTotal)}</span>
+                        <span
+                          className="font-[family-name:var(--font-jetbrains)] text-2xl font-light"
+                          style={{ color: "#E8E4DC" }}
+                        >
+                          {formatUsdValue(grandTotal)}
+                        </span>
                         {changeUsd !== 0 && (
-                          <span className={`text-sm font-medium ${isChangeNegative ? "text-error" : "text-success"}`}>
-                            {isChangeNegative ? "▼" : "▲"} $
-                            {Math.abs(changeUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })} (
+                          <span
+                            className="font-[family-name:var(--font-jetbrains)] text-sm"
+                            style={{ color: isChangeNegative ? "#9B3D3D" : "#C9A84C" }}
+                          >
                             {isChangeNegative ? "" : "+"}
-                            {changePct.toFixed(1)}%)
+                            {changePct.toFixed(1)}%
                           </span>
                         )}
                       </div>
@@ -305,23 +317,32 @@ const Home: NextPage = () => {
 
                   {/* WALLET section */}
                   <div>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-semibold tracking-wider text-base-content/50 uppercase">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-xs tracking-[0.2em] uppercase" style={{ color: "#8A8578" }}>
                         Wallet
                       </span>
-                      <span className="text-sm font-semibold text-base-content/70">{formatUsdValue(walletTotal)}</span>
+                      <span className="font-[family-name:var(--font-jetbrains)] text-sm" style={{ color: "#8A8578" }}>
+                        {formatUsdValue(walletTotal)}
+                      </span>
                     </div>
 
                     {isLoadingPortfolio ? (
-                      <div className="text-center py-4 text-base-content/50">Loading assets...</div>
+                      <div className="text-center py-4" style={{ color: "#8A8578" }}>
+                        Loading assets...
+                      </div>
                     ) : portfolio.length === 0 ? (
-                      <div className="text-center py-4 text-base-content/50">No assets found</div>
+                      <div className="text-center py-4" style={{ color: "#8A8578" }}>
+                        No assets found
+                      </div>
                     ) : (
                       <div className="space-y-0">
                         {displayedAssets.map((asset, i) => (
                           <div
                             key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
-                            className="flex items-center justify-between py-0.5 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
+                            className="flex items-center justify-between py-2 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02]"
+                            style={{
+                              borderBottom: "1px solid rgba(201, 168, 76, 0.06)",
+                            }}
                           >
                             <div className="flex items-center gap-2">
                               <div className="relative w-7 h-7 shrink-0">
@@ -337,38 +358,59 @@ const Home: NextPage = () => {
                                       if (parent) {
                                         const fallback = document.createElement("div");
                                         fallback.className =
-                                          "w-7 h-7 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold absolute inset-0";
+                                          "w-7 h-7 flex items-center justify-center text-xs font-bold absolute inset-0";
+                                        fallback.style.backgroundColor = "#111111";
+                                        fallback.style.border = "1px solid rgba(201, 168, 76, 0.2)";
+                                        fallback.style.color = "#C9A84C";
                                         fallback.textContent = asset.tokenSymbol.slice(0, 2);
                                         parent.appendChild(fallback);
                                       }
                                     }}
                                   />
                                 ) : (
-                                  <div className="w-7 h-7 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
-                                    {asset.tokenSymbol.slice(0, 2)}
+                                  <div
+                                    className="w-7 h-7 flex items-center justify-center text-xs font-[family-name:var(--font-cinzel)] font-semibold"
+                                    style={{
+                                      backgroundColor: "#111111",
+                                      border: "1px solid rgba(201, 168, 76, 0.2)",
+                                      color: "#C9A84C",
+                                    }}
+                                  >
+                                    {asset.tokenSymbol.slice(0, 1)}
                                   </div>
                                 )}
                                 {CHAIN_ICONS[asset.blockchain] && (
                                   <img
                                     src={CHAIN_ICONS[asset.blockchain]}
                                     alt={asset.blockchain}
-                                    className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-base-200"
+                                    className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2"
+                                    style={{ borderColor: "#111111" }}
                                   />
                                 )}
                               </div>
                               <div>
-                                <div className="font-medium text-sm">{asset.tokenSymbol}</div>
+                                <div className="text-sm" style={{ color: "#E8E4DC" }}>
+                                  {asset.tokenSymbol}
+                                </div>
                               </div>
                             </div>
                             <div className="text-right">
-                              <div className="text-sm font-medium">{formatUsdValue(asset.balanceUsd)}</div>
+                              <div
+                                className="font-[family-name:var(--font-jetbrains)] text-sm"
+                                style={{ color: "#E8E4DC" }}
+                              >
+                                {formatUsdValue(asset.balanceUsd)}
+                              </div>
                             </div>
                           </div>
                         ))}
 
                         {!showAllAssets && hiddenCount > 0 && (
                           <button
-                            className="w-full text-center text-sm text-primary hover:underline py-2"
+                            className="w-full text-center text-sm py-2 transition-colors"
+                            style={{ color: "#C9A84C" }}
+                            onMouseEnter={e => (e.currentTarget.style.color = "#B8963E")}
+                            onMouseLeave={e => (e.currentTarget.style.color = "#C9A84C")}
                             onClick={() => setShowAllAssets(true)}
                           >
                             and {hiddenCount} more...
@@ -376,7 +418,10 @@ const Home: NextPage = () => {
                         )}
                         {showAllAssets && hiddenCount > 0 && (
                           <button
-                            className="w-full text-center text-sm text-primary hover:underline py-2"
+                            className="w-full text-center text-sm py-2 transition-colors"
+                            style={{ color: "#C9A84C" }}
+                            onMouseEnter={e => (e.currentTarget.style.color = "#B8963E")}
+                            onMouseLeave={e => (e.currentTarget.style.color = "#C9A84C")}
                             onClick={() => setShowAllAssets(false)}
                           >
                             Show less
@@ -386,16 +431,19 @@ const Home: NextPage = () => {
                     )}
                   </div>
 
-                  {/* PORTFOLIO (DeFi) section — staked, deposited, LP positions from Zerion only_complex */}
+                  {/* PORTFOLIO (DeFi) section */}
                   {defiPositions.length > 0 && (
                     <>
-                      <div className="border-t border-base-300" />
+                      <div className="h-px" style={{ backgroundColor: "rgba(201, 168, 76, 0.15)" }} />
                       <div>
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-xs font-semibold tracking-wider text-base-content/50 uppercase">
+                        <div className="flex justify-between items-center mb-3">
+                          <span className="text-xs tracking-[0.2em] uppercase" style={{ color: "#8A8578" }}>
                             Portfolio
                           </span>
-                          <span className="text-sm font-semibold text-base-content/70">
+                          <span
+                            className="font-[family-name:var(--font-jetbrains)] text-sm"
+                            style={{ color: "#8A8578" }}
+                          >
                             {formatUsdValue(defiTotal)}
                           </span>
                         </div>
@@ -403,7 +451,10 @@ const Home: NextPage = () => {
                           {defiPositions.map((pos, i) => (
                             <div
                               key={`defi-${pos.blockchain}-${pos.contractAddress || pos.tokenSymbol}-${i}`}
-                              className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-base-300/50 transition-colors"
+                              className="flex items-center justify-between py-1.5 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02]"
+                              style={{
+                                borderBottom: "1px solid rgba(201, 168, 76, 0.06)",
+                              }}
                             >
                               <div className="flex items-center gap-2">
                                 <div className="relative w-7 h-7 shrink-0">
@@ -417,28 +468,43 @@ const Home: NextPage = () => {
                                       }}
                                     />
                                   ) : (
-                                    <div className="w-7 h-7 rounded-full bg-base-300 flex items-center justify-center text-xs font-bold">
-                                      {pos.tokenSymbol.slice(0, 2)}
+                                    <div
+                                      className="w-7 h-7 flex items-center justify-center text-xs font-[family-name:var(--font-cinzel)] font-semibold"
+                                      style={{
+                                        backgroundColor: "#111111",
+                                        border: "1px solid rgba(201, 168, 76, 0.2)",
+                                        color: "#C9A84C",
+                                      }}
+                                    >
+                                      {pos.tokenSymbol.slice(0, 1)}
                                     </div>
                                   )}
                                   {CHAIN_ICONS[pos.blockchain] && (
                                     <img
                                       src={CHAIN_ICONS[pos.blockchain]}
                                       alt={pos.blockchain}
-                                      className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-base-200"
+                                      className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2"
+                                      style={{ borderColor: "#111111" }}
                                     />
                                   )}
                                 </div>
                                 <div>
-                                  <div className="font-medium text-xs">{pos.tokenSymbol}</div>
-                                  <div className="text-[10px] text-base-content/40 capitalize">
+                                  <div className="text-xs" style={{ color: "#E8E4DC" }}>
+                                    {pos.tokenSymbol}
+                                  </div>
+                                  <div className="text-[10px] capitalize" style={{ color: "#8A8578" }}>
                                     {pos.positionType}
                                     {pos.protocol ? ` · ${pos.protocol}` : ""}
                                   </div>
                                 </div>
                               </div>
                               <div className="text-right">
-                                <div className="text-xs font-medium">{formatUsdValue(pos.balanceUsd)}</div>
+                                <div
+                                  className="font-[family-name:var(--font-jetbrains)] text-xs"
+                                  style={{ color: "#E8E4DC" }}
+                                >
+                                  {formatUsdValue(pos.balanceUsd)}
+                                </div>
                               </div>
                             </div>
                           ))}
@@ -455,7 +521,10 @@ const Home: NextPage = () => {
                 {messages.length > 0 && (
                   <div className="flex justify-end pb-2">
                     <button
-                      className="btn btn-ghost btn-xs text-base-content/40 hover:text-error"
+                      className="btn btn-ghost btn-xs transition-colors"
+                      style={{ color: "#8A8578" }}
+                      onMouseEnter={e => (e.currentTarget.style.color = "#9B3D3D")}
+                      onMouseLeave={e => (e.currentTarget.style.color = "#8A8578")}
                       onClick={() => {
                         setMessages([]);
                         if (STORAGE_KEY) localStorage.removeItem(STORAGE_KEY);
@@ -468,19 +537,32 @@ const Home: NextPage = () => {
                 {/* Chat messages — scrollable */}
                 <div className="flex-1 overflow-y-auto space-y-2 pb-4" ref={chatScrollRef}>
                   {messages.length === 0 && (
-                    <div className="text-center text-base-content/40 mt-20">
-                      <p className="text-lg">Ask anything about your wallet</p>
-                      <p className="text-sm mt-2">or say &quot;swap 0.1 ETH for USDC&quot; to make a move</p>
+                    <div className="text-center mt-20">
+                      <p className="text-lg" style={{ color: "#8A8578" }}>
+                        Ask anything about your wallet
+                      </p>
+                      <p className="text-sm mt-2" style={{ color: "rgba(138, 133, 120, 0.6)" }}>
+                        or say &quot;swap 0.1 ETH for USDC&quot; to make a move
+                      </p>
                     </div>
                   )}
                   {messages.map((msg, i) => (
                     <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                       <div
-                        className={`max-w-[85%] rounded-2xl px-3 py-1.5 ${
+                        className="max-w-[85%] px-3 py-1.5"
+                        style={
                           msg.role === "user"
-                            ? "bg-primary text-primary-content rounded-br-sm"
-                            : "bg-base-200 text-base-content rounded-bl-sm"
-                        }`}
+                            ? {
+                                backgroundColor: "rgba(201, 168, 76, 0.15)",
+                                border: "1px solid rgba(201, 168, 76, 0.2)",
+                                color: "#E8E4DC",
+                              }
+                            : {
+                                backgroundColor: "#111111",
+                                border: "1px solid rgba(201, 168, 76, 0.08)",
+                                color: "#E8E4DC",
+                              }
+                        }
                       >
                         {msg.role === "assistant" ? (
                           <ChatMessageRenderer content={msg.content} portfolio={portfolio} />
@@ -488,38 +570,59 @@ const Home: NextPage = () => {
                           <p className="text-sm whitespace-pre-wrap leading-snug m-0">{msg.content}</p>
                         )}
 
-                        {/* Transaction card — only shown when msg has a transaction */}
                         {msg.transaction && <TransactionCard tx={msg.transaction} address={address!} />}
                       </div>
                     </div>
                   ))}
                   {isProcessing && (
                     <div className="flex justify-start">
-                      <div className="bg-base-200 rounded-2xl rounded-bl-sm px-3 py-1.5">
-                        <span className="loading loading-dots loading-sm"></span>
+                      <div
+                        className="px-3 py-1.5"
+                        style={{
+                          backgroundColor: "#111111",
+                          border: "1px solid rgba(201, 168, 76, 0.08)",
+                        }}
+                      >
+                        <span className="loading loading-dots loading-sm" style={{ color: "#C9A84C" }}></span>
                       </div>
                     </div>
                   )}
                 </div>
 
                 {/* Input — sticky bottom */}
-                <div className="sticky bottom-0 pb-4 pt-2 bg-base-100">
+                <div className="sticky bottom-0 pb-4 pt-2" style={{ backgroundColor: "#0a0a0a" }}>
                   <div className="flex gap-2">
                     <input
                       type="text"
                       placeholder="Ask about your wallet, or say what you want to do..."
-                      className="input input-bordered flex-1 text-base"
+                      className="flex-1 text-base px-4 py-2"
+                      style={{
+                        backgroundColor: "#111111",
+                        border: "1px solid rgba(201, 168, 76, 0.15)",
+                        color: "#E8E4DC",
+                        outline: "none",
+                      }}
                       value={message}
                       onChange={e => setMessage(e.target.value)}
                       onKeyDown={e => e.key === "Enter" && !isProcessing && handleSubmit()}
                       disabled={isProcessing}
                     />
                     <button
-                      className="btn btn-primary px-6"
+                      className="px-6 py-2 transition-colors duration-300"
+                      style={{
+                        backgroundColor: "#C9A84C",
+                        color: "#0a0a0a",
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
+                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
                       onClick={handleSubmit}
                       disabled={isProcessing || !message.trim()}
                     >
-                      {isProcessing ? <span className="loading loading-spinner loading-sm"></span> : "→"}
+                      {isProcessing ? (
+                        <span className="loading loading-spinner loading-sm"></span>
+                      ) : (
+                        <span className="font-[family-name:var(--font-cinzel)] text-sm">→</span>
+                      )}
                     </button>
                   </div>
                 </div>

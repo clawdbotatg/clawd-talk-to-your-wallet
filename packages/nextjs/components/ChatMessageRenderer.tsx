@@ -61,18 +61,13 @@ const CHAIN_NORMALIZE: Record<string, string> = {
 
 const CHAIN_PAT = CHAIN_NAMES_LIST.join("|");
 
-// "179.08 USDC on Base"
 const ASSET_CHAIN_RE = new RegExp(
   `\\b(\\d+(?:[.,]\\d+)?(?:e-?\\d+)?)\\s+([A-Za-z]{2,10})\\s+on\\s+(${CHAIN_PAT})\\b`,
   "gi",
 );
-// "usdc on Base" — case-insensitive symbol
 const SYMBOL_CHAIN_RE = new RegExp(`\\b([A-Za-z]{2,10})\\s+on\\s+(${CHAIN_PAT})\\b`, "gi");
-// "179.08 usdc" — case-insensitive symbol
 const ASSET_AMOUNT_RE = /\b(\d+(?:[.,]\d+)?(?:e-?\d+)?)\s+([A-Za-z]{2,10})\b/g;
-// "on Base" standalone
 const ON_CHAIN_RE = new RegExp(`\\bon\\s+(${CHAIN_PAT})\\b`, "gi");
-// Bare chain name at word boundary
 const BARE_CHAIN_RE = new RegExp(`\\b(${CHAIN_PAT})\\s+(?:chain|network|mainnet)\\b`, "gi");
 
 const KNOWN_SYMBOLS = new Set([
@@ -132,7 +127,10 @@ export default function ChatMessageRenderer({ content, portfolio }: ChatMessageR
   const segments = parseContent(content, thumbnailMap);
 
   return (
-    <p className="text-sm whitespace-pre-wrap leading-snug m-0">
+    <p
+      className="text-sm whitespace-pre-wrap leading-snug m-0 font-[family-name:var(--font-inter)]"
+      style={{ color: "#E8E4DC" }}
+    >
       {segments.map((seg, i) => {
         if (seg.type === "text") return <React.Fragment key={i}>{seg.value}</React.Fragment>;
         if (seg.type === "address") return <AddressChip key={i} address={seg.value} />;
@@ -165,13 +163,13 @@ type Segment =
 function parseContent(text: string, thumbnailMap: Record<string, string>): Segment[] {
   const combined = new RegExp(
     [
-      `(${ADDRESS_RE.source})`, // 1: address
-      `(${ENS_RE.source})`, // 3: ens
-      ASSET_CHAIN_RE.source, // 5,6,7: amount+symbol+chain
-      SYMBOL_CHAIN_RE.source, // 8,9: symbol+chain
-      `(${ASSET_AMOUNT_RE.source})`, // 10,11,12: amount+symbol
-      ON_CHAIN_RE.source, // 13: "on Base"
-      BARE_CHAIN_RE.source, // 14: "Base chain"
+      `(${ADDRESS_RE.source})`,
+      `(${ENS_RE.source})`,
+      ASSET_CHAIN_RE.source,
+      SYMBOL_CHAIN_RE.source,
+      `(${ASSET_AMOUNT_RE.source})`,
+      ON_CHAIN_RE.source,
+      BARE_CHAIN_RE.source,
     ].join("|"),
     "gi",
   );
@@ -197,7 +195,6 @@ function parseContent(text: string, thumbnailMap: Record<string, string>): Segme
       if (KNOWN_SYMBOLS.has(symbol) || thumbnailMap[symbol]) {
         segments.push({ type: "asset", value: full, symbol, amount: amtChain, chain });
       } else {
-        // still render the chain part as NetworkChip
         segments.push({ type: "text", value: `${amtChain} ${symChain} on ` });
         segments.push({ type: "network", value: chainChain, chain });
       }
@@ -218,15 +215,13 @@ function parseContent(text: string, thumbnailMap: Record<string, string>): Segme
         segments.push({ type: "text", value: full });
       }
     } else if (onChain) {
-      // "on Base" — render "on " as text + NetworkChip
       const chain = CHAIN_NORMALIZE[onChain.toLowerCase()] || onChain.toLowerCase();
       segments.push({ type: "text", value: "on " });
       segments.push({ type: "network", value: onChain, chain });
     } else if (bareChain) {
-      // "Base chain" — render chain name + " chain" as NetworkChip + text
       const chain = CHAIN_NORMALIZE[bareChain.toLowerCase()] || bareChain.toLowerCase();
       segments.push({ type: "network", value: bareChain, chain });
-      segments.push({ type: "text", value: full.slice(bareChain.length) }); // " chain" suffix
+      segments.push({ type: "text", value: full.slice(bareChain.length) });
     } else {
       segments.push({ type: "text", value: full });
     }

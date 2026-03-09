@@ -1,7 +1,7 @@
 "use client";
 
 interface NetworkChipProps {
-  chain: string; // "base", "ethereum", "arbitrum", etc.
+  chain: string;
 }
 
 const CHAIN_ICONS: Record<string, string> = {
@@ -50,7 +50,14 @@ export default function NetworkChip({ chain }: NetworkChipProps) {
   const displayName = CHAIN_DISPLAY[key] || chain;
 
   return (
-    <span className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 rounded-full bg-base-300 border border-base-content/10 text-xs font-medium align-middle whitespace-nowrap">
+    <span
+      className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 text-xs font-medium align-middle whitespace-nowrap"
+      style={{
+        backgroundColor: "#111111",
+        border: "1px solid rgba(201, 168, 76, 0.15)",
+        color: "#8A8578",
+      }}
+    >
       {iconUrl ? (
         <img
           src={iconUrl}
@@ -61,9 +68,12 @@ export default function NetworkChip({ chain }: NetworkChipProps) {
           }}
         />
       ) : (
-        <span className="w-3.5 h-3.5 rounded-full bg-base-content/20 flex-shrink-0" />
+        <span
+          className="w-3.5 h-3.5 rounded-full flex-shrink-0"
+          style={{ backgroundColor: "rgba(201, 168, 76, 0.2)" }}
+        />
       )}
-      <span className="text-base-content/80">{displayName}</span>
+      <span>{displayName}</span>
     </span>
   );
 }

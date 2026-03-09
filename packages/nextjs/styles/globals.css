@@ -2,112 +2,86 @@
 
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
-
 @theme {
-  --shadow-center: 0 0 12px -2px rgb(0 0 0 / 0.05);
+  --shadow-center: 0 0 0 0 transparent;
   --animate-pulse-fast: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-fade-in: fadeIn 0.6s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @plugin "daisyui" {
   themes:
-    light,
-    dark --prefersdark;
+    classical;
 }
 
 @plugin "daisyui/theme" {
-  name: "light";
+  name: "classical";
 
-  --color-primary: #93bbfb;
-  --color-primary-content: #212638;
-  --color-secondary: #dae8ff;
-  --color-secondary-content: #212638;
-  --color-accent: #93bbfb;
-  --color-accent-content: #212638;
-  --color-neutral: #212638;
-  --color-neutral-content: #ffffff;
-  --color-base-100: #ffffff;
-  --color-base-200: #f4f8ff;
-  --color-base-300: #dae8ff;
-  --color-base-content: #212638;
-  --color-info: #93bbfb;
-  --color-success: #34eeb6;
-  --color-warning: #ffcf72;
-  --color-error: #ff8863;
+  --color-primary: #C9A84C;
+  --color-primary-content: #0a0a0a;
+  --color-secondary: #111111;
+  --color-secondary-content: #E8E4DC;
+  --color-accent: #C9A84C;
+  --color-accent-content: #0a0a0a;
+  --color-neutral: #E8E4DC;
+  --color-neutral-content: #0a0a0a;
+  --color-base-100: #0a0a0a;
+  --color-base-200: #111111;
+  --color-base-300: #1a1a1a;
+  --color-base-content: #E8E4DC;
+  --color-info: #C9A84C;
+  --color-success: #C9A84C;
+  --color-warning: #C9A84C;
+  --color-error: #9B3D3D;
 
-  --radius-field: 0.5rem;
-  --radius-box: 1rem;
-  --tt-tailw: 6px;
+  --radius-field: 0;
+  --radius-box: 0;
+  --radius-selector: 0;
+  --tt-tailw: 0;
 }
 
-@plugin "daisyui/theme" {
-  name: "dark";
-
-  --color-primary: #212638;
-  --color-primary-content: #f9fbff;
-  --color-secondary: #323f61;
-  --color-secondary-content: #f9fbff;
-  --color-accent: #4969a6;
-  --color-accent-content: #f9fbff;
-  --color-neutral: #f9fbff;
-  --color-neutral-content: #385183;
-  --color-base-100: #385183;
-  --color-base-200: #2a3655;
-  --color-base-300: #212638;
-  --color-base-content: #f9fbff;
-  --color-info: #385183;
-  --color-success: #34eeb6;
-  --color-warning: #ffcf72;
-  --color-error: #ff8863;
-
-  --radius-field: 0.5rem;
-  --radius-box: 1rem;
-
-  --tt-tailw: 6px;
-  --tt-bg: var(--color-primary);
-}
-
-/*
-  The default border color has changed to `currentColor` in Tailwind CSS v4,
-  so we've added these compatibility styles to make sure everything still
-  looks the same as it did with Tailwind CSS v3.
-
-  If we ever want to remove these styles, we need to add an explicit border
-  color utility to any element that depends on these defaults.
-*/
 @layer base {
   *,
   ::after,
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: var(--color-gray-200, currentColor);
+    border-color: rgba(201, 168, 76, 0.15);
   }
 
   p {
-    margin: 1rem 0;
+    margin: 0.5rem 0;
   }
 
   body {
     min-height: 100vh;
+    background-color: #0a0a0a;
+    color: #E8E4DC;
+    font-family: var(--font-inter), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
 
-  h1,
-  h2,
-  h3,
-  h4 {
+  h1, h2, h3, h4 {
     margin-bottom: 0.5rem;
-    line-height: 1;
+    line-height: 1.1;
+    font-family: var(--font-cinzel), "Times New Roman", serif;
+    color: #C9A84C;
   }
 }
 
 :root,
 [data-theme] {
-  background: var(--color-base-200);
+  background: #0a0a0a;
 }
 
+/* Kill all shadows, rounded corners */
 .btn {
-  @apply shadow-md;
+  @apply shadow-none;
+  border-radius: 0 !important;
 }
 
 .btn.btn-ghost {
@@ -116,8 +90,62 @@
 
 .link {
   text-underline-offset: 2px;
+  color: #C9A84C;
 }
 
 .link:hover {
   opacity: 80%;
+}
+
+/* Override DaisyUI inputs to classical style */
+input, textarea, select {
+  border-radius: 0 !important;
+  background-color: #111111 !important;
+  border-color: rgba(201, 168, 76, 0.15) !important;
+  color: #E8E4DC !important;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: rgba(201, 168, 76, 0.4) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+input::placeholder {
+  color: #8A8578 !important;
+}
+
+/* Modal overrides */
+.modal-box {
+  border-radius: 0 !important;
+  background-color: #111111 !important;
+  border: 1px solid rgba(201, 168, 76, 0.15) !important;
+  box-shadow: none !important;
+}
+
+/* Badge overrides */
+.badge {
+  border-radius: 0 !important;
+}
+
+/* Alert overrides */
+.alert {
+  border-radius: 0 !important;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(201, 168, 76, 0.2);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(201, 168, 76, 0.4);
 }

@@ -5,11 +5,23 @@ import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 
 export const Header = () => {
   return (
-    <div className="sticky lg:static top-0 navbar bg-base-100 min-h-0 shrink-0 justify-between z-20 shadow-md shadow-secondary px-4 sm:px-6">
-      <div className="navbar-start">
-        <span className="font-bold text-lg tracking-tight">DENAR.AI</span>
+    <div
+      className="sticky lg:static top-0 min-h-0 shrink-0 z-20 px-4 sm:px-6 flex items-center justify-between"
+      style={{
+        backgroundColor: "#0a0a0a",
+        borderBottom: "1px solid rgba(201, 168, 76, 0.15)",
+        height: "56px",
+      }}
+    >
+      <div>
+        <span
+          className="font-[family-name:var(--font-cinzel)] text-sm font-semibold tracking-[0.25em]"
+          style={{ color: "#C9A84C" }}
+        >
+          DENARAI
+        </span>
       </div>
-      <div className="navbar-end">
+      <div>
         <RainbowKitCustomConnectButton />
       </div>
     </div>
