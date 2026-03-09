@@ -441,7 +441,7 @@ const Home: NextPage = () => {
                         {msg.role === "assistant" ? (
                           <ChatMessageRenderer content={msg.content} portfolio={portfolio} />
                         ) : (
-                          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                          <p className="text-sm whitespace-pre-wrap leading-snug m-0">{msg.content}</p>
                         )}
 
                         {/* Transaction card — only shown when msg has a transaction */}
