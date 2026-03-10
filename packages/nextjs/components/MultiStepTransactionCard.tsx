@@ -419,7 +419,6 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
               <div
                 className="h-full transition-all duration-1000 ease-linear"
                 style={{
-                  backgroundColor: "#C9A84C",
                   width: `${progress}%`,
                 }}
               />
@@ -488,18 +487,7 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
 
         {/* Action buttons */}
         {state === "idle" && needsSwitch && (
-          <button
-            className="btn btn-sm w-full"
-            style={{
-              backgroundColor: "#C9A84C",
-              color: "#0a0a0a",
-              border: "none",
-              borderRadius: "0",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
-            onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
-            onClick={() => handleSwitchChain(step1.chainId)}
-          >
+          <button className="btn btn-sm w-full gold-btn" style={{}} onClick={() => handleSwitchChain(step1.chainId)}>
             <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">
               Switch to {chainName || `Chain ${step1.chainId}`}
             </span>
@@ -507,18 +495,7 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
         )}
 
         {state === "idle" && !needsSwitch && (
-          <button
-            className="btn btn-sm w-full"
-            style={{
-              backgroundColor: "#C9A84C",
-              color: "#0a0a0a",
-              border: "none",
-              borderRadius: "0",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
-            onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
-            onClick={() => setShowModal(true)}
-          >
+          <button className="btn btn-sm w-full gold-btn" style={{}} onClick={() => setShowModal(true)}>
             <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">
               {step1?.label || "Execute Step 1"}
             </span>
@@ -526,18 +503,7 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
         )}
 
         {state === "step2_confirming" && !needsSwitch && (
-          <button
-            className="btn btn-sm w-full"
-            style={{
-              backgroundColor: "#C9A84C",
-              color: "#0a0a0a",
-              border: "none",
-              borderRadius: "0",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
-            onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
-            onClick={() => handleExecuteStep(step2, 2)}
-          >
+          <button className="btn btn-sm w-full gold-btn" style={{}} onClick={() => handleExecuteStep(step2, 2)}>
             <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">
               {step2?.label || "Execute Step 2"}
             </span>
@@ -545,18 +511,7 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
         )}
 
         {state === "step2_confirming" && needsSwitch && (
-          <button
-            className="btn btn-sm w-full"
-            style={{
-              backgroundColor: "#C9A84C",
-              color: "#0a0a0a",
-              border: "none",
-              borderRadius: "0",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
-            onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
-            onClick={() => handleSwitchChain(step2.chainId)}
-          >
+          <button className="btn btn-sm w-full gold-btn" style={{}} onClick={() => handleSwitchChain(step2.chainId)}>
             <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">
               Switch to {chainName || `Chain ${step2.chainId}`}
             </span>
@@ -572,7 +527,6 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
             style={{
               backgroundColor: "#111111",
               border: "1px solid rgba(201, 168, 76, 0.15)",
-              borderRadius: "0",
             }}
             onClick={e => e.stopPropagation()}
           >
@@ -636,15 +590,8 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
                 Cancel
               </button>
               <button
-                className="btn btn-sm"
-                style={{
-                  backgroundColor: "#C9A84C",
-                  color: "#0a0a0a",
-                  border: "none",
-                  borderRadius: "0",
-                }}
-                onMouseEnter={e => state === "idle" && (e.currentTarget.style.backgroundColor = "#B8963E")}
-                onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
+                className="btn btn-sm gold-btn"
+                style={{}}
                 onClick={() => handleExecuteStep(step1, 1)}
                 disabled={state === "step1_confirming"}
               >

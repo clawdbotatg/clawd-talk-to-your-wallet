@@ -162,36 +162,69 @@ input::placeholder {
   background: rgba(201, 168, 76, 0.4);
 }
 
-/* ─── Gold send button ──────────────────────────────────────────────────── */
+/* ─── Gold bar button — shared class for all CTAs ───────────────────────── */
 .gold-btn {
   --mx: 50%;
   --my: 50%;
-  background: radial-gradient(
+  position: relative;
+  /* Layer 1: mouse-tracking light source */
+  /* Layer 2: gold bar bands — horizontal striations like real bullion */
+  background:
+    radial-gradient(
       circle 1200px at var(--mx) var(--my),
-      #fff5a0 0%,
-      #e8c84a 15%,
-      #C9A84C 40%,
-      #a07828 100%
+      rgba(255, 252, 180, 0.55) 0%,
+      rgba(255, 230, 100, 0.2) 18%,
+      transparent 45%
+    ),
+    linear-gradient(
+      160deg,
+      #b8860b 0%,
+      #c9962a 8%,
+      #f5d060 18%,
+      #fff0a0 22%,
+      #e8c040 28%,
+      #c9a030 38%,
+      #a07020 48%,
+      #c9a840 55%,
+      #f0d060 62%,
+      #fff5b0 66%,
+      #d4a830 72%,
+      #a07828 80%,
+      #c9a84c 90%,
+      #e8c84a 100%
     );
-  transition: filter 0.08s ease, transform 0.1s ease;
-  box-shadow: inset 0 1px 0 rgba(255,240,150,0.5), inset 0 -1px 0 rgba(80,50,0,0.35), 0 2px 10px rgba(201,168,76,0.35);
+  transition: filter 0.06s ease, transform 0.1s ease;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 248, 160, 0.6),
+    inset 0 -2px 0 rgba(60, 35, 0, 0.4),
+    inset 1px 0 0 rgba(255, 240, 120, 0.2),
+    inset -1px 0 0 rgba(60, 35, 0, 0.2),
+    0 2px 12px rgba(201, 168, 76, 0.4);
+  color: #1a0f00 !important;
+  text-shadow: 0 1px 0 rgba(255, 240, 120, 0.4);
+  font-weight: 600;
 }
 
 .gold-btn:hover:not(:disabled) {
-  filter: brightness(1.1);
+  filter: brightness(1.08) contrast(1.02);
   transform: translateY(-1px);
-  box-shadow: inset 0 1px 0 rgba(255,240,150,0.6), inset 0 -1px 0 rgba(80,50,0,0.3), 0 4px 18px rgba(201,168,76,0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 248, 160, 0.7),
+    inset 0 -2px 0 rgba(60, 35, 0, 0.4),
+    0 5px 20px rgba(201, 168, 76, 0.55),
+    0 2px 8px rgba(255, 220, 80, 0.3);
 }
 
 .gold-btn:active:not(:disabled) {
-  transform: translateY(0px);
-  filter: brightness(0.92);
-  box-shadow: inset 0 2px 6px rgba(0,0,0,0.35);
+  transform: translateY(1px);
+  filter: brightness(0.9) contrast(1.05);
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(60, 35, 0, 0.3);
 }
 
 .gold-btn:disabled {
   cursor: default;
-  filter: brightness(0.82) saturate(0.85);
+  filter: brightness(0.7) saturate(0.7);
   transform: none !important;
-  box-shadow: inset 0 1px 0 rgba(255,240,150,0.3), 0 1px 4px rgba(201,168,76,0.2);
 }

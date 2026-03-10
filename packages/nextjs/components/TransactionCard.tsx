@@ -200,18 +200,7 @@ const TransactionCard = ({ tx, address, onTxHash }: TransactionCardProps) => {
 
         {/* Execute button */}
         {!txHash && (
-          <button
-            className="btn btn-sm w-full"
-            style={{
-              backgroundColor: "#C9A84C",
-              color: "#0a0a0a",
-              border: "none",
-              borderRadius: "0",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
-            onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
-            onClick={() => setShowModal(true)}
-          >
+          <button className="btn btn-sm w-full gold-btn" style={{}} onClick={() => setShowModal(true)}>
             <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">Execute</span>
           </button>
         )}
@@ -225,7 +214,6 @@ const TransactionCard = ({ tx, address, onTxHash }: TransactionCardProps) => {
             style={{
               backgroundColor: "#111111",
               border: "1px solid rgba(201, 168, 76, 0.15)",
-              borderRadius: "0",
             }}
             onClick={e => e.stopPropagation()}
           >
@@ -334,15 +322,8 @@ const TransactionCard = ({ tx, address, onTxHash }: TransactionCardProps) => {
             {tx.chainId && currentChainId !== tx.chainId ? (
               <div className="space-y-3">
                 <button
-                  className="btn btn-sm w-full"
-                  style={{
-                    backgroundColor: "#C9A84C",
-                    color: "#0a0a0a",
-                    border: "none",
-                    borderRadius: "0",
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
-                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
+                  className="btn btn-sm w-full gold-btn"
+                  style={{}}
                   onClick={async () => {
                     setExecError("");
                     try {
@@ -406,19 +387,7 @@ const TransactionCard = ({ tx, address, onTxHash }: TransactionCardProps) => {
                 >
                   Cancel
                 </button>
-                <button
-                  className="btn btn-sm"
-                  style={{
-                    backgroundColor: "#C9A84C",
-                    color: "#0a0a0a",
-                    border: "none",
-                    borderRadius: "0",
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
-                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
-                  onClick={handleExecute}
-                  disabled={isExecuting}
-                >
+                <button className="btn btn-sm gold-btn" style={{}} onClick={handleExecute} disabled={isExecuting}>
                   {isExecuting ? (
                     <>
                       <span className="loading loading-spinner loading-sm"></span>

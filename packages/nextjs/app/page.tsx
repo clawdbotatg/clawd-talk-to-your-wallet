@@ -135,21 +135,19 @@ const Home: NextPage = () => {
   const [activity, setActivity] = useState<ActivityItem[]>([]);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
-  const goldBtnRef = useRef<HTMLButtonElement>(null);
 
-  // Track cursor anywhere on page — shimmer follows from a distance
+  // Global gold shimmer: track cursor on root, each .gold-btn reads from its own offset
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      const btn = goldBtnRef.current;
-      if (!btn) return;
-      const r = btn.getBoundingClientRect();
-      // Use raw px offset from cursor to button top-left — gradient is in px so it maps 1:1
-      const x = e.clientX - r.left;
-      const y = e.clientY - r.top;
-      btn.style.setProperty("--mx", `${x}px`);
-      btn.style.setProperty("--my", `${y}px`);
+      document.querySelectorAll<HTMLElement>(".gold-btn").forEach(btn => {
+        const r = btn.getBoundingClientRect();
+        const x = e.clientX - r.left;
+        const y = e.clientY - r.top;
+        btn.style.setProperty("--mx", `${x}px`);
+        btn.style.setProperty("--my", `${y}px`);
+      });
     };
-    window.addEventListener("mousemove", handler);
+    window.addEventListener("mousemove", handler, { passive: true });
     return () => window.removeEventListener("mousemove", handler);
   }, []);
 
@@ -734,9 +732,7 @@ const Home: NextPage = () => {
                       disabled={isProcessing}
                     />
                     <button
-                      ref={goldBtnRef}
                       className="px-6 py-2 relative overflow-hidden gold-btn"
-                      style={{ color: "#0a0a0a" }}
                       onClick={handleSubmit}
                       disabled={isProcessing || !message.trim()}
                     >
