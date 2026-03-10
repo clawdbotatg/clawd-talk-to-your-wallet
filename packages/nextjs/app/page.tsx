@@ -572,13 +572,42 @@ const Home: NextPage = () => {
                 {/* Chat messages — scrollable */}
                 <div className="flex-1 overflow-y-auto space-y-2 pb-4" ref={chatScrollRef}>
                   {messages.length === 0 && (
-                    <div className="text-center mt-20">
-                      <p className="text-lg" style={{ color: "#8A8578" }}>
-                        Ask anything about your wallet
+                    <div className="text-center mt-20 flex flex-col items-center gap-6">
+                      <p
+                        className="font-[family-name:var(--font-cinzel)] text-xl tracking-[0.2em]"
+                        style={{ color: "#8A8578" }}
+                      >
+                        Speak your desires
                       </p>
-                      <p className="text-sm mt-2" style={{ color: "rgba(138, 133, 120, 0.6)" }}>
-                        or say &quot;swap 0.1 ETH for USDC&quot; to make a move
-                      </p>
+                      <div className="flex flex-col gap-2 w-full max-w-sm">
+                        {[
+                          "swap 0.1 ETH for USDC",
+                          "what's the best yield for USDC on Arbitrum?",
+                          "register cassiopeia.eth on ENS",
+                        ].map(suggestion => (
+                          <button
+                            key={suggestion}
+                            className="text-sm px-4 py-2.5 text-left transition-colors"
+                            style={{
+                              border: "1px solid rgba(201, 168, 76, 0.2)",
+                              color: "#8A8578",
+                              backgroundColor: "transparent",
+                              fontFamily: "var(--font-jetbrains)",
+                            }}
+                            onMouseEnter={e => {
+                              e.currentTarget.style.borderColor = "rgba(201, 168, 76, 0.5)";
+                              e.currentTarget.style.color = "#C9A84C";
+                            }}
+                            onMouseLeave={e => {
+                              e.currentTarget.style.borderColor = "rgba(201, 168, 76, 0.2)";
+                              e.currentTarget.style.color = "#8A8578";
+                            }}
+                            onClick={() => setMessage(suggestion)}
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {messages.map((msg, i) => (
