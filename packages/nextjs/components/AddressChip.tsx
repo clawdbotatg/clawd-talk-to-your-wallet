@@ -19,7 +19,7 @@ function EnsNameChip({ name }: { name: string }) {
 
   if (resolvedAddress) {
     return (
-      <span className="inline-flex align-middle mx-0.5">
+      <span className="inline-flex align-middle mx-0.5" style={{ color: "#C9A84C" }}>
         <Address address={resolvedAddress} size="sm" onlyEnsOrAddress />
       </span>
     );
@@ -36,7 +36,7 @@ function EnsNameChip({ name }: { name: string }) {
 export default function AddressChip({ address }: AddressChipProps) {
   if (isAddress(address)) {
     return (
-      <span className="inline-flex align-middle mx-0.5">
+      <span className="inline-flex align-middle mx-0.5" style={{ color: "#C9A84C" }}>
         <Address address={address} size="sm" onlyEnsOrAddress />
       </span>
     );
