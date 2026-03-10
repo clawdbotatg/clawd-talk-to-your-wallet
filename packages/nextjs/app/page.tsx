@@ -137,14 +137,20 @@ const Home: NextPage = () => {
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const goldBtnRef = useRef<HTMLButtonElement>(null);
 
-  // Track cursor position across the whole page for gold button shimmer
+  // Track cursor anywhere on page — shimmer follows from a distance
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       const btn = goldBtnRef.current;
       if (!btn) return;
       const r = btn.getBoundingClientRect();
-      const x = ((e.clientX - r.left) / r.width) * 100;
-      const y = ((e.clientY - r.top) / r.height) * 100;
+      // Convert cursor pos to px relative to button center, then to % of button size
+      // Allow values well outside 0-100% so the highlight travels across from afar
+      const btnCx = r.left + r.width / 2;
+      const btnCy = r.top + r.height / 2;
+      const dx = e.clientX - btnCx;
+      const dy = e.clientY - btnCy;
+      const x = 50 + (dx / r.width) * 100;
+      const y = 50 + (dy / r.height) * 100;
       btn.style.setProperty("--mx", `${x}%`);
       btn.style.setProperty("--my", `${y}%`);
     };
