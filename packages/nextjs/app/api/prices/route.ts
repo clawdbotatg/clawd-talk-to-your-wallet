@@ -7,7 +7,7 @@ const ZERION_KEY = process.env.ZERION_API_KEY || "";
 // Zerion fungible IDs for known tokens
 const TOKEN_IDS: Record<string, string> = {
   ETH: "eth",
-  BTC: "btc",
+  BTC: "ee9702a0-c587-4c69-ac0c-ce820a50c95b",
   CLAWD: "b07ec41c-2b1c-4ad9-8cfb-a71896b180e2",
 };
 
