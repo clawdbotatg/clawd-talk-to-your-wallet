@@ -315,8 +315,34 @@ function AssetContent({ item }: { item: Extract<ModalItem, { type: "asset" }> })
         <DataRow label="Market Cap" value={error ? "—" : data?.marketCap != null ? formatUsd(data.marketCap) : null} />
         <DataRow label="24h Volume" value={error ? "—" : data?.volume24h != null ? formatUsd(data.volume24h) : null} />
 
-        {/* Contract address */}
-        {item.contractAddress && <DataRow label="Contract" value={<AddressChip address={item.contractAddress} />} />}
+        {/* Contract addresses per chain from Zerion implementations */}
+        {data?.implementations && data.implementations.length > 0 && (
+          <div className="pt-2">
+            <span className="text-xs block pb-1" style={{ color: "#8A8578" }}>
+              Contracts
+            </span>
+            {data.implementations.map((impl, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between py-1.5"
+                style={{ borderBottom: "1px solid rgba(201,168,76,0.06)" }}
+              >
+                <NetworkChip chain={impl.chain} />
+                {impl.address ? (
+                  <AddressChip address={impl.address} />
+                ) : (
+                  <span className="text-xs" style={{ color: "#8A8578" }}>
+                    native
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {/* Fallback: contractAddress from item props if no implementations */}
+        {(!data?.implementations || data.implementations.length === 0) && item.contractAddress && (
+          <DataRow label="Contract" value={<AddressChip address={item.contractAddress} />} />
+        )}
 
         {/* Description */}
         {data?.description && (
@@ -335,9 +361,6 @@ function AssetContent({ item }: { item: Extract<ModalItem, { type: "asset" }> })
           {data?.links &&
             data.links.length > 0 &&
             data.links.map((l, i) => <ExplorerLink key={i} url={l.url} label={l.name || l.type} />)}
-          {item.contractAddress && (
-            <ExplorerLink url={`https://etherscan.io/token/${item.contractAddress}`} label="Etherscan" />
-          )}
         </div>
       </div>
     </>
@@ -592,6 +615,31 @@ function PortfolioPositionContent({ item }: { item: Extract<ModalItem, { type: "
 
         {item.protocol && <DataRow label="Protocol" value={item.protocol} />}
 
+        {/* Contract addresses per chain */}
+        {data?.implementations && data.implementations.length > 0 && (
+          <div className="pt-2">
+            <span className="text-xs block pb-1" style={{ color: "#8A8578" }}>
+              Contracts
+            </span>
+            {data.implementations.map((impl, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between py-1.5"
+                style={{ borderBottom: "1px solid rgba(201,168,76,0.06)" }}
+              >
+                <NetworkChip chain={impl.chain} />
+                {impl.address ? (
+                  <AddressChip address={impl.address} />
+                ) : (
+                  <span className="text-xs" style={{ color: "#8A8578" }}>
+                    native
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Description */}
         {data?.description && (
           <div className="pt-3">
@@ -603,6 +651,13 @@ function PortfolioPositionContent({ item }: { item: Extract<ModalItem, { type: "
             </p>
           </div>
         )}
+
+        {/* Links */}
+        <div className="pt-3 flex gap-3 flex-wrap">
+          {data?.links &&
+            data.links.length > 0 &&
+            data.links.map((l, i) => <ExplorerLink key={i} url={l.url} label={l.name || l.type} />)}
+        </div>
       </div>
     </>
   );
