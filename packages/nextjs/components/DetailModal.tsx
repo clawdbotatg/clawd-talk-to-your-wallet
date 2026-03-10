@@ -122,6 +122,38 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+// Plain address display for contracts — no modal trigger, just copy + explorer link
+const CHAIN_EXPLORERS: Record<string, string> = {
+  ethereum: "https://etherscan.io/address/",
+  base: "https://basescan.org/address/",
+  arbitrum: "https://arbiscan.io/address/",
+  optimism: "https://optimistic.etherscan.io/address/",
+  polygon: "https://polygonscan.com/address/",
+  gnosis: "https://gnosisscan.io/address/",
+  xdai: "https://gnosisscan.io/address/",
+};
+
+function ContractAddressDisplay({ address, chain }: { address: string; chain?: string }) {
+  const truncated = `${address.slice(0, 8)}…${address.slice(-6)}`;
+  const explorerBase = chain
+    ? CHAIN_EXPLORERS[chain.toLowerCase()] || "https://etherscan.io/address/"
+    : "https://etherscan.io/address/";
+  return (
+    <span className="flex items-center gap-1">
+      <a
+        href={`${explorerBase}${address}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-[family-name:var(--font-jetbrains)] text-xs hover:underline"
+        style={{ color: "#C9A84C" }}
+      >
+        {truncated}
+      </a>
+      <CopyButton text={address} />
+    </span>
+  );
+}
+
 function PriceChange({ pct }: { pct: number }) {
   const isPositive = pct >= 0;
   return (
@@ -329,7 +361,7 @@ function AssetContent({ item }: { item: Extract<ModalItem, { type: "asset" }> })
               >
                 <NetworkChip chain={impl.chain} />
                 {impl.address ? (
-                  <AddressChip address={impl.address} />
+                  <ContractAddressDisplay address={impl.address} chain={impl.chain} />
                 ) : (
                   <span className="text-xs" style={{ color: "#8A8578" }}>
                     native
@@ -341,7 +373,7 @@ function AssetContent({ item }: { item: Extract<ModalItem, { type: "asset" }> })
         )}
         {/* Fallback: contractAddress from item props if no implementations */}
         {(!data?.implementations || data.implementations.length === 0) && item.contractAddress && (
-          <DataRow label="Contract" value={<AddressChip address={item.contractAddress} />} />
+          <DataRow label="Contract" value={<ContractAddressDisplay address={item.contractAddress} />} />
         )}
 
         {/* Description */}
@@ -629,7 +661,7 @@ function PortfolioPositionContent({ item }: { item: Extract<ModalItem, { type: "
               >
                 <NetworkChip chain={impl.chain} />
                 {impl.address ? (
-                  <AddressChip address={impl.address} />
+                  <ContractAddressDisplay address={impl.address} chain={impl.chain} />
                 ) : (
                   <span className="text-xs" style={{ color: "#8A8578" }}>
                     native
