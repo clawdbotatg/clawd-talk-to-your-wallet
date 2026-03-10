@@ -13,12 +13,18 @@ export const Header = () => {
         height: "56px",
       }}
     >
-      <div>
+      <div className="flex items-baseline gap-3">
         <span
-          className="font-[family-name:var(--font-cinzel)] text-sm font-semibold tracking-[0.25em]"
+          className="font-[family-name:var(--font-cinzel)] text-xl font-bold tracking-[0.25em]"
           style={{ color: "#C9A84C" }}
         >
           DENARAI
+        </span>
+        <span
+          className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.15em] hidden sm:inline"
+          style={{ color: "#8A8578" }}
+        >
+          talk to your coins
         </span>
       </div>
       <div>
