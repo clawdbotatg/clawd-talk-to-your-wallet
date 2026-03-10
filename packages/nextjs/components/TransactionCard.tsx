@@ -5,7 +5,7 @@ import AddressChip from "./AddressChip";
 import AssetChip from "./AssetChip";
 import ChatMessageRenderer from "./ChatMessageRenderer";
 import NetworkChip from "./NetworkChip";
-import { useChainId, useSendTransaction, useSwitchChain, useWaitForTransactionReceipt } from "wagmi";
+import { useChainId, useSendTransaction, useSwitchChain, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 
 interface SimulationChange {
   direction: "in" | "out";
@@ -67,6 +67,7 @@ const TransactionCard = ({ tx, address, onTxHash }: TransactionCardProps) => {
 
   const { sendTransactionAsync } = useSendTransaction();
   const { switchChainAsync } = useSwitchChain();
+  const { data: walletClient } = useWalletClient();
   const currentChainId = useChainId();
   const { isLoading: isTxConfirming, isSuccess: isTxConfirmed } = useWaitForTransactionReceipt({ hash: txHash });
 
@@ -343,12 +344,41 @@ const TransactionCard = ({ tx, address, onTxHash }: TransactionCardProps) => {
                   onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
                   onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
                   onClick={async () => {
+                    setExecError("");
                     try {
                       await switchChainAsync({ chainId: tx.chainId! });
                     } catch {
-                      setExecError(
-                        `Failed to switch network. Please switch manually to ${chainName || `chain ${tx.chainId}`}.`,
-                      );
+                      // Fallback: wallet_addEthereumChain works even if chain isn't pre-configured
+                      try {
+                        const chainHex = `0x${tx.chainId!.toString(16)}`;
+                        const explorerUrl = EXPLORER_URLS[tx.chainId!]?.replace("/tx/", "") || undefined;
+                        await walletClient?.request({
+                          method: "wallet_addEthereumChain",
+                          params: [
+                            {
+                              chainId: chainHex,
+                              chainName: chainName || `Chain ${tx.chainId}`,
+                              nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+                              rpcUrls: [
+                                tx.chainId === 8453
+                                  ? "https://mainnet.base.org"
+                                  : tx.chainId === 42161
+                                    ? "https://arb1.arbitrum.io/rpc"
+                                    : tx.chainId === 10
+                                      ? "https://mainnet.optimism.io"
+                                      : tx.chainId === 137
+                                        ? "https://polygon-rpc.com"
+                                        : "https://cloudflare-eth.com",
+                              ],
+                              blockExplorerUrls: explorerUrl ? [explorerUrl] : [],
+                            },
+                          ],
+                        });
+                      } catch {
+                        setExecError(
+                          `Could not switch to ${chainName || `chain ${tx.chainId}`}. Please switch manually in your wallet.`,
+                        );
+                      }
                     }
                   }}
                 >
