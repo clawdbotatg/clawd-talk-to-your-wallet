@@ -143,16 +143,11 @@ const Home: NextPage = () => {
       const btn = goldBtnRef.current;
       if (!btn) return;
       const r = btn.getBoundingClientRect();
-      // Convert cursor pos to px relative to button center, then to % of button size
-      // Allow values well outside 0-100% so the highlight travels across from afar
-      const btnCx = r.left + r.width / 2;
-      const btnCy = r.top + r.height / 2;
-      const dx = e.clientX - btnCx;
-      const dy = e.clientY - btnCy;
-      const x = 50 + (dx / r.width) * 100;
-      const y = 50 + (dy / r.height) * 100;
-      btn.style.setProperty("--mx", `${x}%`);
-      btn.style.setProperty("--my", `${y}%`);
+      // Use raw px offset from cursor to button top-left — gradient is in px so it maps 1:1
+      const x = e.clientX - r.left;
+      const y = e.clientY - r.top;
+      btn.style.setProperty("--mx", `${x}px`);
+      btn.style.setProperty("--my", `${y}px`);
     };
     window.addEventListener("mousemove", handler);
     return () => window.removeEventListener("mousemove", handler);

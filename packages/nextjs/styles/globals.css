@@ -167,10 +167,10 @@ input::placeholder {
   --mx: 50%;
   --my: 50%;
   background: radial-gradient(
-      ellipse 200% 300% at var(--mx) var(--my),
+      circle 1200px at var(--mx) var(--my),
       #fff5a0 0%,
-      #e8c84a 25%,
-      #C9A84C 55%,
+      #e8c84a 15%,
+      #C9A84C 40%,
       #a07828 100%
     );
   transition: filter 0.08s ease, transform 0.1s ease;
