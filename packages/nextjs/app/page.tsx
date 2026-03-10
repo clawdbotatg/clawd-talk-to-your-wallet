@@ -6,6 +6,7 @@ import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
 import ChatMessageRenderer from "~~/components/ChatMessageRenderer";
 import { useDetailModal } from "~~/components/DetailModal";
+import MultiStepTransactionCard from "~~/components/MultiStepTransactionCard";
 import TransactionCard from "~~/components/TransactionCard";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 
@@ -37,6 +38,21 @@ interface PortfolioAsset {
   thumbnail: string;
 }
 
+interface MultiStepTransactionData {
+  message: string;
+  steps: {
+    to: string;
+    data: string;
+    value: string;
+    chainId: number;
+    description: string;
+    label: string;
+  }[];
+  delay: number;
+  priceEth?: string;
+  priceWei?: string;
+}
+
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -52,6 +68,7 @@ interface ChatMessage {
     };
     txHash?: `0x${string}`;
   };
+  multistepTransaction?: MultiStepTransactionData;
   timestamp: number;
 }
 
@@ -228,6 +245,16 @@ const Home: NextPage = () => {
         role: "assistant",
         content: data.message || "Something went wrong",
         transaction: data.type === "transaction" ? data.transaction : undefined,
+        multistepTransaction:
+          data.type === "multistep_transaction"
+            ? {
+                message: data.message,
+                steps: data.steps,
+                delay: data.delay || 65000,
+                priceEth: data.priceEth,
+                priceWei: data.priceWei,
+              }
+            : undefined,
         timestamp: Date.now(),
       };
       setMessages(prev => [...prev, assistantMsg]);
@@ -634,7 +661,11 @@ const Home: NextPage = () => {
                           <p className="text-sm whitespace-pre-wrap leading-snug m-0">{msg.content}</p>
                         )}
 
-                        {msg.transaction && (
+                        {msg.multistepTransaction && (
+                          <MultiStepTransactionCard tx={msg.multistepTransaction} address={address!} />
+                        )}
+
+                        {msg.transaction && !msg.multistepTransaction && (
                           <TransactionCard
                             tx={msg.transaction}
                             address={address!}

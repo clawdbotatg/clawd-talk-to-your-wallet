@@ -28,6 +28,11 @@ const BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
+// ─── ENS Constants ───────────────────────────────────────────────────────────
+
+const ENS_REGISTRAR = "0x253553366Da8546fC250F225fe3d25d0C782303b";
+const ENS_PUBLIC_RESOLVER = "0x231b0Ee14048e9dCcD1d247744d114a4EB5E8E63";
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function toHex(value: bigint): string {
@@ -40,6 +45,85 @@ function padUint256(value: bigint): string {
 
 function padAddress(addr: string): string {
   return addr.toLowerCase().replace("0x", "").padStart(64, "0");
+}
+
+// ─── ABI Encoding Helpers ────────────────────────────────────────────────────
+
+function encodeString(s: string): string {
+  const bytes = Buffer.from(s, "utf8");
+  const len = padUint256(BigInt(bytes.length));
+  const padded = bytes.toString("hex").padEnd(Math.ceil(bytes.length / 32) * 64, "0");
+  // If the string is empty, still pad to 32 bytes
+  const finalPadded = padded.length === 0 ? "" : padded;
+  return len + finalPadded;
+}
+
+function encodeBytes32(hex: string): string {
+  return hex.replace("0x", "").padStart(64, "0");
+}
+
+function encodeBool(val: boolean): string {
+  return padUint256(val ? 1n : 0n);
+}
+
+function encodeUint16(val: number): string {
+  return padUint256(BigInt(val));
+}
+
+/**
+ * ABI-encode the full parameter tuple for makeCommitment / register:
+ * (string name, address owner, uint256 duration, bytes32 secret,
+ *  address resolver, bytes[] data, bool reverseRecord, uint16 fuses)
+ *
+ * Returns the encoded params WITHOUT function selector.
+ */
+function encodeENSParams(
+  name: string,
+  owner: string,
+  duration: bigint,
+  secret: string,
+  resolver: string,
+  reverseRecord: boolean,
+  fuses: number,
+): string {
+  // Head: 8 params × 32 bytes each = 256 bytes of head
+  // Param 0: name (string) — dynamic, pointer
+  // Param 1: owner (address) — static
+  // Param 2: duration (uint256) — static
+  // Param 3: secret (bytes32) — static
+  // Param 4: resolver (address) — static
+  // Param 5: data (bytes[]) — dynamic, pointer
+  // Param 6: reverseRecord (bool) — static
+  // Param 7: fuses (uint16) — static
+
+  const headSize = 8 * 32; // 256 bytes
+
+  // Encode the string (name) — this goes in tail
+  const nameEncoded = encodeString(name);
+
+  // Encode bytes[] data — empty array: just length = 0
+  const emptyBytesArray = padUint256(0n); // length 0
+
+  // Calculate offsets (in bytes from start of params)
+  const nameOffset = headSize; // string starts after head
+  const nameTailSize = nameEncoded.length / 2; // bytes
+  const dataOffset = nameOffset + nameTailSize;
+
+  // Build head
+  let head = "";
+  head += padUint256(BigInt(nameOffset)); // param 0: offset to name
+  head += padAddress(owner); // param 1: owner
+  head += padUint256(duration); // param 2: duration
+  head += encodeBytes32(secret); // param 3: secret
+  head += padAddress(resolver); // param 4: resolver
+  head += padUint256(BigInt(dataOffset)); // param 5: offset to data
+  head += encodeBool(reverseRecord); // param 6: reverseRecord
+  head += encodeUint16(fuses); // param 7: fuses
+
+  // Build tail
+  const tail = nameEncoded + emptyBytesArray;
+
+  return head + tail;
 }
 
 // ─── Tool Definitions ───────────────────────────────────────────────────────
@@ -853,6 +937,202 @@ Always call this before saying you can't find something. It uses server-side tok
       };
     },
   }),
+
+  // ─── ENS Registration Tools ─────────────────────────────────────────────
+
+  checkENSAvailability: tool({
+    description: "Check if an ENS name is available for registration",
+    inputSchema: z.object({
+      name: z.string().describe("ENS label, e.g. 'cassiopeia' or 'cassiopeia.eth'"),
+    }),
+    execute: async ({ name }) => {
+      const label = name.replace(/\.eth$/i, "");
+      try {
+        // Encode available(string name) — selector 0x96e494e8
+        // For a single dynamic param (string), the head is just the offset (0x20 = 32)
+        const encodedName = encodeString(label);
+        const calldata = "0x96e494e8" + padUint256(32n) + encodedName;
+
+        const res = await fetch(alchemyUrl(1), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: 1,
+            jsonrpc: "2.0",
+            method: "eth_call",
+            params: [{ to: ENS_REGISTRAR, data: calldata }, "latest"],
+          }),
+        });
+        const json = await res.json();
+        if (json.error) {
+          return { error: json.error.message || JSON.stringify(json.error) };
+        }
+        const available = BigInt(json.result || "0x0") !== 0n;
+        return { available, name: label };
+      } catch (e) {
+        return { error: `Failed to check ENS availability: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }),
+
+  getENSRentPrice: tool({
+    description: "Get the rent price for registering an ENS name for a given number of years",
+    inputSchema: z.object({
+      name: z.string().describe("ENS label, e.g. 'cassiopeia' or 'cassiopeia.eth'"),
+      years: z.number().default(1).describe("Number of years to register for"),
+    }),
+    execute: async ({ name, years }) => {
+      const label = name.replace(/\.eth$/i, "");
+      const duration = BigInt(years * 365 * 24 * 60 * 60);
+      try {
+        // Encode rentPrice(string name, uint256 duration) — selector 0x83e7f6ff
+        // Two params: string (dynamic, offset) + uint256 (static)
+        // Head: offset_to_name (0x40 = 64) + duration
+        // Tail: encoded string
+        const encodedName = encodeString(label);
+        const calldata = "0x83e7f6ff" + padUint256(64n) + padUint256(duration) + encodedName;
+
+        const res = await fetch(alchemyUrl(1), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: 1,
+            jsonrpc: "2.0",
+            method: "eth_call",
+            params: [{ to: ENS_REGISTRAR, data: calldata }, "latest"],
+          }),
+        });
+        const json = await res.json();
+        if (json.error) {
+          return { error: json.error.message || JSON.stringify(json.error) };
+        }
+        // Returns (uint256 base, uint256 premium)
+        const result = (json.result || "0x").replace("0x", "");
+        const base = BigInt("0x" + (result.slice(0, 64) || "0"));
+        const premium = BigInt("0x" + (result.slice(64, 128) || "0"));
+        const total = base + premium;
+        const priceEth = Number(total) / 1e18;
+
+        return {
+          priceWei: total.toString(),
+          priceEth: priceEth.toFixed(6),
+          baseWei: base.toString(),
+          premiumWei: premium.toString(),
+          years,
+          name: label,
+        };
+      } catch (e) {
+        return { error: `Failed to get ENS rent price: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }),
+
+  buildENSRegistration: tool({
+    description:
+      "Build the 2-step ENS registration transaction. Returns a multistep_transaction with commit + register steps. The user must execute step 1 (commit), wait 60+ seconds, then execute step 2 (register).",
+    inputSchema: z.object({
+      name: z.string().describe("ENS label e.g. 'cassiopeia'"),
+      owner: z.string().describe("Owner address 0x..."),
+      years: z.number().default(1).describe("Number of years to register for"),
+    }),
+    execute: async ({ name, years, owner }) => {
+      const label = name.replace(/\.eth$/i, "");
+      const duration = BigInt(years * 365 * 24 * 60 * 60);
+
+      // Generate random secret (bytes32)
+      const secretBytes = new Uint8Array(32);
+      crypto.getRandomValues(secretBytes);
+      const secretHex =
+        "0x" +
+        Array.from(secretBytes)
+          .map(b => b.toString(16).padStart(2, "0"))
+          .join("");
+
+      try {
+        // 1. Get rent price
+        const encodedNameForPrice = encodeString(label);
+        const priceCalldata = "0x83e7f6ff" + padUint256(64n) + padUint256(duration) + encodedNameForPrice;
+
+        const priceRes = await fetch(alchemyUrl(1), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: 1,
+            jsonrpc: "2.0",
+            method: "eth_call",
+            params: [{ to: ENS_REGISTRAR, data: priceCalldata }, "latest"],
+          }),
+        });
+        const priceJson = await priceRes.json();
+        if (priceJson.error) {
+          return { error: `Failed to get rent price: ${priceJson.error.message || JSON.stringify(priceJson.error)}` };
+        }
+        const priceResult = (priceJson.result || "0x").replace("0x", "");
+        const base = BigInt("0x" + (priceResult.slice(0, 64) || "0"));
+        const premium = BigInt("0x" + (priceResult.slice(64, 128) || "0"));
+        const totalPrice = base + premium;
+        // Add 10% buffer to cover gas price fluctuations
+        const valueWithBuffer = (totalPrice * 110n) / 100n;
+        const priceEth = Number(totalPrice) / 1e18;
+
+        // 2. Build makeCommitment eth_call to get commitment hash
+        const params = encodeENSParams(label, owner, duration, secretHex, ENS_PUBLIC_RESOLVER, true, 0);
+        const makeCommitmentCalldata = "0x65a69dcf" + params;
+
+        const commitmentRes = await fetch(alchemyUrl(1), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: 1,
+            jsonrpc: "2.0",
+            method: "eth_call",
+            params: [{ to: ENS_REGISTRAR, data: makeCommitmentCalldata }, "latest"],
+          }),
+        });
+        const commitmentJson = await commitmentRes.json();
+        if (commitmentJson.error) {
+          return {
+            error: `Failed to compute commitment: ${commitmentJson.error.message || JSON.stringify(commitmentJson.error)}`,
+          };
+        }
+        const commitment = commitmentJson.result as string; // bytes32
+
+        // 3. Build commit() calldata: selector + commitment bytes32
+        const commitCalldata = "0xf14fcbc8" + commitment.replace("0x", "").padStart(64, "0");
+
+        // 4. Build register() calldata: selector + same params as makeCommitment
+        const registerCalldata = "0x74694a2b" + params;
+
+        return {
+          type: "multistep_transaction",
+          message: `I'll register **${label}.eth** for you. This is a 2-step process:\n1. **Commit** — locks in your registration intent (gas only)\n2. **Wait 60 seconds** — required by the ENS contract\n3. **Register** — completes registration (${priceEth.toFixed(4)} ETH + gas)`,
+          steps: [
+            {
+              to: ENS_REGISTRAR,
+              data: commitCalldata,
+              value: "0x0",
+              chainId: 1,
+              description: `Step 1 of 2: Commit to register ${label}.eth`,
+              label: "Commit",
+            },
+            {
+              to: ENS_REGISTRAR,
+              data: registerCalldata,
+              value: toHex(valueWithBuffer),
+              chainId: 1,
+              description: `Step 2 of 2: Register ${label}.eth (${priceEth.toFixed(4)} ETH for ${years} year${years > 1 ? "s" : ""})`,
+              label: "Register",
+            },
+          ],
+          delay: 65000,
+          priceEth: priceEth.toFixed(6),
+          priceWei: totalPrice.toString(),
+        };
+      } catch (e) {
+        return { error: `Failed to build ENS registration: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }),
 };
 
 // ─── System Prompt ──────────────────────────────────────────────────────────
@@ -916,6 +1196,9 @@ AVAILABLE TOOLS:
 - getTokenAddress: Look up token contract address by symbol.
 - wrapEth: Wrap ETH to WETH (simpler/cheaper than routing through LI.FI for WETH specifically).
 - unwrapWeth: Unwrap WETH to ETH (simpler/cheaper than routing through LI.FI for WETH specifically).
+- checkENSAvailability: Check if an ENS name is available for registration.
+- getENSRentPrice: Get the rent price for registering an ENS name.
+- buildENSRegistration: Build the 2-step ENS registration (commit + register). Returns a multistep_transaction.
 
 DEFI ZAPS (Composer):
 When the user says "deposit into Morpho", "stake on Lido", "deposit into Aave", "get yield on USDC", "stake ETH", or similar:
@@ -924,6 +1207,15 @@ LI.FI Composer handles the swap + deposit in a single transaction.
 Supported protocols: Morpho, Aave V3, Lido (wstETH), EtherFi, Pendle, Euler, Ethena, and more.
 You can even do cross-chain zaps (e.g. ETH on mainnet → Morpho vault on Base).
 
+ENS REGISTRATION:
+When user wants to register an ENS name, use this workflow:
+1. Call checkENSAvailability(name) first
+2. Call getENSRentPrice(name, years) to get the cost
+3. Tell the user the name availability and price
+4. Call buildENSRegistration(name, owner, years) to build the 2-step transaction
+5. Return the result from buildENSRegistration directly — it already has type "multistep_transaction"
+Never tell the user to go to app.ens.domains — handle it inline.
+
 MANDATORY WORKFLOW (for transactions only):
 1. If you need balance info → call getPortfolio first
 2. Resolve any ENS names → call resolveENS
@@ -931,10 +1223,11 @@ MANDATORY WORKFLOW (for transactions only):
 4. For DeFi zaps: look up the vault/staking token address, then use buildRoute with that as toToken
 5. For simple transfers: use buildTransfer
 6. For WETH wrap/unwrap specifically: use wrapEth / unwrapWeth (cheaper)
-7. ALWAYS call simulateAssetChanges on the built calldata before returning
-8. If simulation shows unexpected results → call traceCall to diagnose
-9. Only return the transaction if simulation confirms the expected asset changes
-10. For cross-chain txs: after the user submits, use getRouteStatus to track delivery
+7. For ENS registration: use buildENSRegistration (returns multistep_transaction)
+8. ALWAYS call simulateAssetChanges on the built calldata before returning (skip for ENS multistep — commit is gas-only)
+9. If simulation shows unexpected results → call traceCall to diagnose
+10. Only return the transaction if simulation confirms the expected asset changes
+11. For cross-chain txs: after the user submits, use getRouteStatus to track delivery
 
 RESPONSE FORMAT:
 
@@ -956,6 +1249,19 @@ For transaction responses, return ONLY this JSON (after all tool calls complete)
     "description": "Swap 0.1 ETH → ~198 USDC",
     "simulation": { "verified": true, "changes": [{ "direction": "out", "symbol": "ETH", "amount": "0.1" }, { "direction": "in", "symbol": "USDC", "amount": "198.5" }] }
   }
+}
+
+For ENS registration (multistep) responses — return the buildENSRegistration result directly:
+{
+  "type": "multistep_transaction",
+  "message": "I'll register cassiopeia.eth for you...",
+  "steps": [
+    { "to": "0x...", "data": "0x...", "value": "0x0", "chainId": 1, "description": "Step 1: Commit", "label": "Commit" },
+    { "to": "0x...", "data": "0x...", "value": "0x...", "chainId": 1, "description": "Step 2: Register", "label": "Register" }
+  ],
+  "delay": 65000,
+  "priceEth": "0.0035",
+  "priceWei": "3500000000000000"
 }
 
 RULES:
@@ -1083,6 +1389,17 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      if (parsed.type === "multistep_transaction" && parsed.steps) {
+        return NextResponse.json({
+          type: "multistep_transaction",
+          message: parsed.message as string,
+          steps: parsed.steps,
+          delay: parsed.delay || 65000,
+          priceEth: parsed.priceEth,
+          priceWei: parsed.priceWei,
+        });
+      }
+
       // Legacy format: has transactions array
       if (parsed.transactions) {
         const txs = parsed.transactions as { to: string; data: string; value: string; chainId: number }[];
@@ -1101,27 +1418,50 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Fallback: scan tool results for transaction data
+    // Fallback: scan tool results for transaction data (including multistep)
     type TxData = { to: string; data: string; value: string; chainId: number };
     type SimResult = {
       success: boolean;
       changes: { direction: string; symbol: string; amount: string }[];
       error?: string;
     };
+    type MultiStepResult = {
+      type: "multistep_transaction";
+      message: string;
+      steps: { to: string; data: string; value: string; chainId: number; description: string; label: string }[];
+      delay: number;
+      priceEth?: string;
+      priceWei?: string;
+    };
 
     let lastTx: TxData | null = null;
     let lastSim: SimResult | null = null;
+    let lastMultistep: MultiStepResult | null = null;
 
     for (const step of result.steps) {
       for (const toolResult of step.toolResults) {
         const r = (toolResult as unknown as { output: Record<string, unknown> }).output;
-        if (r && typeof r.to === "string" && typeof r.data === "string") {
+        if (r && r.type === "multistep_transaction" && Array.isArray(r.steps)) {
+          lastMultistep = r as unknown as MultiStepResult;
+        } else if (r && typeof r.to === "string" && typeof r.data === "string") {
           lastTx = r as unknown as TxData;
         }
         if (r && typeof r.success === "boolean" && Array.isArray(r.changes)) {
           lastSim = r as unknown as SimResult;
         }
       }
+    }
+
+    // Check for multistep first (ENS registration)
+    if (lastMultistep) {
+      return NextResponse.json({
+        type: "multistep_transaction",
+        message: result.text || lastMultistep.message || "Multi-step transaction ready",
+        steps: lastMultistep.steps,
+        delay: lastMultistep.delay,
+        priceEth: lastMultistep.priceEth,
+        priceWei: lastMultistep.priceWei,
+      });
     }
 
     if (lastTx) {
