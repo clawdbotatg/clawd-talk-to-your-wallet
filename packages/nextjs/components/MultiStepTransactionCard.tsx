@@ -282,12 +282,14 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
       if (stepNum === 1) {
         setStep1Hash(hash);
         setState("step1_pending");
+        setShowModal(false); // close only after wallet confirms submission
       } else {
         setStep2Hash(hash);
         setState("step2_pending");
       }
     } catch (e: unknown) {
-      setExecError(e instanceof Error ? e.message : "Transaction failed");
+      // Wallet rejected or errored — stay on idle so user can retry
+      setExecError(e instanceof Error ? e.message : "Transaction failed or rejected");
       setState(stepNum === 1 ? "idle" : "step2_confirming");
     }
   };
@@ -564,7 +566,7 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
 
       {/* Step 1 confirmation modal */}
       {showModal && (
-        <dialog className="modal modal-open" onClick={() => state === "idle" && setShowModal(false)}>
+        <dialog className="modal modal-open" onClick={() => state === "idle" && !execError && setShowModal(false)}>
           <div
             className="modal-box"
             style={{
@@ -629,7 +631,7 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
                 className="btn btn-ghost btn-sm"
                 style={{ color: "#8A8578" }}
                 onClick={() => setShowModal(false)}
-                disabled={state !== "idle"}
+                disabled={state === "step1_confirming"}
               >
                 Cancel
               </button>
@@ -641,17 +643,23 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
                   border: "none",
                   borderRadius: "0",
                 }}
-                onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
+                onMouseEnter={e => state === "idle" && (e.currentTarget.style.backgroundColor = "#B8963E")}
                 onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
-                onClick={() => {
-                  setShowModal(false);
-                  handleExecuteStep(step1, 1);
-                }}
-                disabled={state !== "idle"}
+                onClick={() => handleExecuteStep(step1, 1)}
+                disabled={state === "step1_confirming"}
               >
-                <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">
-                  Confirm &amp; Commit
-                </span>
+                {state === "step1_confirming" ? (
+                  <>
+                    <span className="loading loading-spinner loading-sm" />
+                    <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase ml-2">
+                      Waiting for wallet...
+                    </span>
+                  </>
+                ) : (
+                  <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">
+                    Confirm &amp; Commit
+                  </span>
+                )}
               </button>
             </div>
           </div>
