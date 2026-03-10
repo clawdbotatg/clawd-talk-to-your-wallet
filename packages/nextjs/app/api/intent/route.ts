@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { anthropic } from "@ai-sdk/anthropic";
 import { generateText, stepCountIs, tool } from "ai";
+import { namehash } from "viem/ens";
 import { z } from "zod";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -947,24 +948,30 @@ Always call this before saying you can't find something. It uses server-side tok
     }),
     execute: async ({ name }) => {
       const label = name.replace(/\.eth$/i, "").toLowerCase();
+      const fullName = `${label}.eth`;
       try {
-        // Use Alchemy's native alchemy_resolveName — no rate limits, uses our existing key
-        // If name resolves to an address → taken
-        // If result is null / zero address → available
-        const res = await fetch(alchemyUrl(1), {
+        // Use viem's namehash + BuidlGuidl mainnet RPC + ENS registry owner()
+        // ENS Registry: 0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e
+        // owner(bytes32 node) selector: 0x02571be3
+        const node = namehash(fullName);
+        const calldata = "0x02571be3" + node.replace("0x", "");
+
+        const res = await fetch("https://mainnet.rpc.buidlguidl.com", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             id: 1,
             jsonrpc: "2.0",
-            method: "alchemy_resolveName",
-            params: [`${label}.eth`],
+            method: "eth_call",
+            params: [{ to: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e", data: calldata }, "latest"],
           }),
         });
         const json = await res.json();
-        const resolvedAddress = json?.result;
-        const available = !resolvedAddress || resolvedAddress === "0x0000000000000000000000000000000000000000";
-        return { available, name: label, owner: available ? null : resolvedAddress };
+        const result = json?.result as string;
+        // If owner is zero address → available
+        const owner = "0x" + result?.slice(-40);
+        const available = !result || owner === "0x0000000000000000000000000000000000000000";
+        return { available, name: label, owner: available ? null : owner };
       } catch (e) {
         return { error: `Failed to check ENS availability: ${e instanceof Error ? e.message : String(e)}` };
       }
