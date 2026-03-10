@@ -717,20 +717,26 @@ const Home: NextPage = () => {
                       disabled={isProcessing}
                     />
                     <button
-                      className="px-6 py-2 transition-colors duration-300"
-                      style={{
-                        backgroundColor: "#C9A84C",
-                        color: "#0a0a0a",
+                      className="px-6 py-2 relative overflow-hidden gold-btn"
+                      style={{ color: "#0a0a0a" }}
+                      onMouseMove={e => {
+                        const r = e.currentTarget.getBoundingClientRect();
+                        const x = ((e.clientX - r.left) / r.width) * 100;
+                        const y = ((e.clientY - r.top) / r.height) * 100;
+                        e.currentTarget.style.setProperty("--mx", `${x}%`);
+                        e.currentTarget.style.setProperty("--my", `${y}%`);
                       }}
-                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
-                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.setProperty("--mx", "50%");
+                        e.currentTarget.style.setProperty("--my", "50%");
+                      }}
                       onClick={handleSubmit}
                       disabled={isProcessing || !message.trim()}
                     >
                       {isProcessing ? (
                         <span className="loading loading-spinner loading-sm"></span>
                       ) : (
-                        <span className="font-[family-name:var(--font-cinzel)] text-sm">→</span>
+                        <span className="font-[family-name:var(--font-cinzel)] text-sm relative z-10">→</span>
                       )}
                     </button>
                   </div>

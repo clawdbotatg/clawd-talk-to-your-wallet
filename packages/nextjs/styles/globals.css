@@ -161,3 +161,35 @@ input::placeholder {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(201, 168, 76, 0.4);
 }
+
+/* ─── Gold send button ──────────────────────────────────────────────────── */
+.gold-btn {
+  --mx: 50%;
+  --my: 50%;
+  background: radial-gradient(
+      ellipse 60% 80% at var(--mx) var(--my),
+      #f0d070 0%,
+      #C9A84C 40%,
+      #9a6f20 100%
+    );
+  transition: filter 0.15s ease, transform 0.1s ease;
+  box-shadow: inset 0 1px 0 rgba(255,240,150,0.4), inset 0 -1px 0 rgba(80,50,0,0.3), 0 2px 8px rgba(201,168,76,0.3);
+}
+
+.gold-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255,240,150,0.5), inset 0 -1px 0 rgba(80,50,0,0.3), 0 4px 16px rgba(201,168,76,0.45);
+}
+
+.gold-btn:active:not(:disabled) {
+  transform: translateY(0px);
+  filter: brightness(0.95);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.gold-btn:disabled {
+  background: #4a3f20;
+  box-shadow: none;
+  opacity: 0.5;
+}
