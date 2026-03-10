@@ -946,29 +946,41 @@ Always call this before saying you can't find something. It uses server-side tok
       name: z.string().describe("ENS label, e.g. 'cassiopeia' or 'cassiopeia.eth'"),
     }),
     execute: async ({ name }) => {
-      const label = name.replace(/\.eth$/i, "");
+      const label = name.replace(/\.eth$/i, "").toLowerCase();
       try {
-        // Encode available(string name) — selector 0x96e494e8
-        // For a single dynamic param (string), the head is just the offset (0x20 = 32)
-        const encodedName = encodeString(label);
-        const calldata = "0x96e494e8" + padUint256(32n) + encodedName;
-
-        const res = await fetch(alchemyUrl(1), {
+        // Use ENS subgraph — most reliable availability check
+        const query = `{
+          registrations(where:{labelName:"${label}"}) {
+            expiryDate
+            registrant { id }
+          }
+        }`;
+        const res = await fetch("https://api.thegraph.com/subgraphs/name/ensdomains/ens", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: 1,
-            jsonrpc: "2.0",
-            method: "eth_call",
-            params: [{ to: ENS_REGISTRAR, data: calldata }, "latest"],
-          }),
+          body: JSON.stringify({ query }),
         });
         const json = await res.json();
-        if (json.error) {
-          return { error: json.error.message || JSON.stringify(json.error) };
+        const registrations = json?.data?.registrations ?? [];
+
+        if (registrations.length === 0) {
+          // Not in registry = available
+          return { available: true, name: label };
         }
-        const available = BigInt(json.result || "0x0") !== 0n;
-        return { available, name: label };
+
+        // Check if expired
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        const expiry = parseInt(registrations[0].expiryDate, 10);
+        const gracePeriod = 90 * 24 * 60 * 60; // 90 days grace period
+        const available = expiry + gracePeriod < nowSeconds;
+        const owner = registrations[0].registrant?.id;
+
+        return {
+          available,
+          name: label,
+          expiryDate: expiry ? new Date(expiry * 1000).toLocaleDateString() : null,
+          owner: available ? null : owner,
+        };
       } catch (e) {
         return { error: `Failed to check ENS availability: ${e instanceof Error ? e.message : String(e)}` };
       }
