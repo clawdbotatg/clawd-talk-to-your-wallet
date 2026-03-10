@@ -24,11 +24,13 @@ interface TransactionData {
     verified: boolean;
     changes: SimulationChange[];
   };
+  txHash?: `0x${string}`;
 }
 
 interface TransactionCardProps {
   tx: TransactionData;
   address: string;
+  onTxHash?: (hash: `0x${string}`) => void;
 }
 
 const EXPLORER_URLS: Record<number, string> = {
@@ -57,10 +59,10 @@ const CHAIN_NAMES: Record<number, string> = {
   5000: "mantle",
 };
 
-const TransactionCard = ({ tx, address }: TransactionCardProps) => {
+const TransactionCard = ({ tx, address, onTxHash }: TransactionCardProps) => {
   const [showModal, setShowModal] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
+  const [txHash, setTxHash] = useState<`0x${string}` | undefined>(tx.txHash);
   const [execError, setExecError] = useState("");
 
   const { sendTransactionAsync } = useSendTransaction();
@@ -118,6 +120,7 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
       setTimeout(openWallet, 2000);
       const hash = await promise;
       setTxHash(hash);
+      onTxHash?.(hash);
       setShowModal(false);
     } catch (e: unknown) {
       setExecError(e instanceof Error ? e.message : "Transaction failed");

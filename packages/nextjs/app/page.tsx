@@ -49,6 +49,7 @@ interface ChatMessage {
       verified: boolean;
       changes: { direction: "in" | "out"; symbol: string; amount: string }[];
     };
+    txHash?: `0x${string}`;
   };
   timestamp: number;
 }
@@ -570,7 +571,21 @@ const Home: NextPage = () => {
                           <p className="text-sm whitespace-pre-wrap leading-snug m-0">{msg.content}</p>
                         )}
 
-                        {msg.transaction && <TransactionCard tx={msg.transaction} address={address!} />}
+                        {msg.transaction && (
+                          <TransactionCard
+                            tx={msg.transaction}
+                            address={address!}
+                            onTxHash={(hash: `0x${string}`) => {
+                              setMessages(prev =>
+                                prev.map((m, idx) =>
+                                  idx === i && m.transaction
+                                    ? { ...m, transaction: { ...m.transaction, txHash: hash } }
+                                    : m,
+                                ),
+                              );
+                            }}
+                          />
+                        )}
                       </div>
                     </div>
                   ))}
