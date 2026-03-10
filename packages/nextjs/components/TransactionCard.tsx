@@ -327,40 +327,78 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
               </div>
             )}
 
-            <div className="flex justify-end gap-3">
-              <button
-                className="btn btn-ghost btn-sm"
-                style={{ color: "#8A8578" }}
-                onClick={() => setShowModal(false)}
-                disabled={isExecuting}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn btn-sm"
-                style={{
-                  backgroundColor: "#C9A84C",
-                  color: "#0a0a0a",
-                  border: "none",
-                  borderRadius: "0",
-                }}
-                onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
-                onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
-                onClick={handleExecute}
-                disabled={isExecuting}
-              >
-                {isExecuting ? (
-                  <>
-                    <span className="loading loading-spinner loading-sm"></span>
-                    Sending...
-                  </>
-                ) : (
+            {tx.chainId && currentChainId !== tx.chainId ? (
+              <div className="space-y-3">
+                <button
+                  className="btn btn-sm w-full"
+                  style={{
+                    backgroundColor: "#C9A84C",
+                    color: "#0a0a0a",
+                    border: "none",
+                    borderRadius: "0",
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
+                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
+                  onClick={async () => {
+                    try {
+                      await switchChainAsync({ chainId: tx.chainId! });
+                    } catch {
+                      setExecError(
+                        `Failed to switch network. Please switch manually to ${chainName || `chain ${tx.chainId}`}.`,
+                      );
+                    }
+                  }}
+                >
                   <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">
-                    Confirm &amp; Send
+                    Switch to {chainName || `Chain ${tx.chainId}`}
                   </span>
-                )}
-              </button>
-            </div>
+                </button>
+                <div className="flex justify-end">
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ color: "#8A8578" }}
+                    onClick={() => setShowModal(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex justify-end gap-3">
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ color: "#8A8578" }}
+                  onClick={() => setShowModal(false)}
+                  disabled={isExecuting}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-sm"
+                  style={{
+                    backgroundColor: "#C9A84C",
+                    color: "#0a0a0a",
+                    border: "none",
+                    borderRadius: "0",
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#B8963E")}
+                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#C9A84C")}
+                  onClick={handleExecute}
+                  disabled={isExecuting}
+                >
+                  {isExecuting ? (
+                    <>
+                      <span className="loading loading-spinner loading-sm"></span>
+                      Sending...
+                    </>
+                  ) : (
+                    <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">
+                      Confirm &amp; Send
+                    </span>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </dialog>
       )}
