@@ -610,7 +610,7 @@ const Home: NextPage = () => {
                         {[
                           "swap 0.1 ETH for USDC",
                           "what's the best yield for USDC on Arbitrum?",
-                          "register cassiopeia.eth on ENS",
+                          "register denarai.eth on ENS",
                         ].map(suggestion => (
                           <button
                             key={suggestion}

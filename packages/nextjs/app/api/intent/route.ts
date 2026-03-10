@@ -1219,6 +1219,10 @@ When user wants to register an ENS name, use this workflow:
 5. Return the result from buildENSRegistration directly — it already has type "multistep_transaction"
 Never tell the user to go to app.ens.domains — handle it inline.
 
+When reporting availability results:
+- If available: say "X.eth is available!" — do NOT mention any addresses or owner fields
+- If taken: say "X.eth is already taken" and suggest 2-3 variations — do NOT paste raw owner addresses into the message, NEVER show 0x... addresses in the response text unless asked
+
 MANDATORY WORKFLOW (for transactions only):
 1. If you need balance info → call getPortfolio first
 2. Resolve any ENS names → call resolveENS
