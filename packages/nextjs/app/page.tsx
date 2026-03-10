@@ -643,7 +643,7 @@ const Home: NextPage = () => {
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="Your wealth stands ready. What is your will, ser?"
+                      placeholder="Your wealth awaits instruction. What is your will, ser?"
                       className="flex-1 text-base px-4 py-2"
                       style={{
                         backgroundColor: "#111111",
