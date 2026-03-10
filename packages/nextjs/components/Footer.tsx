@@ -75,6 +75,7 @@ export const Footer = () => {
           {[
             { label: "LI.FI", url: "https://li.fi" },
             { label: "Zerion", url: "https://zerion.io" },
+            { label: "Alchemy", url: "https://alchemy.com" },
             { label: "Venice.ai", url: "https://venice.ai" },
           ].map(({ label, url }) => (
             <a
