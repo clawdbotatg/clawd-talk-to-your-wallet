@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { anthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs, tool } from "ai";
 import { namehash } from "viem/ens";
 import { z } from "zod";
@@ -1286,9 +1286,9 @@ export async function POST(req: NextRequest) {
   try {
     const { message, address, portfolio, chainId, recentMessages, recentActivity } = await req.json();
 
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!process.env.VENICE_API_KEY) {
       return NextResponse.json(
-        { type: "chat", message: "API key not configured. Please set ANTHROPIC_API_KEY." },
+        { type: "chat", message: "API key not configured. Please set VENICE_API_KEY." },
         { status: 500 },
       );
     }
@@ -1356,7 +1356,10 @@ export async function POST(req: NextRequest) {
     const userPrompt = `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${activitySummary}${recentContext}\n\nUser: ${message}`;
 
     const result = await generateText({
-      model: anthropic("claude-opus-4-6"),
+      model: createOpenAI({
+        apiKey: process.env.VENICE_API_KEY,
+        baseURL: "https://api.venice.ai/api/v1",
+      })("claude-opus-4-6"),
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userPrompt }],
       tools: intentTools,
