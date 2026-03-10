@@ -54,13 +54,95 @@ const CHAIN_NAMES: Record<number, string> = {
   137: "polygon",
 };
 
+// Derive a stable key from the commit calldata (first 32 chars after selector is unique enough)
+function deriveStorageKey(tx: MultiStepTransactionData): string {
+  const commitData = tx.steps[0]?.data || "";
+  return `ens-registration-${commitData.slice(0, 42)}`;
+}
+
+interface PersistedENSState {
+  state: MultiStepState;
+  step1Hash?: string;
+  step2Hash?: string;
+  commitTimestamp?: number; // unix ms when commit was confirmed
+  delayMs: number;
+}
+
+function loadPersistedState(key: string): PersistedENSState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as PersistedENSState) : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePersistedState(key: string, state: PersistedENSState) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(key, JSON.stringify(state));
+  } catch {}
+}
+
+function clearPersistedState(key: string) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(key);
+  } catch {}
+}
+
 const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardProps) => {
-  const [state, setState] = useState<MultiStepState>("idle");
-  const [step1Hash, setStep1Hash] = useState<`0x${string}` | undefined>();
-  const [step2Hash, setStep2Hash] = useState<`0x${string}` | undefined>();
+  const storageKey = deriveStorageKey(tx);
+
+  // Restore from localStorage on mount
+  const persisted = loadPersistedState(storageKey);
+
+  // If we have a persisted state mid-flow, calculate remaining countdown
+  const getInitialCountdown = (p: PersistedENSState | null): number => {
+    if (!p || p.state !== "waiting" || !p.commitTimestamp) return 0;
+    const elapsed = Date.now() - p.commitTimestamp;
+    const remaining = Math.max(0, Math.ceil((p.delayMs - elapsed) / 1000));
+    return remaining;
+  };
+
+  const getInitialState = (p: PersistedENSState | null): MultiStepState => {
+    if (!p) return "idle";
+    // If we were waiting and countdown has already elapsed, jump to step2_confirming
+    if (p.state === "waiting" && p.commitTimestamp) {
+      const elapsed = Date.now() - p.commitTimestamp;
+      if (elapsed >= p.delayMs) return "step2_confirming";
+    }
+    return p.state;
+  };
+
+  const [state, setState] = useState<MultiStepState>(() => getInitialState(persisted));
+  const [step1Hash, setStep1Hash] = useState<`0x${string}` | undefined>(
+    persisted?.step1Hash as `0x${string}` | undefined,
+  );
+  const [step2Hash, setStep2Hash] = useState<`0x${string}` | undefined>(
+    persisted?.step2Hash as `0x${string}` | undefined,
+  );
   const [execError, setExecError] = useState("");
-  const [countdown, setCountdown] = useState(0);
+  const [countdown, setCountdown] = useState(() => getInitialCountdown(persisted));
   const [showModal, setShowModal] = useState(false);
+  const [commitTimestamp, setCommitTimestamp] = useState<number | undefined>(persisted?.commitTimestamp);
+
+  // Persist state whenever it changes
+  useEffect(() => {
+    if (state === "idle") return; // don't persist before anything happens
+    if (state === "done") {
+      clearPersistedState(storageKey); // clean up when done
+      return;
+    }
+    savePersistedState(storageKey, {
+      state,
+      step1Hash,
+      step2Hash,
+      commitTimestamp,
+      delayMs: tx.delay,
+    });
+  }, [state, step1Hash, step2Hash, commitTimestamp, storageKey, tx.delay]);
 
   const { sendTransactionAsync } = useSendTransaction();
   const { switchChainAsync } = useSwitchChain();
@@ -93,6 +175,8 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
   useEffect(() => {
     if (state === "step1_confirmed") {
       const delaySeconds = Math.ceil(tx.delay / 1000);
+      const ts = Date.now();
+      setCommitTimestamp(ts);
       setCountdown(delaySeconds);
       setState("waiting");
     }
