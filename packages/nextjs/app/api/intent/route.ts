@@ -948,29 +948,10 @@ Always call this before saying you can't find something. It uses server-side tok
     execute: async ({ name }) => {
       const label = name.replace(/\.eth$/i, "").toLowerCase();
       try {
-        // Use ENS BaseRegistrar available(uint256 id) where id = keccak256(label)
-        // BaseRegistrar: 0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85
-        // available(uint256) selector: 0x96e494e8
-        const BASE_REGISTRAR = "0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85";
-
-        // Compute keccak256 of label using Web Crypto API (available in Node 18+)
-        const encoder = new TextEncoder();
-        const labelBytes = encoder.encode(label);
-        const hashBuffer = await crypto.subtle.digest("SHA-256", labelBytes);
-        // Note: We need keccak256, not SHA-256, but we can use eth_call namehash trick instead
-        // Alternative: use ENS offchain resolver API which is simpler
-
-        // Use Alchemy's ENS resolution to check if name has an owner
-        // If owner is zero address → available
-        // We'll check via ENS registry owner(namehash)
-        // ENS Registry: 0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e
-        // But namehash requires keccak256... let's use a different approach:
-        // Call the ETH Registrar Controller's available() via a workaround:
-        // Use alchemy_resolveName which is a supported Alchemy method
-        void hashBuffer; // suppress unused warning
-        void BASE_REGISTRAR;
-
-        const resolveRes = await fetch(alchemyUrl(1), {
+        // Use Alchemy's native alchemy_resolveName — no rate limits, uses our existing key
+        // If name resolves to an address → taken
+        // If result is null / zero address → available
+        const res = await fetch(alchemyUrl(1), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -980,47 +961,10 @@ Always call this before saying you can't find something. It uses server-side tok
             params: [`${label}.eth`],
           }),
         });
-        const resolveJson = await resolveRes.json();
-
-        if (resolveJson.error) {
-          // If resolution fails with "not found" type error, name is likely available
-          // Fall through to subgraph check
-        }
-
-        const resolvedAddress = resolveJson?.result;
-
-        if (!resolvedAddress || resolvedAddress === "0x0000000000000000000000000000000000000000") {
-          // No resolver set = name likely available (or expired)
-          // Double-check with ENS subgraph for expiry info
-          const query = `{registrations(where:{labelName:"${label}"}){expiryDate registrant{id}}}`;
-          try {
-            const sgRes = await fetch("https://api.thegraph.com/subgraphs/name/ensdomains/ens", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ query }),
-              signal: AbortSignal.timeout(3000),
-            });
-            const sgJson = await sgRes.json();
-            const regs = sgJson?.data?.registrations ?? [];
-            if (regs.length > 0) {
-              const nowSeconds = Math.floor(Date.now() / 1000);
-              const expiry = parseInt(regs[0].expiryDate, 10);
-              const gracePeriod = 90 * 24 * 60 * 60;
-              const available = expiry + gracePeriod < nowSeconds;
-              return {
-                available,
-                name: label,
-                expiryDate: available ? null : new Date(expiry * 1000).toLocaleDateString(),
-              };
-            }
-          } catch {
-            // subgraph timeout/rate-limit — trust the resolver result
-          }
-          return { available: true, name: label };
-        }
-
-        // Name resolves to a real address = it's registered and active
-        return { available: false, name: label, owner: resolvedAddress };
+        const json = await res.json();
+        const resolvedAddress = json?.result;
+        const available = !resolvedAddress || resolvedAddress === "0x0000000000000000000000000000000000000000";
+        return { available, name: label, owner: available ? null : resolvedAddress };
       } catch (e) {
         return { error: `Failed to check ENS availability: ${e instanceof Error ? e.message : String(e)}` };
       }
