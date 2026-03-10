@@ -118,6 +118,7 @@ const TransactionCard = ({ tx, address }: TransactionCardProps) => {
       setTimeout(openWallet, 2000);
       const hash = await promise;
       setTxHash(hash);
+      setShowModal(false);
     } catch (e: unknown) {
       setExecError(e instanceof Error ? e.message : "Transaction failed");
     } finally {
