@@ -4,6 +4,7 @@ import { Address } from "@scaffold-ui/components";
 import { isAddress } from "viem";
 import { useEnsAddress } from "wagmi";
 import { mainnet } from "wagmi/chains";
+import { useDetailModal } from "~~/components/DetailModal";
 
 interface AddressChipProps {
   address: string; // 0x... address OR ENS name like punk.austingriffith.eth
@@ -12,6 +13,7 @@ interface AddressChipProps {
 
 // For ENS name strings: resolve to 0x then render <Address>
 function EnsNameChip({ name }: { name: string }) {
+  const { openModal } = useDetailModal();
   const { data: resolvedAddress } = useEnsAddress({
     name,
     chainId: mainnet.id,
@@ -19,7 +21,11 @@ function EnsNameChip({ name }: { name: string }) {
 
   if (resolvedAddress) {
     return (
-      <span className="inline-flex align-middle mx-0.5" style={{ color: "#C9A84C" }}>
+      <span
+        className="inline-flex align-middle mx-0.5 cursor-pointer"
+        style={{ color: "#C9A84C" }}
+        onClick={() => openModal({ type: "address", address: resolvedAddress, ens: name })}
+      >
         <Address address={resolvedAddress} size="sm" onlyEnsOrAddress />
       </span>
     );
@@ -34,9 +40,15 @@ function EnsNameChip({ name }: { name: string }) {
 }
 
 export default function AddressChip({ address }: AddressChipProps) {
+  const { openModal } = useDetailModal();
+
   if (isAddress(address)) {
     return (
-      <span className="inline-flex align-middle mx-0.5" style={{ color: "#C9A84C" }}>
+      <span
+        className="inline-flex align-middle mx-0.5 cursor-pointer"
+        style={{ color: "#C9A84C" }}
+        onClick={() => openModal({ type: "address", address })}
+      >
         <Address address={address} size="sm" onlyEnsOrAddress />
       </span>
     );

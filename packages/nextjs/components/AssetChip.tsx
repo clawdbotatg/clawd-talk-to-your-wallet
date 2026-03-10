@@ -1,5 +1,7 @@
 "use client";
 
+import { useDetailModal } from "~~/components/DetailModal";
+
 interface AssetChipProps {
   symbol: string;
   amount?: string;
@@ -48,12 +50,14 @@ const CHAIN_ICONS: Record<string, string> = {
 };
 
 export default function AssetChip({ symbol, amount, thumbnail, chain }: AssetChipProps) {
+  const { openModal } = useDetailModal();
   const iconUrl = thumbnail || TOKEN_ICONS[symbol.toUpperCase()] || null;
   const chainIconUrl = chain ? CHAIN_ICONS[chain.toLowerCase()] : null;
 
   return (
     <span
-      className="inline-flex items-center gap-1.5 mx-0.5 px-2 py-0.5 text-xs font-semibold align-middle whitespace-nowrap"
+      className="inline-flex items-center gap-1.5 mx-0.5 px-2 py-0.5 text-xs font-semibold align-middle whitespace-nowrap cursor-pointer"
+      onClick={() => openModal({ type: "asset", symbol, amount, chain, thumbnail })}
       style={{
         backgroundColor: "#111111",
         border: "1px solid rgba(201, 168, 76, 0.2)",

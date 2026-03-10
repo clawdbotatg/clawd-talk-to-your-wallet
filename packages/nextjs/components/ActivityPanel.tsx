@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import AssetChip from "./AssetChip";
+import { useDetailModal } from "~~/components/DetailModal";
 
 interface ActivityItem {
   id: string;
@@ -78,6 +79,7 @@ interface ActivityPanelProps {
 }
 
 export default function ActivityPanel({ address, initialItems }: ActivityPanelProps) {
+  const { openModal } = useDetailModal();
   const [items, setItems] = useState<ActivityItem[]>(initialItems || []);
   const [isLoading, setIsLoading] = useState(!initialItems);
   const [error, setError] = useState("");
@@ -176,10 +178,20 @@ export default function ActivityPanel({ address, initialItems }: ActivityPanelPr
             return (
               <div
                 key={item.id}
-                className={`flex items-center gap-2 py-3 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02] ${isFailed ? "opacity-50" : ""}`}
+                className={`flex items-center gap-2 py-3 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02] cursor-pointer ${isFailed ? "opacity-50" : ""}`}
                 style={{
                   borderBottom: "1px solid rgba(201, 168, 76, 0.06)",
                 }}
+                onClick={() =>
+                  openModal({
+                    type: "activity_item",
+                    id: item.id,
+                    hash: item.hash,
+                    chain: item.chain,
+                    txType: item.type,
+                    valueUsd: item.valueUsd ?? undefined,
+                  })
+                }
               >
                 {/* Action label */}
                 <span

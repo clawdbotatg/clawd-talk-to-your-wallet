@@ -5,6 +5,7 @@ import type { NextPage } from "next";
 import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
 import ChatMessageRenderer from "~~/components/ChatMessageRenderer";
+import { useDetailModal } from "~~/components/DetailModal";
 import TransactionCard from "~~/components/TransactionCard";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 
@@ -89,6 +90,7 @@ const MAX_DISPLAY_ASSETS = 8;
 
 const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
+  const { openModal } = useDetailModal();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -340,10 +342,19 @@ const Home: NextPage = () => {
                         {displayedAssets.map((asset, i) => (
                           <div
                             key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
-                            className="flex items-center justify-between py-2 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02]"
+                            className="flex items-center justify-between py-2 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02] cursor-pointer"
                             style={{
                               borderBottom: "1px solid rgba(201, 168, 76, 0.06)",
                             }}
+                            onClick={() =>
+                              openModal({
+                                type: "portfolio_position",
+                                symbol: asset.tokenSymbol,
+                                chain: asset.blockchain,
+                                balanceUsd: asset.balanceUsd,
+                                protocol: asset.protocol ?? undefined,
+                              })
+                            }
                           >
                             <div className="flex items-center gap-2">
                               <div className="relative w-7 h-7 shrink-0">
@@ -452,10 +463,19 @@ const Home: NextPage = () => {
                           {defiPositions.map((pos, i) => (
                             <div
                               key={`defi-${pos.blockchain}-${pos.contractAddress || pos.tokenSymbol}-${i}`}
-                              className="flex items-center justify-between py-1.5 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02]"
+                              className="flex items-center justify-between py-1.5 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02] cursor-pointer"
                               style={{
                                 borderBottom: "1px solid rgba(201, 168, 76, 0.06)",
                               }}
+                              onClick={() =>
+                                openModal({
+                                  type: "portfolio_position",
+                                  symbol: pos.tokenSymbol,
+                                  chain: pos.blockchain,
+                                  balanceUsd: pos.balanceUsd,
+                                  protocol: pos.protocol ?? undefined,
+                                })
+                              }
                             >
                               <div className="flex items-center gap-2">
                                 <div className="relative w-7 h-7 shrink-0">

@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppProgressBar as ProgressBar } from "next-nprogress-bar";
 import { Toaster } from "react-hot-toast";
 import { WagmiProvider } from "wagmi";
+import { DetailModalProvider } from "~~/components/DetailModal";
 import { Footer } from "~~/components/Footer";
 import { Header } from "~~/components/Header";
 import { BlockieAvatar } from "~~/components/scaffold-eth";
@@ -21,11 +22,13 @@ const classicalRainbowTheme = darkTheme({
 const ScaffoldEthApp = ({ children }: { children: React.ReactNode }) => {
   return (
     <>
-      <div className="flex flex-col min-h-screen" style={{ backgroundColor: "#0a0a0a" }}>
-        <Header />
-        <main className="relative flex flex-col flex-1">{children}</main>
-        <Footer />
-      </div>
+      <DetailModalProvider>
+        <div className="flex flex-col min-h-screen" style={{ backgroundColor: "#0a0a0a" }}>
+          <Header />
+          <main className="relative flex flex-col flex-1">{children}</main>
+          <Footer />
+        </div>
+      </DetailModalProvider>
       <Toaster />
     </>
   );

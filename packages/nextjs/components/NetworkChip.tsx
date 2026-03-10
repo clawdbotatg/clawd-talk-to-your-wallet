@@ -1,5 +1,7 @@
 "use client";
 
+import { useDetailModal } from "~~/components/DetailModal";
+
 interface NetworkChipProps {
   chain: string;
 }
@@ -45,13 +47,15 @@ const CHAIN_DISPLAY: Record<string, string> = {
 };
 
 export default function NetworkChip({ chain }: NetworkChipProps) {
+  const { openModal } = useDetailModal();
   const key = chain.toLowerCase();
   const iconUrl = CHAIN_ICONS[key];
   const displayName = CHAIN_DISPLAY[key] || chain;
 
   return (
     <span
-      className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 text-xs font-medium align-middle whitespace-nowrap"
+      className="inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 text-xs font-medium align-middle whitespace-nowrap cursor-pointer"
+      onClick={() => openModal({ type: "network", chain })}
       style={{
         backgroundColor: "#111111",
         border: "1px solid rgba(201, 168, 76, 0.15)",
