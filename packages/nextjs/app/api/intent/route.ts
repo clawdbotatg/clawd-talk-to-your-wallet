@@ -971,7 +971,8 @@ Always call this before saying you can't find something. It uses server-side tok
         // If owner is zero address → available
         const owner = "0x" + result?.slice(-40);
         const available = !result || owner === "0x0000000000000000000000000000000000000000";
-        return { available, name: label, owner: available ? null : owner };
+        // Don't return the owner address — AI will leak it into responses
+        return { available, name: label };
       } catch (e) {
         return { error: `Failed to check ENS availability: ${e instanceof Error ? e.message : String(e)}` };
       }
@@ -1218,10 +1219,6 @@ When user wants to register an ENS name, use this workflow:
 4. Call buildENSRegistration(name, owner, years) to build the 2-step transaction
 5. Return the result from buildENSRegistration directly — it already has type "multistep_transaction"
 Never tell the user to go to app.ens.domains — handle it inline.
-
-When reporting availability results:
-- If available: say "X.eth is available!" — do NOT mention any addresses or owner fields
-- If taken: say "X.eth is already taken" and suggest 2-3 variations — do NOT paste raw owner addresses into the message, NEVER show 0x... addresses in the response text unless asked
 
 MANDATORY WORKFLOW (for transactions only):
 1. If you need balance info → call getPortfolio first
