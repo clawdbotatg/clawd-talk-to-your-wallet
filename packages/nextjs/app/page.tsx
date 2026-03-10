@@ -263,18 +263,32 @@ const Home: NextPage = () => {
     <div className="flex items-center flex-col flex-grow pt-2" style={{ backgroundColor: "#0a0a0a" }}>
       <div className="px-5 w-full max-w-7xl">
         {!isConnected ? (
-          <div className="flex flex-col items-center mt-20 gap-6">
-            <h1
-              className="font-[family-name:var(--font-cinzel)] text-4xl sm:text-5xl font-semibold tracking-[0.35em] text-center"
-              style={{ color: "#C9A84C" }}
-            >
-              D E N A R A I
-            </h1>
-            <p className="text-sm tracking-[0.2em] italic" style={{ color: "#8A8578" }}>
-              The ancient art of guarding wealth
-            </p>
-            <div className="h-px w-48" style={{ backgroundColor: "rgba(201, 168, 76, 0.15)" }} />
-            <RainbowKitCustomConnectButton />
+          <div
+            className="fixed inset-0 flex flex-col items-center justify-center gap-8"
+            style={{
+              backgroundImage: "url('/coins-bg.jpg')",
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          >
+            {/* Dark overlay so text is readable */}
+            <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.55)" }} />
+            <div className="relative z-10 flex flex-col items-center gap-6">
+              <h1
+                className="font-[family-name:var(--font-cinzel)] text-5xl sm:text-7xl font-bold tracking-[0.3em] text-center"
+                style={{ color: "#C9A84C", textShadow: "0 2px 24px rgba(0,0,0,0.8)" }}
+              >
+                DENARAI
+              </h1>
+              <p
+                className="font-[family-name:var(--font-cinzel)] text-lg sm:text-xl tracking-[0.25em] text-center"
+                style={{ color: "#E8E4DC", textShadow: "0 1px 12px rgba(0,0,0,0.9)" }}
+              >
+                talk to your coins
+              </p>
+              <div className="h-px w-48" style={{ backgroundColor: "rgba(201, 168, 76, 0.3)" }} />
+              <RainbowKitCustomConnectButton />
+            </div>
           </div>
         ) : (
           <div className="mt-2">
