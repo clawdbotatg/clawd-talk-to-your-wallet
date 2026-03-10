@@ -3,6 +3,9 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useEnsAvatar, useEnsName } from "wagmi";
 import { mainnet } from "wagmi/chains";
+import AddressChip from "~~/components/AddressChip";
+import AssetChip from "~~/components/AssetChip";
+import NetworkChip from "~~/components/NetworkChip";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -58,7 +61,7 @@ function LoadingSkeleton({ width = "60%" }: { width?: string }) {
   return <div className="h-3 rounded animate-pulse" style={{ backgroundColor: "rgba(201,168,76,0.1)", width }} />;
 }
 
-function DataRow({ label, value, mono = false }: { label: string; value?: string | null; mono?: boolean }) {
+function DataRow({ label, value, mono = false }: { label: string; value?: React.ReactNode | null; mono?: boolean }) {
   return (
     <div
       className="flex items-center justify-between py-2"
@@ -68,12 +71,16 @@ function DataRow({ label, value, mono = false }: { label: string; value?: string
         {label}
       </span>
       {value != null ? (
-        <span
-          className={`text-xs ${mono ? "font-[family-name:var(--font-jetbrains)]" : ""}`}
-          style={{ color: "#E8E4DC" }}
-        >
-          {value}
-        </span>
+        typeof value === "string" ? (
+          <span
+            className={`text-xs ${mono ? "font-[family-name:var(--font-jetbrains)]" : ""}`}
+            style={{ color: "#E8E4DC" }}
+          >
+            {value}
+          </span>
+        ) : (
+          <span className="text-xs">{value}</span>
+        )
       ) : (
         <LoadingSkeleton />
       )}
@@ -211,10 +218,7 @@ function AddressContent({ item }: { item: Extract<ModalItem, { type: "address" }
             <div className="mt-1 space-y-1">
               {data.topTokens.slice(0, 5).map(t => (
                 <div key={t.symbol} className="flex items-center justify-between py-1">
-                  <span className="text-xs flex items-center gap-1.5" style={{ color: "#E8E4DC" }}>
-                    {t.icon && <img src={t.icon} alt="" className="w-3.5 h-3.5 rounded-full" />}
-                    {t.symbol}
-                  </span>
+                  <AssetChip symbol={t.symbol} thumbnail={t.icon} />
                   <span className="font-[family-name:var(--font-jetbrains)] text-xs" style={{ color: "#8A8578" }}>
                     {formatUsd(parseFloat(t.balanceUsd))}
                   </span>
@@ -281,8 +285,8 @@ function AssetContent({ item }: { item: Extract<ModalItem, { type: "asset" }> })
           </div>
         )}
 
-        {item.amount && <DataRow label="Balance" value={`${item.amount} ${item.symbol}`} mono />}
-        {item.chain && <DataRow label="Chain" value={item.chain} />}
+        {item.amount && <DataRow label="Balance" value={<AssetChip symbol={item.symbol} amount={item.amount} />} />}
+        {item.chain && <DataRow label="Chain" value={<NetworkChip chain={item.chain} />} />}
 
         {/* Price with 24h change */}
         <div
@@ -312,22 +316,7 @@ function AssetContent({ item }: { item: Extract<ModalItem, { type: "asset" }> })
         <DataRow label="24h Volume" value={error ? "—" : data?.volume24h != null ? formatUsd(data.volume24h) : null} />
 
         {/* Contract address */}
-        {item.contractAddress && (
-          <div
-            className="flex items-center justify-between py-2"
-            style={{ borderBottom: "1px solid rgba(201, 168, 76, 0.06)" }}
-          >
-            <span className="text-xs" style={{ color: "#8A8578" }}>
-              Contract
-            </span>
-            <span className="flex items-center">
-              <span className="font-[family-name:var(--font-jetbrains)] text-xs" style={{ color: "#E8E4DC" }}>
-                {`${item.contractAddress.slice(0, 6)}…${item.contractAddress.slice(-4)}`}
-              </span>
-              <CopyButton text={item.contractAddress} />
-            </span>
-          </div>
-        )}
+        {item.contractAddress && <DataRow label="Contract" value={<AddressChip address={item.contractAddress} />} />}
 
         {/* Description */}
         {data?.description && (
@@ -498,58 +487,19 @@ function TransactionContent({ item }: { item: Extract<ModalItem, { type: "transa
           )}
         </div>
 
-        <DataRow label="Chain" value={item.chain} />
+        <DataRow label="Chain" value={<NetworkChip chain={item.chain} />} />
 
         {/* From */}
-        <div
-          className="flex items-center justify-between py-2"
-          style={{ borderBottom: "1px solid rgba(201, 168, 76, 0.06)" }}
-        >
-          <span className="text-xs" style={{ color: "#8A8578" }}>
-            From
-          </span>
-          {data?.from ? (
-            <span className="flex items-center">
-              <span className="font-[family-name:var(--font-jetbrains)] text-xs" style={{ color: "#E8E4DC" }}>
-                {`${data.from.slice(0, 6)}…${data.from.slice(-4)}`}
-              </span>
-              <CopyButton text={data.from} />
-            </span>
-          ) : error ? (
-            <span className="text-xs" style={{ color: "#E8E4DC" }}>
-              —
-            </span>
-          ) : (
-            <LoadingSkeleton />
-          )}
-        </div>
+        <DataRow label="From" value={data?.from ? <AddressChip address={data.from} /> : error ? "—" : null} />
 
         {/* To */}
-        <div
-          className="flex items-center justify-between py-2"
-          style={{ borderBottom: "1px solid rgba(201, 168, 76, 0.06)" }}
-        >
-          <span className="text-xs" style={{ color: "#8A8578" }}>
-            To
-          </span>
-          {data?.to ? (
-            <span className="flex items-center">
-              <span className="font-[family-name:var(--font-jetbrains)] text-xs" style={{ color: "#E8E4DC" }}>
-                {`${data.to.slice(0, 6)}…${data.to.slice(-4)}`}
-              </span>
-              <CopyButton text={data.to} />
-            </span>
-          ) : error ? (
-            <span className="text-xs" style={{ color: "#E8E4DC" }}>
-              —
-            </span>
-          ) : (
-            <LoadingSkeleton />
-          )}
-        </div>
+        <DataRow label="To" value={data?.to ? <AddressChip address={data.to} /> : error ? "—" : null} />
 
-        <DataRow label="Value" value={error ? "—" : data ? `${data.valueEth} ETH` : null} mono />
-        <DataRow label="Gas Cost" value={error ? "—" : data ? `${data.gasCostEth} ETH` : null} mono />
+        <DataRow label="Value" value={error ? "—" : data ? <AssetChip symbol="ETH" amount={data.valueEth} /> : null} />
+        <DataRow
+          label="Gas Cost"
+          value={error ? "—" : data ? <AssetChip symbol="ETH" amount={data.gasCostEth} /> : null}
+        />
         <DataRow
           label="Block"
           value={error ? "—" : data?.blockNumber != null ? data.blockNumber.toLocaleString() : null}
@@ -588,8 +538,6 @@ function PortfolioPositionContent({ item }: { item: Extract<ModalItem, { type: "
       })
       .catch(() => setError(true));
   }, [item.symbol]);
-
-  const chainIcon = CHAIN_ICONS[item.chain.toLowerCase()];
 
   return (
     <>
@@ -639,19 +587,8 @@ function PortfolioPositionContent({ item }: { item: Extract<ModalItem, { type: "
           )}
         </div>
 
-        {/* Chain with icon */}
-        <div
-          className="flex items-center justify-between py-2"
-          style={{ borderBottom: "1px solid rgba(201, 168, 76, 0.06)" }}
-        >
-          <span className="text-xs" style={{ color: "#8A8578" }}>
-            Chain
-          </span>
-          <span className="text-xs flex items-center gap-1.5" style={{ color: "#E8E4DC" }}>
-            {chainIcon && <img src={chainIcon} alt="" className="w-3.5 h-3.5 rounded-full" />}
-            {item.chain.charAt(0).toUpperCase() + item.chain.slice(1)}
-          </span>
-        </div>
+        {/* Chain */}
+        <DataRow label="Chain" value={<NetworkChip chain={item.chain} />} />
 
         {item.protocol && <DataRow label="Protocol" value={item.protocol} />}
 
@@ -747,45 +684,21 @@ function ActivityItemContent({ item }: { item: Extract<ModalItem, { type: "activ
           </span>
         </div>
 
-        <DataRow label="Chain" value={item.chain} />
+        <DataRow label="Chain" value={<NetworkChip chain={item.chain} />} />
 
         {/* From → To */}
-        {data?.from && (
-          <div
-            className="flex items-center justify-between py-2"
-            style={{ borderBottom: "1px solid rgba(201, 168, 76, 0.06)" }}
-          >
-            <span className="text-xs" style={{ color: "#8A8578" }}>
-              From
-            </span>
-            <span className="flex items-center">
-              <span className="font-[family-name:var(--font-jetbrains)] text-xs" style={{ color: "#E8E4DC" }}>
-                {`${data.from.slice(0, 6)}…${data.from.slice(-4)}`}
-              </span>
-              <CopyButton text={data.from} />
-            </span>
-          </div>
-        )}
-        {data?.to && (
-          <div
-            className="flex items-center justify-between py-2"
-            style={{ borderBottom: "1px solid rgba(201, 168, 76, 0.06)" }}
-          >
-            <span className="text-xs" style={{ color: "#8A8578" }}>
-              To
-            </span>
-            <span className="flex items-center">
-              <span className="font-[family-name:var(--font-jetbrains)] text-xs" style={{ color: "#E8E4DC" }}>
-                {`${data.to.slice(0, 6)}…${data.to.slice(-4)}`}
-              </span>
-              <CopyButton text={data.to} />
-            </span>
-          </div>
-        )}
+        {data?.from && <DataRow label="From" value={<AddressChip address={data.from} />} />}
+        {data?.to && <DataRow label="To" value={<AddressChip address={data.to} />} />}
 
         {item.valueUsd != null && <DataRow label="Value (USD)" value={`$${item.valueUsd.toFixed(2)}`} />}
-        <DataRow label="Value (ETH)" value={error ? "—" : data ? `${data.valueEth} ETH` : null} mono />
-        <DataRow label="Gas Cost" value={error ? "—" : data ? `${data.gasCostEth} ETH` : null} mono />
+        <DataRow
+          label="Value (ETH)"
+          value={error ? "—" : data ? <AssetChip symbol="ETH" amount={data.valueEth} /> : null}
+        />
+        <DataRow
+          label="Gas Cost"
+          value={error ? "—" : data ? <AssetChip symbol="ETH" amount={data.gasCostEth} /> : null}
+        />
         <DataRow
           label="Block"
           value={error ? "—" : data?.blockNumber != null ? data.blockNumber.toLocaleString() : null}
