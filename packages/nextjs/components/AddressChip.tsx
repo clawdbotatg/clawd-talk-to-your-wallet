@@ -22,7 +22,7 @@ function EnsNameChip({ name }: { name: string }) {
   if (resolvedAddress) {
     return (
       <span
-        className="inline-flex align-middle mx-0.5 cursor-pointer"
+        className="inline-flex align-middle mx-0.5 cursor-pointer [&_*]:!text-[#C9A84C] [&_a]:!text-[#C9A84C]"
         style={{ color: "#C9A84C" }}
         onClick={() => openModal({ type: "address", address: resolvedAddress, ens: name })}
       >
@@ -45,7 +45,7 @@ export default function AddressChip({ address }: AddressChipProps) {
   if (isAddress(address)) {
     return (
       <span
-        className="inline-flex align-middle mx-0.5 cursor-pointer"
+        className="inline-flex align-middle mx-0.5 cursor-pointer [&_*]:!text-[#C9A84C] [&_a]:!text-[#C9A84C]"
         style={{ color: "#C9A84C" }}
         onClick={() => openModal({ type: "address", address })}
       >
