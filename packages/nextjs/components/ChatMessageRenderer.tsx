@@ -114,6 +114,129 @@ const KNOWN_SYMBOLS = new Set([
   "weETH",
 ]);
 
+// ─── Inline segment renderer ─────────────────────────────────────────────────
+
+function renderSegments(segments: Segment[], thumbnailMap: Record<string, string>) {
+  return segments.map((seg, i) => {
+    if (seg.type === "text") return <React.Fragment key={i}>{seg.value}</React.Fragment>;
+    if (seg.type === "address") return <AddressChip key={i} address={seg.value} />;
+    if (seg.type === "ens") return <AddressChip key={i} address={seg.value} ens={seg.value} />;
+    if (seg.type === "network") return <NetworkChip key={i} chain={seg.chain!} />;
+    if (seg.type === "asset") {
+      return (
+        <AssetChip
+          key={i}
+          symbol={seg.symbol!}
+          amount={seg.amount}
+          chain={seg.chain}
+          thumbnail={thumbnailMap[seg.symbol!]}
+        />
+      );
+    }
+    return null;
+  });
+}
+
+// ─── Inline markdown parser (bold, inline code) ───────────────────────────────
+
+function parseInline(text: string, thumbnailMap: Record<string, string>): React.ReactNode {
+  // Split on **bold** and `code` markers, then parse chips in remaining text
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      const inner = part.slice(2, -2);
+      return (
+        <strong key={i} className="font-semibold" style={{ color: "#E8E4DC" }}>
+          {renderSegments(parseContent(inner, thumbnailMap), thumbnailMap)}
+        </strong>
+      );
+    }
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code
+          key={i}
+          className="font-[family-name:var(--font-jetbrains)] text-xs px-1 rounded"
+          style={{ backgroundColor: "rgba(201,168,76,0.1)", color: "#C9A84C" }}
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return <React.Fragment key={i}>{renderSegments(parseContent(part, thumbnailMap), thumbnailMap)}</React.Fragment>;
+  });
+}
+
+// ─── Block-level markdown renderer ───────────────────────────────────────────
+
+function renderBlocks(content: string, thumbnailMap: Record<string, string>): React.ReactNode {
+  const lines = content.split("\n");
+  const blocks: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Numbered list item: "1. " or "1) "
+    if (/^\d+[.)]\s/.test(line)) {
+      const listItems: React.ReactNode[] = [];
+      while (i < lines.length && /^\d+[.)]\s/.test(lines[i])) {
+        const text = lines[i].replace(/^\d+[.)]\s/, "");
+        listItems.push(
+          <li key={i} className="ml-4 mb-1">
+            {parseInline(text, thumbnailMap)}
+          </li>,
+        );
+        i++;
+      }
+      blocks.push(
+        <ol key={`ol-${i}`} className="list-decimal list-outside my-2 space-y-0.5">
+          {listItems}
+        </ol>,
+      );
+      continue;
+    }
+
+    // Bullet list item: "- " or "* "
+    if (/^[-*]\s/.test(line)) {
+      const listItems: React.ReactNode[] = [];
+      while (i < lines.length && /^[-*]\s/.test(lines[i])) {
+        const text = lines[i].replace(/^[-*]\s/, "");
+        listItems.push(
+          <li key={i} className="ml-4 mb-1">
+            {parseInline(text, thumbnailMap)}
+          </li>,
+        );
+        i++;
+      }
+      blocks.push(
+        <ul key={`ul-${i}`} className="list-disc list-outside my-2 space-y-0.5">
+          {listItems}
+        </ul>,
+      );
+      continue;
+    }
+
+    // Blank line — skip
+    if (line.trim() === "") {
+      blocks.push(<div key={`br-${i}`} className="h-2" />);
+      i++;
+      continue;
+    }
+
+    // Regular paragraph line
+    blocks.push(
+      <span key={`p-${i}`} className="block leading-relaxed">
+        {parseInline(line, thumbnailMap)}
+      </span>,
+    );
+    i++;
+  }
+
+  return blocks;
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function ChatMessageRenderer({ content, portfolio }: ChatMessageRendererProps) {
   const thumbnailMap: Record<string, string> = {};
   if (portfolio) {
@@ -124,32 +247,10 @@ export default function ChatMessageRenderer({ content, portfolio }: ChatMessageR
     }
   }
 
-  const segments = parseContent(content, thumbnailMap);
-
   return (
-    <p
-      className="text-sm whitespace-pre-wrap leading-snug m-0 font-[family-name:var(--font-inter)]"
-      style={{ color: "#E8E4DC" }}
-    >
-      {segments.map((seg, i) => {
-        if (seg.type === "text") return <React.Fragment key={i}>{seg.value}</React.Fragment>;
-        if (seg.type === "address") return <AddressChip key={i} address={seg.value} />;
-        if (seg.type === "ens") return <AddressChip key={i} address={seg.value} ens={seg.value} />;
-        if (seg.type === "network") return <NetworkChip key={i} chain={seg.chain!} />;
-        if (seg.type === "asset") {
-          return (
-            <AssetChip
-              key={i}
-              symbol={seg.symbol!}
-              amount={seg.amount}
-              chain={seg.chain}
-              thumbnail={thumbnailMap[seg.symbol!]}
-            />
-          );
-        }
-        return null;
-      })}
-    </p>
+    <div className="text-sm leading-snug m-0 font-[family-name:var(--font-inter)]" style={{ color: "#E8E4DC" }}>
+      {renderBlocks(content, thumbnailMap)}
+    </div>
   );
 }
 
