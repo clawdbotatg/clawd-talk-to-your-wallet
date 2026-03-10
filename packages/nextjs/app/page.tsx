@@ -135,6 +135,22 @@ const Home: NextPage = () => {
   const [activity, setActivity] = useState<ActivityItem[]>([]);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const goldBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Track cursor position across the whole page for gold button shimmer
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const btn = goldBtnRef.current;
+      if (!btn) return;
+      const r = btn.getBoundingClientRect();
+      const x = ((e.clientX - r.left) / r.width) * 100;
+      const y = ((e.clientY - r.top) / r.height) * 100;
+      btn.style.setProperty("--mx", `${x}%`);
+      btn.style.setProperty("--my", `${y}%`);
+    };
+    window.addEventListener("mousemove", handler);
+    return () => window.removeEventListener("mousemove", handler);
+  }, []);
 
   useEffect(() => {
     if (!STORAGE_KEY || messages.length === 0) return;
@@ -717,19 +733,9 @@ const Home: NextPage = () => {
                       disabled={isProcessing}
                     />
                     <button
+                      ref={goldBtnRef}
                       className="px-6 py-2 relative overflow-hidden gold-btn"
                       style={{ color: "#0a0a0a" }}
-                      onMouseMove={e => {
-                        const r = e.currentTarget.getBoundingClientRect();
-                        const x = ((e.clientX - r.left) / r.width) * 100;
-                        const y = ((e.clientY - r.top) / r.height) * 100;
-                        e.currentTarget.style.setProperty("--mx", `${x}%`);
-                        e.currentTarget.style.setProperty("--my", `${y}%`);
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.setProperty("--mx", "50%");
-                        e.currentTarget.style.setProperty("--my", "50%");
-                      }}
                       onClick={handleSubmit}
                       disabled={isProcessing || !message.trim()}
                     >
