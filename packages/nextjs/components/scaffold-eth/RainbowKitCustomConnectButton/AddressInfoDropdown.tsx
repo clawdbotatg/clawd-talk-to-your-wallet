@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { NetworkOptions } from "./NetworkOptions";
 import { getAddress } from "viem";
 import { Address } from "viem";
-import { useAccount, useDisconnect } from "wagmi";
+import { useAccount, useDisconnect, useEnsAvatar, useEnsName } from "wagmi";
+import { mainnet } from "wagmi/chains";
 import {
   ArrowLeftOnRectangleIcon,
   ArrowTopRightOnSquareIcon,
@@ -39,6 +40,10 @@ export const AddressInfoDropdown = ({
   const { connector } = useAccount();
   const checkSumAddress = getAddress(address);
 
+  const { data: ensName } = useEnsName({ address: checkSumAddress, chainId: mainnet.id });
+  const { data: resolvedEnsAvatar } = useEnsAvatar({ name: ensName ?? undefined, chainId: mainnet.id });
+  const avatarToUse = resolvedEnsAvatar || ensAvatar || undefined;
+
   const { copyToClipboard: copyAddressToClipboard, isCopiedToClipboard: isAddressCopiedToClipboard } =
     useCopyToClipboard();
   const [selectingNetwork, setSelectingNetwork] = useState(false);
@@ -54,8 +59,8 @@ export const AddressInfoDropdown = ({
   return (
     <>
       <details ref={dropdownRef} className="dropdown dropdown-end leading-3">
-        <summary className="btn btn-secondary btn-sm pl-0 pr-2 shadow-md dropdown-toggle gap-0 h-auto!">
-          <BlockieAvatar address={checkSumAddress} size={30} ensImage={ensAvatar} />
+        <summary className="btn btn-ghost btn-sm pl-0 pr-2 dropdown-toggle gap-0 h-auto! border-none shadow-none bg-transparent hover:bg-transparent">
+          <BlockieAvatar address={checkSumAddress} size={30} ensImage={avatarToUse} />
           <span className="ml-2 mr-1">
             {isENS(displayName) ? displayName : checkSumAddress?.slice(0, 6) + "..." + checkSumAddress?.slice(-4)}
           </span>
