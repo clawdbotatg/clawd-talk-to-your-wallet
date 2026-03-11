@@ -7,17 +7,7 @@ const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
     : `http://localhost:${process.env.PORT || 3000}`;
 const titleTemplate = "%s | Talk to Your Wallet";
 
-export const getMetadata = ({
-  title,
-  description,
-  imageRelativePath = "/thumbnail.jpg",
-}: {
-  title: string;
-  description: string;
-  imageRelativePath?: string;
-}): Metadata => {
-  const imageUrl = `${baseUrl}${imageRelativePath}`;
-
+export const getMetadata = ({ title, description }: { title: string; description: string }): Metadata => {
   return {
     metadataBase: new URL(baseUrl),
     title: {
@@ -31,19 +21,14 @@ export const getMetadata = ({
         template: titleTemplate,
       },
       description: description,
-      images: [
-        {
-          url: imageUrl,
-        },
-      ],
     },
     twitter: {
+      card: "summary_large_image",
       title: {
         default: title,
         template: titleTemplate,
       },
       description: description,
-      images: [imageUrl],
     },
     icons: {
       icon: [
