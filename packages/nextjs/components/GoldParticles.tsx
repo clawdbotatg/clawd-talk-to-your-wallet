@@ -18,57 +18,38 @@ interface Particle {
   color: string;
   phase: number; // for gentle pulsing
   phaseSpeed: number;
-  blurBase: number; // center of blur oscillation (0 = mostly sharp, higher = mostly soft)
-  blurAmplitude: number; // how much blur varies around the base
-  blurPhase: number; // independent phase offset for blur cycle
-  blurPhaseSpeed: number; // speed of blur oscillation
 }
 
 const GOLD_COLORS = ["#C9A84C", "#B8963E", "#E8C96A", "#D4B85A", "#A8893A"];
 const PARTICLE_COUNT = 160;
+
+/** Mouse-proximity blur constants */
+const BLUR_SHARP_RADIUS = 80; // within this distance: fully sharp
+const BLUR_MAX_RADIUS = 300; // beyond this distance: max blur
+const BLUR_MAX_PX = 7; // maximum blur in pixels
 
 const GoldParticles = ({ foreground }: GoldParticlesProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const particlesRef = useRef<Particle[]>([]);
   const animFrameRef = useRef<number>(0);
   const sizeRef = useRef({ w: 0, h: 0 });
+  const mousePosRef = useRef({ x: -9999, y: -9999 });
 
   const createParticle = useCallback(
     (canvasW: number, canvasH: number, startRandom = true): Particle => {
       const maxOpacity = foreground ? 0.3 + Math.random() * 0.3 : 0.15 + Math.random() * 0.25;
-      // Depth-of-field: three layers — sharp foreground, mid-range, soft bokeh background
-      const depthLayer = Math.random();
-      let blurBase: number;
-      let blurAmplitude: number;
-      if (depthLayer < 0.27) {
-        // ~27% sharp foreground glints: crisp/in-focus (0–1px blur)
-        blurBase = Math.random() * 1.0;
-        blurAmplitude = 0.3 + Math.random() * 0.5;   // stays crisp, tiny oscillation
-      } else if (depthLayer < 0.42) {
-        // ~15% mid-range: slightly soft (1.5–3px blur)
-        blurBase = 1.5 + Math.random() * 1.5;
-        blurAmplitude = 0.5 + Math.random() * 1.0;
-      } else {
-        // ~58% soft bokeh background (4–8px blur)
-        blurBase = 4 + Math.random() * 4;
-        blurAmplitude = 0.5 + Math.random() * 1.5;   // stays soft
-      }
 
       return {
         x: Math.random() * canvasW,
         y: startRandom ? Math.random() * canvasH : canvasH + Math.random() * 20,
         size: 1 + Math.random() * 2,
-        speedY: -(0.08 + Math.random() * 0.17), // gentle upward drift, a bit more alive
+        speedY: -(0.08 + Math.random() * 0.17), // gentle upward drift
         speedX: (Math.random() - 0.5) * 0.14, // subtle horizontal drift
         opacity: 0,
         maxOpacity,
         color: GOLD_COLORS[Math.floor(Math.random() * GOLD_COLORS.length)],
         phase: Math.random() * Math.PI * 2,
         phaseSpeed: 0.005 + Math.random() * 0.01,
-        blurBase,
-        blurAmplitude,
-        blurPhase: Math.random() * Math.PI * 2,
-        blurPhaseSpeed: 0.001 + Math.random() * 0.003, // very slow blur oscillation — dreamy, unhurried
       };
     },
     [foreground],
@@ -80,6 +61,12 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    // Track mouse position for proximity-based focus
+    const handleMouseMove = (e: MouseEvent) => {
+      mousePosRef.current = { x: e.clientX, y: e.clientY };
+    };
+    window.addEventListener("mousemove", handleMouseMove, { passive: true });
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
@@ -102,6 +89,9 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
 
     const animate = () => {
       const { w, h } = sizeRef.current;
+      const mouseX = mousePosRef.current.x;
+      const mouseY = mousePosRef.current.y;
+
       ctx.clearRect(0, 0, w, h);
 
       for (let i = 0; i < particlesRef.current.length; i++) {
@@ -111,7 +101,6 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
         p.x += p.speedX;
         p.y += p.speedY;
         p.phase += p.phaseSpeed;
-        p.blurPhase += p.blurPhaseSpeed;
 
         // Fade in from bottom, fade out at top
         const edgeFade = Math.min(
@@ -122,17 +111,28 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
         const pulse = 0.7 + 0.3 * Math.sin(p.phase);
         p.opacity = p.maxOpacity * Math.max(0, edgeFade) * pulse;
 
-        // Depth-of-field blur — sine wave oscillation per particle
-        const blur = Math.max(0, p.blurBase + p.blurAmplitude * Math.sin(p.blurPhase));
+        // Mouse-proximity blur: near the cursor = sharp, far = bokeh
+        const dx = p.x - mouseX;
+        const dy = p.y - mouseY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        // Smooth falloff: 0 within SHARP_RADIUS, ramp to 1 at MAX_RADIUS, clamp beyond
+        const t = Math.max(0, Math.min((dist - BLUR_SHARP_RADIUS) / (BLUR_MAX_RADIUS - BLUR_SHARP_RADIUS), 1));
+        // Ease-in-out for smoother transition (smoothstep)
+        const eased = t * t * (3 - 2 * t);
+        const blur = eased * BLUR_MAX_PX;
 
-        // Draw with bokeh blur
-        ctx.filter = blur > 0.1 ? `blur(${blur.toFixed(1)}px)` : "none";
+        // Draw with bokeh blur (skip filter when nearly sharp for performance)
+        if (blur > 0.2) {
+          ctx.filter = `blur(${blur.toFixed(1)}px)`;
+        }
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fillStyle = p.color;
         ctx.globalAlpha = p.opacity;
         ctx.fill();
-        ctx.filter = "none";
+        if (blur > 0.2) {
+          ctx.filter = "none";
+        }
 
         // Reset if off-screen
         if (p.y < -10 || p.x < -10 || p.x > w + 10) {
@@ -149,6 +149,7 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
     return () => {
       cancelAnimationFrame(animFrameRef.current);
       window.removeEventListener("resize", resize);
+      window.removeEventListener("mousemove", handleMouseMove);
     };
   }, [createParticle]);
 
