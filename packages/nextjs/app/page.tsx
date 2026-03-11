@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { NextPage } from "next";
 import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
@@ -73,6 +73,27 @@ interface ChatMessage {
   timestamp: number;
 }
 
+interface PendingActivity {
+  id: string;
+  txHash: string;
+  chainId: number;
+  type: string;
+  outToken?: { symbol: string; amount: string };
+  inToken?: { symbol: string; amount: string };
+  isCrossChain?: boolean;
+  addedAt: number;
+}
+
+interface ConfirmedTxInfo {
+  txHash: string;
+  chainId: number;
+  type: "swap" | "bridge" | "send" | "wrap" | "other";
+  outToken?: { symbol: string; amount: string };
+  inToken?: { symbol: string; amount: string };
+  isCrossChain?: boolean;
+  toChainId?: number;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const CHAIN_ICONS: Record<string, string> = {
@@ -134,6 +155,8 @@ const Home: NextPage = () => {
   const [showAllAssets, setShowAllAssets] = useState(false);
 
   const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [pendingActivities, setPendingActivities] = useState<PendingActivity[]>([]);
+  const [highlightedTokens, setHighlightedTokens] = useState<Set<string>>(new Set());
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
@@ -185,6 +208,40 @@ const Home: NextPage = () => {
     }
   }, [messages, isProcessing]);
 
+  const fetchPortfolio = useCallback(async () => {
+    if (!address) return;
+    setIsLoadingPortfolio(true);
+    try {
+      const res = await fetch(`/api/portfolio?address=${address}`);
+      const data = await res.json();
+      if (data.error) {
+        console.error("Portfolio error:", data.error);
+        return;
+      }
+      setPortfolio(data.assets || []);
+      setDefiPositions(data.defiPositions || []);
+      setTotalBalanceUsd(data.totalBalanceUsd || "0");
+      setTotalPortfolioUsd(data.totalPortfolioUsd || "0");
+      setChange1dUsd(data.change1dUsd || "0");
+      setChange1dPct(data.change1dPct || "0");
+    } catch (e) {
+      console.error("Failed to fetch portfolio:", e);
+    } finally {
+      setIsLoadingPortfolio(false);
+    }
+  }, [address]);
+
+  const fetchActivity = useCallback(async () => {
+    if (!address) return;
+    try {
+      const res = await fetch(`/api/activity?address=${address}`);
+      const data = await res.json();
+      setActivity(data.items || []);
+    } catch (e) {
+      console.error("Failed to fetch activity:", e);
+    }
+  }, [address]);
+
   useEffect(() => {
     if (!address) {
       setPortfolio([]);
@@ -197,41 +254,57 @@ const Home: NextPage = () => {
       return;
     }
 
-    const fetchPortfolio = async () => {
-      setIsLoadingPortfolio(true);
-      try {
-        const res = await fetch(`/api/portfolio?address=${address}`);
-        const data = await res.json();
-        if (data.error) {
-          console.error("Portfolio error:", data.error);
-          return;
-        }
-        setPortfolio(data.assets || []);
-        setDefiPositions(data.defiPositions || []);
-        setTotalBalanceUsd(data.totalBalanceUsd || "0");
-        setTotalPortfolioUsd(data.totalPortfolioUsd || "0");
-        setChange1dUsd(data.change1dUsd || "0");
-        setChange1dPct(data.change1dPct || "0");
-      } catch (e) {
-        console.error("Failed to fetch portfolio:", e);
-      } finally {
-        setIsLoadingPortfolio(false);
-      }
-    };
-
-    const fetchActivity = async () => {
-      try {
-        const res = await fetch(`/api/activity?address=${address}`);
-        const data = await res.json();
-        setActivity(data.items || []);
-      } catch (e) {
-        console.error("Failed to fetch activity:", e);
-      }
-    };
-
     fetchPortfolio();
     setTimeout(fetchActivity, 1500);
-  }, [address]);
+  }, [address, fetchPortfolio, fetchActivity]);
+
+  // 60s portfolio poll
+  useEffect(() => {
+    if (!address) return;
+    const interval = setInterval(fetchPortfolio, 60_000);
+    return () => clearInterval(interval);
+  }, [address, fetchPortfolio]);
+
+  // ─── handleTxConfirmed ────────────────────────────────────────────────────
+
+  const handleTxConfirmed = useCallback(
+    (info: ConfirmedTxInfo) => {
+      const pending: PendingActivity = {
+        id: info.txHash,
+        txHash: info.txHash,
+        chainId: info.chainId,
+        type: info.type === "swap" ? "trade" : info.type,
+        outToken: info.outToken,
+        inToken: info.inToken,
+        isCrossChain: info.isCrossChain,
+        addedAt: Date.now(),
+      };
+      setPendingActivities(prev => [pending, ...prev]);
+
+      // Highlight affected tokens
+      const affected = new Set<string>();
+      if (info.outToken) affected.add(info.outToken.symbol.toUpperCase());
+      if (info.inToken) affected.add(info.inToken.symbol.toUpperCase());
+      setHighlightedTokens(affected);
+      setTimeout(() => setHighlightedTokens(new Set()), 180_000);
+
+      // Wait 15s then refetch
+      setTimeout(async () => {
+        await Promise.all([fetchPortfolio(), fetchActivity()]);
+      }, 15_000);
+
+      // Auto-drop pending after 2 minutes
+      setTimeout(() => {
+        setPendingActivities(prev => prev.filter(p => p.id !== info.txHash));
+        setHighlightedTokens(new Set());
+      }, 120_000);
+    },
+    [fetchPortfolio, fetchActivity],
+  );
+
+  const handlePendingMatched = useCallback((txHash: string) => {
+    setPendingActivities(prev => prev.filter(p => p.txHash.toLowerCase() !== txHash.toLowerCase()));
+  }, []);
 
   // ─── handleSubmit ────────────────────────────────────────────────────────
 
@@ -398,83 +471,93 @@ const Home: NextPage = () => {
                       </div>
                     ) : (
                       <div className="space-y-0">
-                        {displayedAssets.map((asset, i) => (
-                          <div
-                            key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
-                            className="flex items-center justify-between py-2 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02] cursor-pointer"
-                            style={{
-                              borderBottom: "1px solid rgba(201, 168, 76, 0.06)",
-                            }}
-                            onClick={() =>
-                              openModal({
-                                type: "portfolio_position",
-                                symbol: asset.tokenSymbol,
-                                chain: asset.blockchain,
-                                balanceUsd: asset.balanceUsd,
-                                protocol: asset.protocol ?? undefined,
-                              })
-                            }
-                          >
-                            <div className="flex items-center gap-2">
-                              <div className="relative w-7 h-7 shrink-0">
-                                {asset.thumbnail ? (
-                                  <img
-                                    src={asset.thumbnail}
-                                    alt={asset.tokenSymbol}
-                                    className="w-7 h-7 rounded-full"
-                                    onError={e => {
-                                      (e.target as HTMLImageElement).src = "";
-                                      (e.target as HTMLImageElement).style.display = "none";
-                                      const parent = (e.target as HTMLImageElement).parentElement;
-                                      if (parent) {
-                                        const fallback = document.createElement("div");
-                                        fallback.className =
-                                          "w-7 h-7 flex items-center justify-center text-xs font-bold absolute inset-0";
-                                        fallback.style.backgroundColor = "#111111";
-                                        fallback.style.border = "1px solid rgba(201, 168, 76, 0.2)";
-                                        fallback.style.color = "#C9A84C";
-                                        fallback.textContent = asset.tokenSymbol.slice(0, 2);
-                                        parent.appendChild(fallback);
-                                      }
-                                    }}
-                                  />
-                                ) : (
-                                  <div
-                                    className="w-7 h-7 flex items-center justify-center text-xs font-[family-name:var(--font-cinzel)] font-semibold"
-                                    style={{
-                                      backgroundColor: "#111111",
-                                      border: "1px solid rgba(201, 168, 76, 0.2)",
-                                      color: "#C9A84C",
-                                    }}
-                                  >
-                                    {asset.tokenSymbol.slice(0, 1)}
+                        {displayedAssets.map((asset, i) => {
+                          const isHighlighted = highlightedTokens.has(asset.tokenSymbol.toUpperCase());
+                          return (
+                            <div
+                              key={`${asset.blockchain}-${asset.contractAddress || "native"}-${i}`}
+                              className="flex items-center justify-between py-2 px-2 -mx-2 transition-colors duration-300 hover:bg-white/[0.02] cursor-pointer"
+                              style={{
+                                borderBottom: "1px solid rgba(201, 168, 76, 0.06)",
+                                backgroundColor: isHighlighted ? "rgba(201, 168, 76, 0.06)" : undefined,
+                              }}
+                              onClick={() =>
+                                openModal({
+                                  type: "portfolio_position",
+                                  symbol: asset.tokenSymbol,
+                                  chain: asset.blockchain,
+                                  balanceUsd: asset.balanceUsd,
+                                  protocol: asset.protocol ?? undefined,
+                                })
+                              }
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="relative w-7 h-7 shrink-0">
+                                  {asset.thumbnail ? (
+                                    <img
+                                      src={asset.thumbnail}
+                                      alt={asset.tokenSymbol}
+                                      className="w-7 h-7 rounded-full"
+                                      onError={e => {
+                                        (e.target as HTMLImageElement).src = "";
+                                        (e.target as HTMLImageElement).style.display = "none";
+                                        const parent = (e.target as HTMLImageElement).parentElement;
+                                        if (parent) {
+                                          const fallback = document.createElement("div");
+                                          fallback.className =
+                                            "w-7 h-7 flex items-center justify-center text-xs font-bold absolute inset-0";
+                                          fallback.style.backgroundColor = "#111111";
+                                          fallback.style.border = "1px solid rgba(201, 168, 76, 0.2)";
+                                          fallback.style.color = "#C9A84C";
+                                          fallback.textContent = asset.tokenSymbol.slice(0, 2);
+                                          parent.appendChild(fallback);
+                                        }
+                                      }}
+                                    />
+                                  ) : (
+                                    <div
+                                      className="w-7 h-7 flex items-center justify-center text-xs font-[family-name:var(--font-cinzel)] font-semibold"
+                                      style={{
+                                        backgroundColor: "#111111",
+                                        border: "1px solid rgba(201, 168, 76, 0.2)",
+                                        color: "#C9A84C",
+                                      }}
+                                    >
+                                      {asset.tokenSymbol.slice(0, 1)}
+                                    </div>
+                                  )}
+                                  {CHAIN_ICONS[asset.blockchain] && (
+                                    <img
+                                      src={CHAIN_ICONS[asset.blockchain]}
+                                      alt={asset.blockchain}
+                                      className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2"
+                                      style={{ borderColor: "#111111" }}
+                                    />
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="text-sm" style={{ color: "#E8E4DC" }}>
+                                    {asset.tokenSymbol}
                                   </div>
-                                )}
-                                {CHAIN_ICONS[asset.blockchain] && (
-                                  <img
-                                    src={CHAIN_ICONS[asset.blockchain]}
-                                    alt={asset.blockchain}
-                                    className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2"
-                                    style={{ borderColor: "#111111" }}
+                                </div>
+                              </div>
+                              <div className="text-right flex items-center gap-1 justify-end">
+                                {isHighlighted && (
+                                  <span
+                                    className="loading loading-dots loading-xs"
+                                    style={{ color: "#C9A84C", width: "12px" }}
                                   />
                                 )}
-                              </div>
-                              <div>
-                                <div className="text-sm" style={{ color: "#E8E4DC" }}>
-                                  {asset.tokenSymbol}
+                                <div
+                                  className="font-[family-name:var(--font-jetbrains)] text-sm"
+                                  style={{ color: "#E8E4DC" }}
+                                >
+                                  {formatUsdValue(asset.balanceUsd)}
                                 </div>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <div
-                                className="font-[family-name:var(--font-jetbrains)] text-sm"
-                                style={{ color: "#E8E4DC" }}
-                              >
-                                {formatUsdValue(asset.balanceUsd)}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
 
                         {!showAllAssets && hiddenCount > 0 && (
                           <button
@@ -703,13 +786,18 @@ const Home: NextPage = () => {
                         )}
 
                         {msg.multistepTransaction && (
-                          <MultiStepTransactionCard tx={msg.multistepTransaction} address={address!} />
+                          <MultiStepTransactionCard
+                            tx={msg.multistepTransaction}
+                            address={address!}
+                            onConfirmed={handleTxConfirmed}
+                          />
                         )}
 
                         {msg.transaction && !msg.multistepTransaction && (
                           <TransactionCard
                             tx={msg.transaction}
                             address={address!}
+                            onConfirmed={handleTxConfirmed}
                             onTxHash={(hash: `0x${string}`) => {
                               setMessages(prev =>
                                 prev.map((m, idx) =>
@@ -774,7 +862,12 @@ const Home: NextPage = () => {
 
               {/* RIGHT SIDEBAR: Activity */}
               <div className="w-full lg:w-80 shrink-0 overflow-y-auto">
-                <ActivityPanel address={address!} initialItems={activity} />
+                <ActivityPanel
+                  address={address!}
+                  initialItems={activity}
+                  pendingActivities={pendingActivities}
+                  onPendingMatched={handlePendingMatched}
+                />
               </div>
             </div>
           </div>

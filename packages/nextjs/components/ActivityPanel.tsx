@@ -73,16 +73,45 @@ function TransferChips({ item }: { item: ActivityItem }) {
   return null;
 }
 
+interface PendingActivity {
+  id: string;
+  txHash: string;
+  chainId: number;
+  type: string;
+  outToken?: { symbol: string; amount: string };
+  inToken?: { symbol: string; amount: string };
+  isCrossChain?: boolean;
+  addedAt: number;
+}
+
 interface ActivityPanelProps {
   address: string;
   initialItems?: ActivityItem[];
+  pendingActivities?: PendingActivity[];
+  onPendingMatched?: (txHash: string) => void;
 }
 
-export default function ActivityPanel({ address, initialItems }: ActivityPanelProps) {
+export default function ActivityPanel({
+  address,
+  initialItems,
+  pendingActivities,
+  onPendingMatched,
+}: ActivityPanelProps) {
   const { openModal } = useDetailModal();
   const [items, setItems] = useState<ActivityItem[]>(initialItems || []);
   const [isLoading, setIsLoading] = useState(!initialItems);
   const [error, setError] = useState("");
+
+  // Check if real activity contains pending tx hashes
+  useEffect(() => {
+    if (!pendingActivities?.length || !items.length || !onPendingMatched) return;
+    const realHashes = new Set(items.map(i => i.hash.toLowerCase()));
+    for (const pending of pendingActivities) {
+      if (realHashes.has(pending.txHash.toLowerCase())) {
+        onPendingMatched(pending.txHash);
+      }
+    }
+  }, [items, pendingActivities, onPendingMatched]);
 
   useEffect(() => {
     if (initialItems !== undefined) {
@@ -167,6 +196,59 @@ export default function ActivityPanel({ address, initialItems }: ActivityPanelPr
           No activity yet
         </div>
       )}
+
+      {/* Pending optimistic entries */}
+      {pendingActivities &&
+        pendingActivities.length > 0 &&
+        pendingActivities.map(pending => {
+          // Filter out if already matched in real items
+          const alreadyReal = items.some(i => i.hash.toLowerCase() === pending.txHash.toLowerCase());
+          if (alreadyReal) return null;
+          const typeInfo = TYPE_LABELS[pending.type] ||
+            TYPE_LABELS["trade"] || { label: pending.type, color: "#8A8578" };
+          return (
+            <div
+              key={`pending-${pending.id}`}
+              className="flex items-center gap-2 py-3 px-2 -mx-2"
+              style={{
+                borderBottom: "1px solid rgba(201, 168, 76, 0.06)",
+                backgroundColor: "rgba(201, 168, 76, 0.08)",
+                borderLeft: "2px solid rgba(201, 168, 76, 0.4)",
+              }}
+            >
+              <span
+                className="font-[family-name:var(--font-cinzel)] text-xs w-20 shrink-0"
+                style={{ color: typeInfo.color }}
+              >
+                {typeInfo.label}
+              </span>
+              <div className="flex-1 min-w-0">
+                {pending.outToken && pending.inToken ? (
+                  <span className="inline-flex items-center gap-1 flex-wrap">
+                    <AssetChip symbol={pending.outToken.symbol} amount={pending.outToken.amount} />
+                    <span style={{ color: "#8A8578" }} className="text-xs">
+                      →
+                    </span>
+                    <AssetChip symbol={pending.inToken.symbol} amount={pending.inToken.amount} />
+                  </span>
+                ) : pending.outToken ? (
+                  <AssetChip symbol={pending.outToken.symbol} amount={pending.outToken.amount} />
+                ) : pending.inToken ? (
+                  <AssetChip symbol={pending.inToken.symbol} amount={pending.inToken.amount} />
+                ) : null}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="loading loading-spinner loading-xs" style={{ color: "#C9A84C" }} />
+                <span
+                  className="text-[10px] font-[family-name:var(--font-cinzel)]"
+                  style={{ color: "#C9A84C", opacity: 0.8 }}
+                >
+                  Pending
+                </span>
+              </div>
+            </div>
+          );
+        })}
 
       {/* Items */}
       {items.length > 0 && (

@@ -21,10 +21,21 @@ interface MultiStepTransactionData {
   priceWei?: string;
 }
 
+interface ConfirmedTxInfo {
+  txHash: string;
+  chainId: number;
+  type: "swap" | "bridge" | "send" | "wrap" | "other";
+  outToken?: { symbol: string; amount: string };
+  inToken?: { symbol: string; amount: string };
+  isCrossChain?: boolean;
+  toChainId?: number;
+}
+
 interface MultiStepTransactionCardProps {
   tx: MultiStepTransactionData;
   address?: string;
   onComplete?: (hashes: (`0x${string}` | undefined)[]) => void;
+  onConfirmed?: (info: ConfirmedTxInfo) => void;
 }
 
 type MultiStepState =
@@ -92,7 +103,7 @@ function clearPersistedState(key: string) {
   } catch {}
 }
 
-const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardProps) => {
+const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTransactionCardProps) => {
   const storageKey = deriveStorageKey(tx);
 
   // Restore from localStorage on mount
@@ -207,8 +218,13 @@ const MultiStepTransactionCard = ({ tx, onComplete }: MultiStepTransactionCardPr
     if (step2Hash && isStep2Confirmed && (state === "step2_pending" || state === "step2_confirming")) {
       setState("done");
       onComplete?.([step1Hash, step2Hash]);
+      onConfirmed?.({
+        txHash: step2Hash,
+        chainId: step2?.chainId || step1?.chainId || 1,
+        type: "other",
+      });
     }
-  }, [step2Hash, isStep2Confirming, isStep2Confirmed, state, step1Hash, onComplete]);
+  }, [step2Hash, isStep2Confirming, isStep2Confirmed, state, step1Hash, step2, step1, onComplete, onConfirmed]);
 
   const openWallet = useCallback(() => {
     if (typeof window === "undefined") return;

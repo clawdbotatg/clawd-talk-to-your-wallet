@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AddressChip from "./AddressChip";
 import AssetChip from "./AssetChip";
 import ChatMessageRenderer from "./ChatMessageRenderer";
@@ -27,10 +27,21 @@ interface TransactionData {
   txHash?: `0x${string}`;
 }
 
+interface ConfirmedTxInfo {
+  txHash: string;
+  chainId: number;
+  type: "swap" | "bridge" | "send" | "wrap" | "other";
+  outToken?: { symbol: string; amount: string };
+  inToken?: { symbol: string; amount: string };
+  isCrossChain?: boolean;
+  toChainId?: number;
+}
+
 interface TransactionCardProps {
   tx: TransactionData;
   address: string;
   onTxHash?: (hash: `0x${string}`) => void;
+  onConfirmed?: (info: ConfirmedTxInfo) => void;
 }
 
 const EXPLORER_URLS: Record<number, string> = {
@@ -59,7 +70,7 @@ const CHAIN_NAMES: Record<number, string> = {
   5000: "mantle",
 };
 
-const TransactionCard = ({ tx, address, onTxHash }: TransactionCardProps) => {
+const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCardProps) => {
   const [showModal, setShowModal] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>(tx.txHash);
@@ -73,6 +84,27 @@ const TransactionCard = ({ tx, address, onTxHash }: TransactionCardProps) => {
 
   const explorerBase = EXPLORER_URLS[tx.chainId] || "https://etherscan.io/tx/";
   const chainName = CHAIN_NAMES[tx.chainId];
+
+  // Fire onConfirmed when tx is confirmed
+  const confirmedFiredRef = useRef(false);
+  useEffect(() => {
+    if (isTxConfirmed && txHash && onConfirmed && !confirmedFiredRef.current) {
+      confirmedFiredRef.current = true;
+      const outChanges = tx.simulation?.changes?.filter(c => c.direction === "out") || [];
+      const inChanges = tx.simulation?.changes?.filter(c => c.direction === "in") || [];
+      // Derive type from simulation
+      let txType: "swap" | "bridge" | "send" | "wrap" | "other" = "other";
+      if (outChanges.length > 0 && inChanges.length > 0) txType = "swap";
+      else if (outChanges.length > 0) txType = "send";
+      onConfirmed({
+        txHash,
+        chainId: tx.chainId,
+        type: txType,
+        outToken: outChanges[0] ? { symbol: outChanges[0].symbol, amount: outChanges[0].amount } : undefined,
+        inToken: inChanges[0] ? { symbol: inChanges[0].symbol, amount: inChanges[0].amount } : undefined,
+      });
+    }
+  }, [isTxConfirmed, txHash, onConfirmed, tx.simulation, tx.chainId]);
 
   const openWallet = useCallback(() => {
     if (typeof window === "undefined") return;
