@@ -1185,6 +1185,22 @@ For ENS registration (multistep) responses — return the buildENSRegistration r
   "priceWei": "3500000000000000"
 }
 
+For approve + swap multistep responses — delay MUST be 0 (no waiting needed between approve and swap):
+{
+  "type": "multistep_transaction",
+  "message": "You need to approve OP first, then execute the swap.",
+  "steps": [
+    { "to": "0x...", "data": "0x...", "value": "0x0", "chainId": 10, "description": "Approve OP for spending", "label": "Approve" },
+    { "to": "0x...", "data": "0x...", "value": "0x0", "chainId": 10, "description": "Swap OP → USDC", "label": "Swap" }
+  ],
+  "delay": 0
+}
+
+DELAY RULES — use the correct delay for each multistep type:
+- ENS registration: delay: 65000 (must wait 60s between commit and register)
+- Approve + swap: delay: 0 (execute step 2 immediately after step 1 confirms)
+- Any other multistep: delay: 0 unless there is a specific protocol-required wait
+
 RULES:
 - Never invent token addresses — always look them up or use hardcoded well-known ones
 - Never return a transaction that failed simulation
@@ -1624,7 +1640,7 @@ export async function POST(req: NextRequest) {
           type: "multistep_transaction",
           message: parsed.message as string,
           steps: parsed.steps,
-          delay: parsed.delay || 65000,
+          delay: parsed.delay ?? 0,
           priceEth: parsed.priceEth,
           priceWei: parsed.priceWei,
         });

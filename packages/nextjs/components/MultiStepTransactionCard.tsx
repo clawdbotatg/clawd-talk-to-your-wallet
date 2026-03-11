@@ -185,6 +185,11 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
   // Start countdown after step 1 confirms
   useEffect(() => {
     if (state === "step1_confirmed") {
+      if (tx.delay === 0) {
+        // No wait needed — go straight to step 2
+        setState("step2_confirming");
+        return;
+      }
       const delaySeconds = Math.ceil(tx.delay / 1000);
       const ts = Date.now();
       setCommitTimestamp(ts);
@@ -321,7 +326,7 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
 
   const currentStep = getCurrentStepIndex();
   const delaySeconds = Math.ceil(tx.delay / 1000);
-  const progress = state === "waiting" ? ((delaySeconds - countdown) / delaySeconds) * 100 : 0;
+  const progress = state === "waiting" && delaySeconds > 0 ? ((delaySeconds - countdown) / delaySeconds) * 100 : 0;
 
   // Needs chain switch?
   const needsSwitch = step1 && currentChainId !== step1.chainId;
