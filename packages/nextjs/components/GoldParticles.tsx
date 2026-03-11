@@ -21,7 +21,9 @@ interface Particle {
 }
 
 const GOLD_COLORS = ["#C9A84C", "#B8963E", "#E8C96A", "#D4B85A", "#A8893A"];
-const PARTICLE_COUNT = 80;
+const MOBILE_BREAKPOINT = 768;
+const PARTICLE_COUNT_DESKTOP = 80;
+const PARTICLE_COUNT_MOBILE = 27;
 
 /** Mouse-proximity gradient radius constants */
 const FOCUS_SHARP_RADIUS = 80; // within this distance: tight/crisp gradient
@@ -70,6 +72,11 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
     };
     window.addEventListener("mousemove", handleMouseMove, { passive: true });
 
+    let wasMobile = window.innerWidth < MOBILE_BREAKPOINT;
+
+    const getParticleCount = () =>
+      window.innerWidth < MOBILE_BREAKPOINT ? PARTICLE_COUNT_MOBILE : PARTICLE_COUNT_DESKTOP;
+
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
       const w = window.innerWidth;
@@ -80,14 +87,22 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
       canvas.style.height = `${h}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       sizeRef.current = { w, h };
+
+      // Re-initialize particles when crossing the mobile/desktop threshold
+      const isMobile = w < MOBILE_BREAKPOINT;
+      if (isMobile !== wasMobile) {
+        wasMobile = isMobile;
+        const count = isMobile ? PARTICLE_COUNT_MOBILE : PARTICLE_COUNT_DESKTOP;
+        particlesRef.current = Array.from({ length: count }, () => createParticle(w, h, true));
+      }
     };
 
     resize();
     window.addEventListener("resize", resize);
 
-    // Initialize particles
+    // Initialize particles (count based on current viewport width)
     const { w, h } = sizeRef.current;
-    particlesRef.current = Array.from({ length: PARTICLE_COUNT }, () => createParticle(w, h, true));
+    particlesRef.current = Array.from({ length: getParticleCount() }, () => createParticle(w, h, true));
 
     const animate = () => {
       // Throttle to ~30fps
