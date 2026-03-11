@@ -25,7 +25,7 @@ interface Particle {
 }
 
 const GOLD_COLORS = ["#C9A84C", "#B8963E", "#E8C96A", "#D4B85A", "#A8893A"];
-const PARTICLE_COUNT = 100;
+const PARTICLE_COUNT = 160;
 
 const GoldParticles = ({ foreground }: GoldParticlesProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -36,23 +36,30 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
   const createParticle = useCallback(
     (canvasW: number, canvasH: number, startRandom = true): Particle => {
       const maxOpacity = foreground ? 0.3 + Math.random() * 0.3 : 0.15 + Math.random() * 0.25;
-      // Depth-of-field: heavily blurred by default (soft bokeh), rare brief moments of focus
-      const depthLayer = Math.random(); // 0 = rare foreground/occasionally sharp, 1 = deep background/always blurry
-      // Most particles sit at 4–10px blur; only the lowest depthLayer ones can dip toward sharp
-      const blurBase = depthLayer < 0.15
-        ? 1.5 + Math.random() * 2.5    // rare ~15%: base 1.5–4px (occasionally near-sharp)
-        : 4 + Math.random() * 6;        // majority: base 4–10px (soft bokeh)
-      // Amplitude: blurry particles stay blurry; near-sharp ones oscillate gently
-      const blurAmplitude = depthLayer < 0.15
-        ? 1.0 + Math.random() * 1.5     // near-sharp: oscillates ±1.0–2.5px (brief focus windows)
-        : 0.5 + Math.random() * 1.5;    // blurry: oscillates ±0.5–2.0px (stays soft)
+      // Depth-of-field: three layers — sharp foreground, mid-range, soft bokeh background
+      const depthLayer = Math.random();
+      let blurBase: number;
+      let blurAmplitude: number;
+      if (depthLayer < 0.27) {
+        // ~27% sharp foreground glints: crisp/in-focus (0–1px blur)
+        blurBase = Math.random() * 1.0;
+        blurAmplitude = 0.3 + Math.random() * 0.5;   // stays crisp, tiny oscillation
+      } else if (depthLayer < 0.42) {
+        // ~15% mid-range: slightly soft (1.5–3px blur)
+        blurBase = 1.5 + Math.random() * 1.5;
+        blurAmplitude = 0.5 + Math.random() * 1.0;
+      } else {
+        // ~58% soft bokeh background (4–8px blur)
+        blurBase = 4 + Math.random() * 4;
+        blurAmplitude = 0.5 + Math.random() * 1.5;   // stays soft
+      }
 
       return {
         x: Math.random() * canvasW,
         y: startRandom ? Math.random() * canvasH : canvasH + Math.random() * 20,
         size: 1 + Math.random() * 2,
-        speedY: -(0.03 + Math.random() * 0.09), // barely drifting upward, like dust in ancient air
-        speedX: (Math.random() - 0.5) * 0.08, // very subtle horizontal drift
+        speedY: -(0.08 + Math.random() * 0.17), // gentle upward drift, a bit more alive
+        speedX: (Math.random() - 0.5) * 0.14, // subtle horizontal drift
         opacity: 0,
         maxOpacity,
         color: GOLD_COLORS[Math.floor(Math.random() * GOLD_COLORS.length)],
