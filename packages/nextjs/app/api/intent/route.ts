@@ -757,7 +757,7 @@ Always call this before saying you can't find something. It uses server-side tok
 
   getTokenAddress: {
     description:
-      "Look up a token's contract address by symbol on a given chain. Checks file-based address registry first, then falls back to Enso Finance token search.",
+      "Look up a token's contract address by symbol on a given chain. Checks file-based address registry first, then falls back to LI.FI token list.",
     execute: async ({ symbol, chainId }: any) => {
       const upper = symbol.toUpperCase();
       const chainKey = String(chainId);
@@ -774,17 +774,16 @@ Always call this before saying you can't find something. It uses server-side tok
         if (match) return match[1];
       }
 
-      // 2. Fall back to Enso Finance
+      // 2. Fall back to LI.FI token search
       try {
-        const url = `https://api.enso.finance/api/v1/tokens?chainId=${chainId}&search=${encodeURIComponent(symbol)}&limit=5`;
-        const res = await fetch(url);
-        if (!res.ok) return { error: `Token search failed (${res.status})` };
-        const tokens = await res.json();
-        if (Array.isArray(tokens) && tokens.length > 0) {
-          const exact = tokens.find((t: { symbol: string }) => t.symbol.toUpperCase() === upper);
-          const token = exact || tokens[0];
-          return { address: token.address as string, decimals: token.decimals as number, name: token.name as string };
-        }
+        const url = `https://li.quest/v1/tokens?chains=${chainId}`;
+        const res = await fetch(url, { headers: { "x-lifi-api-key": process.env.LIFI_API_KEY || "" } });
+        if (!res.ok) return { error: `LI.FI token search failed (${res.status})` };
+        const data = await res.json();
+        const chainTokens: { address: string; decimals: number; name: string; symbol: string }[] =
+          data.tokens?.[String(chainId)] || [];
+        const exact = chainTokens.find(t => t.symbol.toUpperCase() === upper);
+        if (exact) return { address: exact.address, decimals: exact.decimals, name: exact.name };
         return { error: `Token '${symbol}' not found on chain ${chainId}` };
       } catch (e) {
         return { error: `Token search failed: ${e instanceof Error ? e.message : String(e)}` };
