@@ -36,17 +36,23 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
   const createParticle = useCallback(
     (canvasW: number, canvasH: number, startRandom = true): Particle => {
       const maxOpacity = foreground ? 0.3 + Math.random() * 0.3 : 0.15 + Math.random() * 0.25;
-      // Depth-of-field: some particles are "close" (mostly sharp), others "far" (mostly blurry)
-      const depthLayer = Math.random(); // 0 = foreground/sharp, 1 = deep background/blurry
-      const blurBase = depthLayer * 2.5; // 0–2.5px center
-      const blurAmplitude = 0.8 + Math.random() * 1.5; // oscillates ±0.8–2.3px around base
+      // Depth-of-field: heavily blurred by default (soft bokeh), rare brief moments of focus
+      const depthLayer = Math.random(); // 0 = rare foreground/occasionally sharp, 1 = deep background/always blurry
+      // Most particles sit at 4–10px blur; only the lowest depthLayer ones can dip toward sharp
+      const blurBase = depthLayer < 0.15
+        ? 1.5 + Math.random() * 2.5    // rare ~15%: base 1.5–4px (occasionally near-sharp)
+        : 4 + Math.random() * 6;        // majority: base 4–10px (soft bokeh)
+      // Amplitude: blurry particles stay blurry; near-sharp ones oscillate gently
+      const blurAmplitude = depthLayer < 0.15
+        ? 1.0 + Math.random() * 1.5     // near-sharp: oscillates ±1.0–2.5px (brief focus windows)
+        : 0.5 + Math.random() * 1.5;    // blurry: oscillates ±0.5–2.0px (stays soft)
 
       return {
         x: Math.random() * canvasW,
         y: startRandom ? Math.random() * canvasH : canvasH + Math.random() * 20,
         size: 1 + Math.random() * 2,
-        speedY: -(0.15 + Math.random() * 0.35), // slow upward
-        speedX: (Math.random() - 0.5) * 0.3, // slight horizontal drift
+        speedY: -(0.03 + Math.random() * 0.09), // barely drifting upward, like dust in ancient air
+        speedX: (Math.random() - 0.5) * 0.08, // very subtle horizontal drift
         opacity: 0,
         maxOpacity,
         color: GOLD_COLORS[Math.floor(Math.random() * GOLD_COLORS.length)],
@@ -55,7 +61,7 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
         blurBase,
         blurAmplitude,
         blurPhase: Math.random() * Math.PI * 2,
-        blurPhaseSpeed: 0.002 + Math.random() * 0.006, // slower than opacity pulse for dreamy feel
+        blurPhaseSpeed: 0.001 + Math.random() * 0.003, // very slow blur oscillation — dreamy, unhurried
       };
     },
     [foreground],
