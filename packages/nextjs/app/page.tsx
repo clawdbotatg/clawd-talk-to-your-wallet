@@ -493,6 +493,7 @@ const Home: NextPage = () => {
                                   thumbnail: asset.thumbnail,
                                   protocol: asset.protocol ?? undefined,
                                   positionType: asset.positionType,
+                                  walletAddress: address,
                                 })
                               }
                             >
@@ -626,6 +627,7 @@ const Home: NextPage = () => {
                                   thumbnail: pos.thumbnail,
                                   protocol: pos.protocol ?? undefined,
                                   positionType: pos.positionType,
+                                  walletAddress: address,
                                 })
                               }
                             >

@@ -25,6 +25,7 @@ export type ModalItem =
       thumbnail?: string;
       protocol?: string;
       positionType?: string;
+      walletAddress?: string;
     }
   | { type: "activity_item"; id: string; hash: string; chain: string; txType: string; valueUsd?: number };
 
@@ -649,6 +650,29 @@ function PortfolioPositionContent({ item }: { item: Extract<ModalItem, { type: "
             <ContractAddressDisplay address={item.contractAddress} chain={item.chain} />
           </div>
         )}
+
+        {/* External links */}
+        <div className="pt-3 flex gap-3 flex-wrap">
+          {item.walletAddress && (
+            <ExplorerLink url={`https://app.zerion.io/${item.walletAddress}/overview`} label="View on Zerion" />
+          )}
+          {item.contractAddress &&
+            item.contractAddress !== "0x0000000000000000000000000000000000000000" &&
+            (() => {
+              const explorers: Record<string, string> = {
+                ethereum: "https://etherscan.io/token/",
+                base: "https://basescan.org/token/",
+                arbitrum: "https://arbiscan.io/token/",
+                optimism: "https://optimistic.etherscan.io/token/",
+                polygon: "https://polygonscan.com/token/",
+                gnosis: "https://gnosisscan.io/token/",
+              };
+              const explorerBase = explorers[item.chain];
+              return explorerBase ? (
+                <ExplorerLink url={`${explorerBase}${item.contractAddress}`} label="Token contract" />
+              ) : null;
+            })()}
+        </div>
       </div>
     </>
   );
