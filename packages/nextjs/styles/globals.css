@@ -232,7 +232,7 @@ input::placeholder {
 }
 
 .gold-btn:disabled {
-  cursor: default;
+  cursor: not-allowed;
   filter: brightness(0.7) saturate(0.7);
   transform: none !important;
 }
