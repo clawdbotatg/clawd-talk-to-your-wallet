@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { NextPage } from "next";
 import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
+import GoldParticles from "~~/components/GoldParticles";
 import ChatMessageRenderer from "~~/components/ChatMessageRenderer";
 import { useDetailModal } from "~~/components/DetailModal";
 import MultiStepTransactionCard from "~~/components/MultiStepTransactionCard";
@@ -315,6 +316,7 @@ const Home: NextPage = () => {
           >
             {/* Dark overlay so text is readable */}
             <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.55)" }} />
+            <GoldParticles foreground={true} />
             <div className="relative z-10 flex flex-col items-center gap-6">
               <h1
                 className="font-[family-name:var(--font-cinzel)] text-5xl sm:text-7xl font-bold tracking-[0.3em] text-center"
@@ -334,6 +336,7 @@ const Home: NextPage = () => {
           </div>
         ) : (
           <div className="mt-2">
+            <GoldParticles foreground={false} />
             <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 80px)" }}>
               {/* LEFT SIDEBAR: Portfolio */}
               <div className="w-full lg:w-72 shrink-0 space-y-4 overflow-y-auto">
