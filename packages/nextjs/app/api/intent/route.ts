@@ -9,6 +9,8 @@ const WETH_MAINNET = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const WETH_BASE = "0x4200000000000000000000000000000000000006";
 const ETH_PLACEHOLDER = "0x0000000000000000000000000000000000000000"; // LI.FI native ETH address
 const USDC_MAINNET = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+const DAI_MAINNET = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
+const USDT_MAINNET = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
 
 const NETWORK_MAP: Record<number, string> = {
   1: "eth-mainnet",
@@ -772,6 +774,12 @@ Always call this before saying you can't find something. It uses server-side tok
       if (upper === "USDC" && chainId === 1) {
         return { address: USDC_MAINNET, decimals: 6, name: "USD Coin" };
       }
+      if (upper === "DAI" && chainId === 1) {
+        return { address: DAI_MAINNET, decimals: 18, name: "Dai Stablecoin" };
+      }
+      if (upper === "USDT" && chainId === 1) {
+        return { address: USDT_MAINNET, decimals: 6, name: "Tether USD" };
+      }
 
       try {
         const url = `https://api.enso.finance/api/v1/tokens?chainId=${chainId}&search=${encodeURIComponent(symbol)}&limit=5`;
@@ -1202,13 +1210,16 @@ DELAY RULES — use the correct delay for each multistep type:
 - Any other multistep: delay: 0 unless there is a specific protocol-required wait
 
 RULES:
-- Never invent token addresses — always look them up or use hardcoded well-known ones
+- NEVER invent or guess token addresses — ALWAYS use getTokenAddress tool or the hardcoded addresses below. A single wrong character breaks the transaction.
 - Never return a transaction that failed simulation
 - Amount conversions: always work in wei internally, display in human units
 - For ETH in LI.FI: use symbol "ETH" or address 0x0000000000000000000000000000000000000000 (NOT the 0xEeee... placeholder)
 - WETH on mainnet: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
 - WETH on Base: 0x4200000000000000000000000000000000000006
 - USDC on mainnet: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 (6 decimals!)
+- DAI on mainnet: 0x6B175474E89094C44Da98b954EedeAC495271d0F (18 decimals)
+- USDT on mainnet: 0xdAC17F958D2ee523a2206206994597C13D831ec7 (6 decimals!)
+- For ANY other token address: call getTokenAddress(symbol, chainId) — do not guess
 - All amount parameters expect wei (raw units). Convert from human-readable first.
 - If the user's request is unclear, respond with a chat message asking for clarification
 - If simulation fails, respond with a chat message explaining why`;
