@@ -485,9 +485,14 @@ const Home: NextPage = () => {
                                 openModal({
                                   type: "portfolio_position",
                                   symbol: asset.tokenSymbol,
+                                  tokenName: asset.tokenName,
                                   chain: asset.blockchain,
+                                  balance: asset.balance,
                                   balanceUsd: asset.balanceUsd,
+                                  contractAddress: asset.contractAddress,
+                                  thumbnail: asset.thumbnail,
                                   protocol: asset.protocol ?? undefined,
+                                  positionType: asset.positionType,
                                 })
                               }
                             >
@@ -613,9 +618,14 @@ const Home: NextPage = () => {
                                 openModal({
                                   type: "portfolio_position",
                                   symbol: pos.tokenSymbol,
+                                  tokenName: pos.tokenName,
                                   chain: pos.blockchain,
+                                  balance: pos.balance,
                                   balanceUsd: pos.balanceUsd,
+                                  contractAddress: pos.contractAddress,
+                                  thumbnail: pos.thumbnail,
                                   protocol: pos.protocol ?? undefined,
+                                  positionType: pos.positionType,
                                 })
                               }
                             >

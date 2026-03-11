@@ -14,7 +14,18 @@ export type ModalItem =
   | { type: "asset"; symbol: string; amount?: string; chain?: string; thumbnail?: string; contractAddress?: string }
   | { type: "network"; chain: string }
   | { type: "transaction"; hash: string; chain: string }
-  | { type: "portfolio_position"; symbol: string; chain: string; balanceUsd: string; protocol?: string }
+  | {
+      type: "portfolio_position";
+      symbol: string;
+      tokenName: string;
+      chain: string;
+      balance: string;
+      balanceUsd: string;
+      contractAddress?: string;
+      thumbnail?: string;
+      protocol?: string;
+      positionType?: string;
+    }
   | { type: "activity_item"; id: string; hash: string; chain: string; txType: string; valueUsd?: number };
 
 interface DetailModalContextValue {
@@ -578,21 +589,13 @@ function TransactionContent({ item }: { item: Extract<ModalItem, { type: "transa
 // ─── Portfolio Position Content ──────────────────────────────────────────────
 
 function PortfolioPositionContent({ item }: { item: Extract<ModalItem, { type: "portfolio_position" }> }) {
-  const [data, setData] = useState<AssetData | null>(null);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    fetch(`/api/modal/asset?symbol=${encodeURIComponent(item.symbol)}`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.error) {
-          setError(true);
-          return;
-        }
-        setData(d);
-      })
-      .catch(() => setError(true));
-  }, [item.symbol]);
+  // Derive price per token from balance and USD value
+  const pricePerToken = (() => {
+    const qty = parseFloat(item.balance);
+    const usd = parseFloat(item.balanceUsd.replace(/[^0-9.-]/g, ""));
+    if (qty > 0 && usd > 0) return usd / qty;
+    return null;
+  })();
 
   return (
     <>
@@ -600,10 +603,10 @@ function PortfolioPositionContent({ item }: { item: Extract<ModalItem, { type: "
       <div className="px-5 py-4 space-y-0">
         {/* Token icon + name */}
         <div className="flex items-center gap-3 pb-3" style={{ borderBottom: "1px solid rgba(201, 168, 76, 0.06)" }}>
-          {data?.icon && <img src={data.icon} alt="" className="w-8 h-8 rounded-full" />}
+          {item.thumbnail && <img src={item.thumbnail} alt="" className="w-8 h-8 rounded-full" />}
           <div>
             <span className="font-[family-name:var(--font-cinzel)] text-sm block" style={{ color: "#E8E4DC" }}>
-              {data?.name || item.symbol}
+              {item.tokenName || item.symbol}
             </span>
             {item.protocol && (
               <span className="text-xs" style={{ color: "#8A8578" }}>
@@ -613,83 +616,39 @@ function PortfolioPositionContent({ item }: { item: Extract<ModalItem, { type: "
           </div>
         </div>
 
+        {/* How much they hold */}
         <DataRow
-          label="Balance (USD)"
-          value={item.balanceUsd.startsWith("$") ? item.balanceUsd : `$${item.balanceUsd}`}
+          label="Amount"
+          value={`${parseFloat(item.balance).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${item.symbol}`}
         />
 
-        {/* Price with 24h change */}
-        <div
-          className="flex items-center justify-between py-2"
-          style={{ borderBottom: "1px solid rgba(201, 168, 76, 0.06)" }}
-        >
-          <span className="text-xs" style={{ color: "#8A8578" }}>
-            Price
-          </span>
-          {data?.price != null ? (
-            <span className="text-xs flex items-center gap-2">
-              <span className="font-[family-name:var(--font-jetbrains)]" style={{ color: "#E8E4DC" }}>
-                {formatUsd(data.price)}
-              </span>
-              {data.priceChange24h != null && <PriceChange pct={data.priceChange24h} />}
-            </span>
-          ) : error ? (
-            <span className="text-xs" style={{ color: "#E8E4DC" }}>
-              —
-            </span>
-          ) : (
-            <LoadingSkeleton />
-          )}
-        </div>
+        {/* USD value */}
+        <DataRow label="Value" value={item.balanceUsd.startsWith("$") ? item.balanceUsd : `$${item.balanceUsd}`} />
+
+        {/* Price per token (derived) */}
+        {pricePerToken != null && <DataRow label="Price" value={formatUsd(pricePerToken)} />}
 
         {/* Chain */}
         <DataRow label="Chain" value={<NetworkChip chain={item.chain} />} />
 
+        {/* Position type */}
+        {item.positionType && item.positionType !== "wallet" && <DataRow label="Type" value={item.positionType} />}
+
+        {/* Protocol */}
         {item.protocol && <DataRow label="Protocol" value={item.protocol} />}
 
-        {/* Contract addresses per chain */}
-        {data?.implementations && data.implementations.length > 0 && (
-          <div className="pt-2">
-            <span className="text-xs block pb-1" style={{ color: "#8A8578" }}>
-              Contracts
-            </span>
-            {data.implementations.map((impl, i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between py-1.5"
-                style={{ borderBottom: "1px solid rgba(201,168,76,0.06)" }}
-              >
-                <NetworkChip chain={impl.chain} />
-                {impl.address ? (
-                  <ContractAddressDisplay address={impl.address} chain={impl.chain} />
-                ) : (
-                  <span className="text-xs" style={{ color: "#8A8578" }}>
-                    native
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Description */}
-        {data?.description && (
-          <div className="pt-3">
+        {/* Contract address */}
+        {item.contractAddress && item.contractAddress !== "0x0000000000000000000000000000000000000000" && (
+          <div
+            className="flex items-center justify-between py-2"
+            style={{ borderBottom: "1px solid rgba(201, 168, 76, 0.06)" }}
+          >
             <span className="text-xs" style={{ color: "#8A8578" }}>
-              About
+              Contract
             </span>
-            <p className="text-xs mt-1 leading-relaxed" style={{ color: "#E8E4DC" }}>
-              {data.description.length > 200 ? `${data.description.slice(0, 200)}…` : data.description}
-            </p>
+            <ContractAddressDisplay address={item.contractAddress} chain={item.chain} />
           </div>
         )}
-
-        {/* Links */}
-        <div className="pt-3 flex gap-3 flex-wrap">
-          {data?.links &&
-            data.links.length > 0 &&
-            data.links.map((l, i) => <ExplorerLink key={i} url={l.url} label={l.name || l.type} />)}
-        </div>
       </div>
     </>
   );
