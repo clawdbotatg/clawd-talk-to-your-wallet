@@ -1628,11 +1628,13 @@ export async function POST(req: NextRequest) {
       }
 
       if (parsed.type === "multistep_transaction" && parsed.steps) {
+        const steps = parsed.steps as { label?: string }[];
+        const isEns = steps.some(s => s.label?.toLowerCase() === "commit" || s.label?.toLowerCase() === "register");
         return NextResponse.json({
           type: "multistep_transaction",
           message: parsed.message as string,
           steps: parsed.steps,
-          delay: parsed.delay ?? 0,
+          delay: isEns ? (parsed.delay ?? 65000) : 0,
           priceEth: parsed.priceEth,
           priceWei: parsed.priceWei,
         });
@@ -1694,13 +1696,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Check for multistep first (ENS registration)
+    // Check for multistep first (ENS registration or approve+swap)
     if (lastMultistep) {
+      const msSteps = (lastMultistep.steps || []) as { label?: string }[];
+      const isEns = msSteps.some(s => s.label?.toLowerCase() === "commit" || s.label?.toLowerCase() === "register");
       return NextResponse.json({
         type: "multistep_transaction",
         message: finalText || lastMultistep.message || "Multi-step transaction ready",
         steps: lastMultistep.steps,
-        delay: lastMultistep.delay,
+        delay: isEns ? (lastMultistep.delay ?? 65000) : 0,
         priceEth: lastMultistep.priceEth,
         priceWei: lastMultistep.priceWei,
       });
