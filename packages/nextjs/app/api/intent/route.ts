@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import TOKEN_ADDRESS_FILE from "../../../data/token-addresses.json";
 import OpenAI from "openai";
 import { namehash } from "viem/ens";
 
@@ -7,10 +8,6 @@ import { namehash } from "viem/ens";
 const ALCHEMY_KEY = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || "8GVG8WjDs-sGFRr6Rm839";
 const WETH_MAINNET = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const WETH_BASE = "0x4200000000000000000000000000000000000006";
-const ETH_PLACEHOLDER = "0x0000000000000000000000000000000000000000"; // LI.FI native ETH address
-const USDC_MAINNET = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
-const DAI_MAINNET = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
-const USDT_MAINNET = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
 
 const NETWORK_MAP: Record<number, string> = {
   1: "eth-mainnet",
@@ -760,42 +757,33 @@ Always call this before saying you can't find something. It uses server-side tok
 
   getTokenAddress: {
     description:
-      "Look up a token's contract address by symbol on a given chain. Checks well-known addresses first, then searches Enso Finance token list.",
+      "Look up a token's contract address by symbol on a given chain. Checks file-based address registry first, then falls back to Enso Finance token search.",
     execute: async ({ symbol, chainId }: any) => {
       const upper = symbol.toUpperCase();
+      const chainKey = String(chainId);
 
-      if (upper === "ETH") {
-        return { address: ETH_PLACEHOLDER, decimals: 18, name: "Ether" };
-      }
-      if (upper === "WETH") {
-        if (chainId === 1) return { address: WETH_MAINNET, decimals: 18, name: "Wrapped Ether" };
-        if (chainId === 8453) return { address: WETH_BASE, decimals: 18, name: "Wrapped Ether" };
-      }
-      if (upper === "USDC" && chainId === 1) {
-        return { address: USDC_MAINNET, decimals: 6, name: "USD Coin" };
-      }
-      if (upper === "DAI" && chainId === 1) {
-        return { address: DAI_MAINNET, decimals: 18, name: "Dai Stablecoin" };
-      }
-      if (upper === "USDT" && chainId === 1) {
-        return { address: USDT_MAINNET, decimals: 6, name: "Tether USD" };
+      // 1. Check the file-based address registry first
+      const chainTokens = (
+        TOKEN_ADDRESS_FILE.tokens as Record<string, Record<string, { address: string; decimals: number; name: string }>>
+      )[chainKey];
+      if (chainTokens) {
+        // Exact match
+        if (chainTokens[upper]) return chainTokens[upper];
+        // Case-insensitive match
+        const match = Object.entries(chainTokens).find(([k]) => k.toUpperCase() === upper);
+        if (match) return match[1];
       }
 
+      // 2. Fall back to Enso Finance
       try {
         const url = `https://api.enso.finance/api/v1/tokens?chainId=${chainId}&search=${encodeURIComponent(symbol)}&limit=5`;
         const res = await fetch(url);
-        if (!res.ok) {
-          return { error: `Token search failed (${res.status})` };
-        }
+        if (!res.ok) return { error: `Token search failed (${res.status})` };
         const tokens = await res.json();
         if (Array.isArray(tokens) && tokens.length > 0) {
           const exact = tokens.find((t: { symbol: string }) => t.symbol.toUpperCase() === upper);
           const token = exact || tokens[0];
-          return {
-            address: token.address as string,
-            decimals: token.decimals as number,
-            name: token.name as string,
-          };
+          return { address: token.address as string, decimals: token.decimals as number, name: token.name as string };
         }
         return { error: `Token '${symbol}' not found on chain ${chainId}` };
       } catch (e) {
@@ -1210,7 +1198,7 @@ DELAY RULES — use the correct delay for each multistep type:
 - Any other multistep: delay: 0 unless there is a specific protocol-required wait
 
 RULES:
-- NEVER type a token contract address from memory — ALWAYS call getTokenAddress(symbol, chainId) first. One wrong character silently breaks the transaction. No exceptions.
+- NEVER type or recall a token contract address from your training memory. ALWAYS call getTokenAddress(symbol, chainId) — it checks a verified on-disk address registry first, then falls back to live lookup. Your training memory for addresses is wrong. The file is right.
 - Never return a transaction that failed simulation
 - Amount conversions: always work in wei internally, display in human units
 - For ETH in LI.FI: use symbol "ETH" — LI.FI resolves it, no address needed
