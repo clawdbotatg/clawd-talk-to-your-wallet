@@ -1180,7 +1180,7 @@ For ENS registration (multistep) responses — return the buildENSRegistration r
   "priceWei": "3500000000000000"
 }
 
-For approve + swap multistep responses — delay MUST be 0 (no waiting needed between approve and swap):
+For approve + swap multistep responses — use a 3 second delay to give the RPC time to register the approval:
 {
   "type": "multistep_transaction",
   "message": "You need to approve OP first, then execute the swap.",
@@ -1188,14 +1188,14 @@ For approve + swap multistep responses — delay MUST be 0 (no waiting needed be
     { "to": "0x...", "data": "0x...", "value": "0x0", "chainId": 10, "description": "Approve OP for spending", "label": "Approve" },
     { "to": "0x...", "data": "0x...", "value": "0x0", "chainId": 10, "description": "Swap OP → USDC", "label": "Swap" }
   ],
-  "delay": 0
+  "delay": 3000
 }
 
 DELAY RULES:
-- delay is the number of milliseconds the protocol requires between step 1 confirming and step 2 executing
-- Default is 0 — most protocols require no wait
-- Only set delay > 0 when the protocol explicitly requires it (e.g. ENS registration requires ~65 seconds between commit and register)
-- Do not apply any delay unless you know the specific protocol mandates it
+- delay is milliseconds to wait after step 1 confirms before step 2 executes
+- Approve + swap: always use delay: 3000 (3 seconds — lets the RPC sync the approval)
+- ENS registration: delay: 65000 (protocol requires ~60s between commit and register — this is set automatically by the buildENSRegistration tool, do not set it manually)
+- Everything else: delay: 0
 
 RULES:
 - NEVER type or recall a token contract address from your training memory. ALWAYS call getTokenAddress(symbol, chainId) — it checks a verified on-disk address registry first, then falls back to live lookup. Your training memory for addresses is wrong. The file is right.
@@ -1633,7 +1633,7 @@ export async function POST(req: NextRequest) {
           type: "multistep_transaction",
           message: parsed.message as string,
           steps: parsed.steps,
-          delay: 0, // Never trust AI-generated delay — only tool results (e.g. buildENSRegistration) set non-zero delay via lastMultistep
+          delay: Math.min(typeof parsed.delay === "number" ? parsed.delay : 3000, 10000), // Cap at 10s — ENS 65s comes via buildENSRegistration tool result, not here
           priceEth: parsed.priceEth,
           priceWei: parsed.priceWei,
         });
