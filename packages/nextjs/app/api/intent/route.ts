@@ -1633,7 +1633,7 @@ export async function POST(req: NextRequest) {
           type: "multistep_transaction",
           message: parsed.message as string,
           steps: parsed.steps,
-          delay: parsed.delay ?? 0,
+          delay: 0, // Never trust AI-generated delay — only tool results (e.g. buildENSRegistration) set non-zero delay via lastMultistep
           priceEth: parsed.priceEth,
           priceWei: parsed.priceWei,
         });
