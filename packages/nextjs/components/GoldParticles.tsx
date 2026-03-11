@@ -16,17 +16,18 @@ interface Particle {
   opacity: number;
   maxOpacity: number;
   color: string;
-  phase: number; // for gentle pulsing
+  phase: number;
   phaseSpeed: number;
 }
 
 const GOLD_COLORS = ["#C9A84C", "#B8963E", "#E8C96A", "#D4B85A", "#A8893A"];
-const PARTICLE_COUNT = 160;
+const PARTICLE_COUNT = 80;
 
-/** Mouse-proximity blur constants */
-const BLUR_SHARP_RADIUS = 80; // within this distance: fully sharp
-const BLUR_MAX_RADIUS = 300; // beyond this distance: max blur
-const BLUR_MAX_PX = 7; // maximum blur in pixels
+/** Mouse-proximity gradient radius constants */
+const FOCUS_SHARP_RADIUS = 80; // within this distance: tight/crisp gradient
+const FOCUS_MAX_RADIUS = 300; // beyond this distance: max soft/bokeh gradient
+const GRADIENT_RADIUS_MIN = 2; // tight radius when near mouse (sharp)
+const GRADIENT_RADIUS_MAX = 16; // spread radius when far from mouse (soft bokeh)
 
 const GoldParticles = ({ foreground }: GoldParticlesProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -34,6 +35,7 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
   const animFrameRef = useRef<number>(0);
   const sizeRef = useRef({ w: 0, h: 0 });
   const mousePosRef = useRef({ x: -9999, y: -9999 });
+  const lastFrameTime = useRef<number>(0);
 
   const createParticle = useCallback(
     (canvasW: number, canvasH: number, startRandom = true): Particle => {
@@ -88,6 +90,14 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
     particlesRef.current = Array.from({ length: PARTICLE_COUNT }, () => createParticle(w, h, true));
 
     const animate = () => {
+      // Throttle to ~30fps
+      const now = performance.now();
+      if (now - lastFrameTime.current < 33) {
+        animFrameRef.current = requestAnimationFrame(animate);
+        return;
+      }
+      lastFrameTime.current = now;
+
       const { w, h } = sizeRef.current;
       const mouseX = mousePosRef.current.x;
       const mouseY = mousePosRef.current.y;
@@ -111,28 +121,26 @@ const GoldParticles = ({ foreground }: GoldParticlesProps) => {
         const pulse = 0.7 + 0.3 * Math.sin(p.phase);
         p.opacity = p.maxOpacity * Math.max(0, edgeFade) * pulse;
 
-        // Mouse-proximity blur: near the cursor = sharp, far = bokeh
+        // Mouse-proximity: near cursor = tight/crisp, far = soft/bokeh
         const dx = p.x - mouseX;
         const dy = p.y - mouseY;
         const dist = Math.sqrt(dx * dx + dy * dy);
         // Smooth falloff: 0 within SHARP_RADIUS, ramp to 1 at MAX_RADIUS, clamp beyond
-        const t = Math.max(0, Math.min((dist - BLUR_SHARP_RADIUS) / (BLUR_MAX_RADIUS - BLUR_SHARP_RADIUS), 1));
+        const t = Math.max(0, Math.min((dist - FOCUS_SHARP_RADIUS) / (FOCUS_MAX_RADIUS - FOCUS_SHARP_RADIUS), 1));
         // Ease-in-out for smoother transition (smoothstep)
         const eased = t * t * (3 - 2 * t);
-        const blur = eased * BLUR_MAX_PX;
+        const gradientRadius = GRADIENT_RADIUS_MIN + eased * (GRADIENT_RADIUS_MAX - GRADIENT_RADIUS_MIN);
 
-        // Draw with bokeh blur (skip filter when nearly sharp for performance)
-        if (blur > 0.2) {
-          ctx.filter = `blur(${blur.toFixed(1)}px)`;
-        }
+        // Draw as radial gradient (soft glow = cheap bokeh, no CSS filter)
+        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, gradientRadius);
+        grad.addColorStop(0, p.color);
+        grad.addColorStop(1, "transparent");
+
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fillStyle = p.color;
+        ctx.arc(p.x, p.y, gradientRadius, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
         ctx.globalAlpha = p.opacity;
         ctx.fill();
-        if (blur > 0.2) {
-          ctx.filter = "none";
-        }
 
         // Reset if off-screen
         if (p.y < -10 || p.x < -10 || p.x > w + 10) {
