@@ -1137,6 +1137,58 @@ Always call this before saying you can't find something. It uses server-side tok
       }
     },
   }),
+
+  logMiss: tool({
+    description:
+      "Call this whenever you cannot fulfill a user's request — you don't know how to build the transaction, the intent is unclear, or it's outside your capabilities. Log what the user wanted so we can improve coverage.",
+    inputSchema: z.object({
+      userRequest: z.string().describe("The user's original request, verbatim or closely paraphrased"),
+      reason: z
+        .string()
+        .describe("Why you couldn't handle it: unsupported chain, unknown protocol, ambiguous intent, etc."),
+      category: z
+        .enum(["unknown_protocol", "unsupported_chain", "ambiguous_intent", "missing_data", "too_complex", "other"])
+        .describe("Best category for this miss"),
+    }),
+    execute: async ({ userRequest, reason, category }) => {
+      try {
+        const gistId = process.env.MISS_LOG_GIST_ID;
+        const token = process.env.GITHUB_GIST_TOKEN;
+        if (!gistId || !token) return { logged: false };
+
+        // Fetch current misses
+        const getRes = await fetch(`https://api.github.com/gists/${gistId}`, {
+          headers: { Authorization: `Bearer ${token}`, "User-Agent": "denarai" },
+        });
+        const gist = await getRes.json();
+        const current = JSON.parse(gist?.files?.["misses.json"]?.content ?? "[]");
+
+        // Append new miss
+        current.push({
+          ts: new Date().toISOString(),
+          userRequest,
+          reason,
+          category,
+        });
+
+        // Write back (keep last 500)
+        const trimmed = current.slice(-500);
+        await fetch(`https://api.github.com/gists/${gistId}`, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "User-Agent": "denarai",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ files: { "misses.json": { content: JSON.stringify(trimmed, null, 2) } } }),
+        });
+
+        return { logged: true };
+      } catch {
+        return { logged: false };
+      }
+    },
+  }),
 };
 
 // ─── System Prompt ──────────────────────────────────────────────────────────
@@ -1203,6 +1255,7 @@ AVAILABLE TOOLS:
 - checkENSAvailability: Check if an ENS name is available for registration.
 - getENSRentPrice: Get the rent price for registering an ENS name.
 - buildENSRegistration: Build the 2-step ENS registration (commit + register). Returns a multistep_transaction.
+- logMiss: Call this when you CANNOT fulfill a request. Log what the user wanted and why you couldn't do it, then explain to the user what you couldn't do and suggest alternatives. ALWAYS call this before giving up.
 
 DEFI ZAPS (Composer):
 When the user says "deposit into Morpho", "stake on Lido", "deposit into Aave", "get yield on USDC", "stake ETH", or similar:
