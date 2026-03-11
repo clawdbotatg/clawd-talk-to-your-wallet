@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, stepCountIs, tool } from "ai";
+import OpenAI from "openai";
 import { namehash } from "viem/ens";
-import { z } from "zod";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -130,17 +128,10 @@ function encodeENSParams(
 // ─── Tool Definitions ───────────────────────────────────────────────────────
 
 const intentTools = {
-  simulateAssetChanges: tool({
+  simulateAssetChanges: {
     description:
       "Simulate a transaction via Alchemy to see exactly what assets leave/enter the wallet. ALWAYS use this to verify every transaction before returning it.",
-    inputSchema: z.object({
-      from: z.string().describe("Sender address"),
-      to: z.string().describe("Target contract address"),
-      data: z.string().describe("Calldata hex string"),
-      value: z.string().optional().describe("ETH value in hex (e.g. '0x0')"),
-      chainId: z.number().optional().describe("Chain ID (default 1)"),
-    }),
-    execute: async ({ from, to, data, value, chainId }) => {
+    execute: async ({ from, to, data, value, chainId }: any) => {
       const chain = chainId ?? 1;
       try {
         const res = await fetch(alchemyUrl(chain), {
@@ -192,19 +183,12 @@ const intentTools = {
         };
       }
     },
-  }),
+  },
 
-  traceCall: tool({
+  traceCall: {
     description:
       "Full EVM execution trace via debug_traceCall. Use when simulateAssetChanges shows unexpected results or the user asks why something failed.",
-    inputSchema: z.object({
-      from: z.string().describe("Sender address"),
-      to: z.string().describe("Target contract address"),
-      data: z.string().describe("Calldata hex string"),
-      value: z.string().optional().describe("ETH value in hex"),
-      chainId: z.number().optional().describe("Chain ID (default 1)"),
-    }),
-    execute: async ({ from, to, data, value, chainId }) => {
+    execute: async ({ from, to, data, value, chainId }: any) => {
       const chain = chainId ?? 1;
       try {
         const res = await fetch(alchemyUrl(chain), {
@@ -275,15 +259,12 @@ const intentTools = {
         };
       }
     },
-  }),
+  },
 
-  getPortfolio: tool({
+  getPortfolio: {
     description:
       "Get all token balances for the user's wallet across all chains, including chain breakdown and total USD value. Use this to answer balance questions and to find token addresses the user holds.",
-    inputSchema: z.object({
-      address: z.string().describe("The wallet address to look up"),
-    }),
-    execute: async ({ address }) => {
+    execute: async ({ address }: any) => {
       try {
         const res = await fetch(`${BASE_URL}/api/portfolio?address=${address}`);
         const data = await res.json();
@@ -299,36 +280,16 @@ const intentTools = {
         return { error: `Failed to fetch portfolio: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
-  }),
+  },
 
-  searchTransactions: tool({
+  searchTransactions: {
     description: `Search the wallet's full on-chain transaction history. Use for ANY question about past activity:
 - "where did X come from?" / "when did I buy X?" / "what did I pay for X?" → pass tokenSymbol
 - "show my recent swaps/trades" → pass operationType="trade"
 - "what did I do on Base?" → pass chainId="base"
 - "what happened in January?" → pass afterDate / beforeDate
 Always call this before saying you can't find something. It uses server-side token filtering so results are instant regardless of history depth.`,
-    inputSchema: z.object({
-      address: z.string().describe("Wallet address"),
-      tokenSymbol: z.string().optional().describe("Token symbol to filter by, e.g. 'CLAWNCH', 'ETH', 'USDC'"),
-      chainId: z
-        .string()
-        .optional()
-        .describe("Chain to filter: 'ethereum', 'base', 'xdai', 'arbitrum', 'optimism', 'polygon'"),
-      operationType: z
-        .string()
-        .optional()
-        .describe(
-          "Filter by type: 'trade', 'send', 'receive', 'deposit', 'withdraw', 'approve', 'mint', 'burn', 'execute'",
-        ),
-      afterDate: z.string().optional().describe("ISO date string, e.g. '2026-01-01' — only return txs after this date"),
-      beforeDate: z
-        .string()
-        .optional()
-        .describe("ISO date string, e.g. '2026-02-01' — only return txs before this date"),
-      limit: z.number().optional().describe("Max results to return, default 20, max 100"),
-    }),
-    execute: async ({ address, tokenSymbol, chainId, operationType, afterDate, beforeDate, limit }) => {
+    execute: async ({ address, tokenSymbol, chainId, operationType, afterDate, beforeDate, limit }: any) => {
       const ZERION_KEY = process.env.ZERION_API_KEY || "";
       const auth = Buffer.from(`${ZERION_KEY}:`).toString("base64");
       const headers = { Authorization: `Basic ${auth}`, accept: "application/json" };
@@ -421,20 +382,12 @@ Always call this before saying you can't find something. It uses server-side tok
         return { error: `searchTransactions failed: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
-  }),
+  },
 
-  getTransactionDetails: tool({
+  getTransactionDetails: {
     description:
       "Look up full details of a specific transaction by hash. Returns sender address, receiver address, value, block number, timestamp, and decoded transfer info. Use this when the user asks WHO sent something, WHERE it came from, or wants any specific transaction detail.",
-    inputSchema: z.object({
-      hash: z.string().describe("Transaction hash (0x...)"),
-      chain: z
-        .string()
-        .describe(
-          "Chain name: 'ethereum', 'base', 'xdai', 'arbitrum', 'optimism', 'polygon', 'binance-smart-chain', 'monad', 'abstract'",
-        ),
-    }),
-    execute: async ({ hash, chain }) => {
+    execute: async ({ hash, chain }: any) => {
       // Map chain name to Zerion transaction endpoint
       const ZERION_KEY = process.env.ZERION_API_KEY || "";
       const auth = Buffer.from(`${ZERION_KEY}:`).toString("base64");
@@ -514,28 +467,12 @@ Always call this before saying you can't find something. It uses server-side tok
         return { error: String(e) };
       }
     },
-  }),
+  },
 
-  getOnChainBalance: tool({
+  getOnChainBalance: {
     description:
       "Get the LIVE on-chain balance of ETH or any ERC-20 token for a wallet address. Use this when the user asks specifically about a token balance on a specific chain — the injected portfolio snapshot can be stale. Also use to check allowances.",
-    inputSchema: z.object({
-      walletAddress: z.string().describe("The wallet address to check"),
-      chain: z
-        .string()
-        .describe(
-          "Chain: 'ethereum', 'base', 'arbitrum', 'optimism', 'polygon', 'xdai', 'zksync-era', 'scroll', 'linea', 'mantle', 'monad'",
-        ),
-      tokenAddress: z
-        .string()
-        .optional()
-        .describe(
-          "ERC-20 contract address. Omit for native ETH/chain token. Use 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE for ETH.",
-        ),
-      tokenSymbol: z.string().optional().describe("Token symbol for display, e.g. 'USDC'"),
-      tokenDecimals: z.number().optional().describe("Token decimals (default 18, USDC=6)"),
-    }),
-    execute: async ({ walletAddress, chain, tokenAddress, tokenSymbol, tokenDecimals }) => {
+    execute: async ({ walletAddress, chain, tokenAddress, tokenSymbol, tokenDecimals }: any) => {
       const ALCHEMY_KEY = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || "";
       const rpcUrls: Record<string, string> = {
         ethereum: `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_KEY}`,
@@ -612,14 +549,11 @@ Always call this before saying you can't find something. It uses server-side tok
         return { error: String(e) };
       }
     },
-  }),
+  },
 
-  getTokenPrice: tool({
+  getTokenPrice: {
     description: "Get the current USD price and 24h change for a token by symbol.",
-    inputSchema: z.object({
-      symbol: z.string().describe("Token symbol like ETH, USDC, GNO, etc."),
-    }),
-    execute: async ({ symbol }) => {
+    execute: async ({ symbol }: any) => {
       try {
         const res = await fetch(
           `https://api.coingecko.com/api/v3/simple/price?ids=${symbol.toLowerCase()}&vs_currencies=usd&include_24hr_change=true`,
@@ -655,16 +589,12 @@ Always call this before saying you can't find something. It uses server-side tok
         return { error: String(e) };
       }
     },
-  }),
+  },
 
-  getWalletActivity: tool({
+  getWalletActivity: {
     description:
       "Get the user's recent cross-chain transaction history. Use when asked about recent activity, what they've been doing, or to find specific past transactions.",
-    inputSchema: z.object({
-      address: z.string(),
-      limit: z.number().optional().default(20),
-    }),
-    execute: async ({ address, limit }) => {
+    execute: async ({ address, limit }: any) => {
       const fetchLimit = limit ?? 20;
       const ZERION_KEY = process.env.ZERION_API_KEY || "";
       const auth = Buffer.from(`${ZERION_KEY}:`).toString("base64");
@@ -697,30 +627,12 @@ Always call this before saying you can't find something. It uses server-side tok
         return { error: `Failed to fetch activity: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
-  }),
+  },
 
-  buildRoute: tool({
+  buildRoute: {
     description:
       "Build swap, bridge, or DeFi zap calldata via LI.FI. Handles same-chain swaps (fromChainId === toChainId), cross-chain bridges (fromChainId !== toChainId), AND DeFi deposits/staking (set toToken to a vault/staking token address). After getting calldata, the AI MUST call simulateAssetChanges to verify before returning.",
-    inputSchema: z.object({
-      fromToken: z
-        .string()
-        .describe(
-          "Input token symbol (e.g. 'ETH', 'USDC') or address. For native ETH use 'ETH' or 0x0000000000000000000000000000000000000000",
-        ),
-      toToken: z
-        .string()
-        .describe(
-          "Output token symbol (e.g. 'USDC', 'ETH') or address. For DeFi zaps, use the vault/staking token contract address",
-        ),
-      amountIn: z.string().describe("Amount in wei (raw units, not decimal)"),
-      fromChainId: z
-        .number()
-        .describe("Source chain ID (1=mainnet, 8453=Base, 42161=Arbitrum, 10=Optimism, 137=Polygon)"),
-      toChainId: z.number().describe("Destination chain ID. Same as fromChainId for same-chain swaps"),
-      fromAddress: z.string().describe("The sender/user wallet address"),
-    }),
-    execute: async ({ fromToken, toToken, amountIn, fromChainId, toChainId, fromAddress }) => {
+    execute: async ({ fromToken, toToken, amountIn, fromChainId, toChainId, fromAddress }: any) => {
       const url = `https://li.quest/v1/quote?fromChain=${fromChainId}&toChain=${toChainId}&fromToken=${fromToken}&toToken=${toToken}&fromAmount=${amountIn}&fromAddress=${fromAddress}&slippage=0.005`;
       try {
         const res = await fetch(url, {
@@ -755,17 +667,12 @@ Always call this before saying you can't find something. It uses server-side tok
         return { error: `Failed to fetch LI.FI quote: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
-  }),
+  },
 
-  getRouteStatus: tool({
+  getRouteStatus: {
     description:
       "Check the status of a cross-chain LI.FI transfer after the user has submitted the transaction. Returns NOT_FOUND, PENDING, DONE, or FAILED with substatus details.",
-    inputSchema: z.object({
-      txHash: z.string().describe("The transaction hash from the source chain"),
-      fromChain: z.number().describe("Source chain ID"),
-      toChain: z.number().describe("Destination chain ID"),
-    }),
-    execute: async ({ txHash, fromChain, toChain }) => {
+    execute: async ({ txHash, fromChain, toChain }: any) => {
       const url = `https://li.quest/v1/status?txHash=${txHash}&fromChain=${fromChain}&toChain=${toChain}`;
       try {
         const res = await fetch(url, {
@@ -803,19 +710,12 @@ Always call this before saying you can't find something. It uses server-side tok
         return { error: `Failed to check route status: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
-  }),
+  },
 
-  buildTransfer: tool({
+  buildTransfer: {
     description:
       "Build ETH or ERC-20 transfer calldata. For ETH: simple value transfer. For ERC-20: encodes transfer(address,uint256). Returns raw tx object.",
-    inputSchema: z.object({
-      to: z.string().describe("Recipient address (0x...)"),
-      amount: z.string().describe("Amount in wei (raw units)"),
-      token: z.string().describe("'ETH' for native ETH, or the ERC-20 contract address"),
-      fromAddress: z.string().describe("Sender wallet address"),
-      chainId: z.number().optional().describe("Chain ID (default 1)"),
-    }),
-    execute: async ({ to, amount, token, chainId }) => {
+    execute: async ({ to, amount, token, chainId }: any) => {
       const chain = chainId ?? 1;
       if (token.toUpperCase() === "ETH") {
         return {
@@ -833,14 +733,11 @@ Always call this before saying you can't find something. It uses server-side tok
         chainId: chain,
       };
     },
-  }),
+  },
 
-  resolveENS: tool({
+  resolveENS: {
     description: "Resolve an ENS name to an Ethereum address.",
-    inputSchema: z.object({
-      name: z.string().describe("ENS name to resolve, e.g. 'vitalik.eth'"),
-    }),
-    execute: async ({ name }) => {
+    execute: async ({ name }: any) => {
       try {
         const res = await fetch(`https://api.ensideas.com/ens/resolve/${name}`);
         if (!res.ok) {
@@ -857,16 +754,12 @@ Always call this before saying you can't find something. It uses server-side tok
         return { error: `Failed to resolve ENS: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
-  }),
+  },
 
-  getTokenAddress: tool({
+  getTokenAddress: {
     description:
       "Look up a token's contract address by symbol on a given chain. Checks well-known addresses first, then searches Enso Finance token list.",
-    inputSchema: z.object({
-      symbol: z.string().describe("Token symbol, e.g. 'USDC', 'WETH'"),
-      chainId: z.number().describe("Chain ID to search on"),
-    }),
-    execute: async ({ symbol, chainId }) => {
+    execute: async ({ symbol, chainId }: any) => {
       const upper = symbol.toUpperCase();
 
       if (upper === "ETH") {
@@ -901,15 +794,11 @@ Always call this before saying you can't find something. It uses server-side tok
         return { error: `Token search failed: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
-  }),
+  },
 
-  wrapEth: tool({
+  wrapEth: {
     description: "Wrap ETH to WETH. Returns transaction calldata for WETH deposit().",
-    inputSchema: z.object({
-      amount: z.string().describe("Amount in wei"),
-      chainId: z.number().optional().describe("Chain ID (default 1)"),
-    }),
-    execute: async ({ amount, chainId }) => {
+    execute: async ({ amount, chainId }: any) => {
       const chain = chainId ?? 1;
       const wethAddr = chain === 8453 ? WETH_BASE : WETH_MAINNET;
       return {
@@ -919,15 +808,11 @@ Always call this before saying you can't find something. It uses server-side tok
         chainId: chain,
       };
     },
-  }),
+  },
 
-  unwrapWeth: tool({
+  unwrapWeth: {
     description: "Unwrap WETH to ETH. Returns transaction calldata for WETH withdraw().",
-    inputSchema: z.object({
-      amount: z.string().describe("Amount in wei"),
-      chainId: z.number().optional().describe("Chain ID (default 1)"),
-    }),
-    execute: async ({ amount, chainId }) => {
+    execute: async ({ amount, chainId }: any) => {
       const chain = chainId ?? 1;
       const wethAddr = chain === 8453 ? WETH_BASE : WETH_MAINNET;
       return {
@@ -937,16 +822,13 @@ Always call this before saying you can't find something. It uses server-side tok
         chainId: chain,
       };
     },
-  }),
+  },
 
   // ─── ENS Registration Tools ─────────────────────────────────────────────
 
-  checkENSAvailability: tool({
+  checkENSAvailability: {
     description: "Check if an ENS name is available for registration",
-    inputSchema: z.object({
-      name: z.string().describe("ENS label, e.g. 'cassiopeia' or 'cassiopeia.eth'"),
-    }),
-    execute: async ({ name }) => {
+    execute: async ({ name }: any) => {
       const label = name.replace(/\.eth$/i, "").toLowerCase();
       const fullName = `${label}.eth`;
       try {
@@ -977,15 +859,11 @@ Always call this before saying you can't find something. It uses server-side tok
         return { error: `Failed to check ENS availability: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
-  }),
+  },
 
-  getENSRentPrice: tool({
+  getENSRentPrice: {
     description: "Get the rent price for registering an ENS name for a given number of years",
-    inputSchema: z.object({
-      name: z.string().describe("ENS label, e.g. 'cassiopeia' or 'cassiopeia.eth'"),
-      years: z.number().default(1).describe("Number of years to register for"),
-    }),
-    execute: async ({ name, years }) => {
+    execute: async ({ name, years }: any) => {
       const label = name.replace(/\.eth$/i, "");
       const duration = BigInt(years * 365 * 24 * 60 * 60);
       try {
@@ -1029,17 +907,12 @@ Always call this before saying you can't find something. It uses server-side tok
         return { error: `Failed to get ENS rent price: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
-  }),
+  },
 
-  buildENSRegistration: tool({
+  buildENSRegistration: {
     description:
       "Build the 2-step ENS registration transaction. Returns a multistep_transaction with commit + register steps. The user must execute step 1 (commit), wait 60+ seconds, then execute step 2 (register).",
-    inputSchema: z.object({
-      name: z.string().describe("ENS label e.g. 'cassiopeia'"),
-      owner: z.string().describe("Owner address 0x..."),
-      years: z.number().default(1).describe("Number of years to register for"),
-    }),
-    execute: async ({ name, years, owner }) => {
+    execute: async ({ name, years, owner }: any) => {
       const label = name.replace(/\.eth$/i, "");
       const duration = BigInt(years * 365 * 24 * 60 * 60);
 
@@ -1136,21 +1009,12 @@ Always call this before saying you can't find something. It uses server-side tok
         return { error: `Failed to build ENS registration: ${e instanceof Error ? e.message : String(e)}` };
       }
     },
-  }),
+  },
 
-  logMiss: tool({
+  logMiss: {
     description:
       "Call this whenever you cannot fulfill a user's request — you don't know how to build the transaction, the intent is unclear, or it's outside your capabilities. Log what the user wanted so we can improve coverage.",
-    inputSchema: z.object({
-      userRequest: z.string().describe("The user's original request, verbatim or closely paraphrased"),
-      reason: z
-        .string()
-        .describe("Why you couldn't handle it: unsupported chain, unknown protocol, ambiguous intent, etc."),
-      category: z
-        .enum(["unknown_protocol", "unsupported_chain", "ambiguous_intent", "missing_data", "too_complex", "other"])
-        .describe("Best category for this miss"),
-    }),
-    execute: async ({ userRequest, reason, category }) => {
+    execute: async ({ userRequest, reason, category }: any) => {
       try {
         const gistId = process.env.MISS_LOG_GIST_ID;
         const token = process.env.GITHUB_GIST_TOKEN;
@@ -1188,7 +1052,7 @@ Always call this before saying you can't find something. It uses server-side tok
         return { logged: false };
       }
     },
-  }),
+  },
 };
 
 // ─── System Prompt ──────────────────────────────────────────────────────────
@@ -1408,21 +1272,327 @@ export async function POST(req: NextRequest) {
 
     const userPrompt = `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${activitySummary}${recentContext}\n\nUser: ${message}`;
 
-    const result = await generateText({
-      model: createOpenAI({
-        apiKey: process.env.VENICE_API_KEY,
-        baseURL: "https://api.venice.ai/api/v1",
-      })("claude-opus-4-6"),
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userPrompt }],
-      tools: intentTools,
-      stopWhen: stepCountIs(15),
+    const client = new OpenAI({
+      apiKey: process.env.VENICE_API_KEY,
+      baseURL: "https://api.venice.ai/api/v1",
     });
+
+    // Tool schemas for OpenAI format
+    const openAiTools: OpenAI.Chat.ChatCompletionFunctionTool[] = [
+      {
+        type: "function",
+        function: {
+          name: "simulateAssetChanges",
+          description:
+            "Simulate a transaction via Alchemy to see exactly what assets leave/enter the wallet. ALWAYS use this to verify every transaction before returning it.",
+          parameters: {
+            type: "object",
+            properties: {
+              from: { type: "string" },
+              to: { type: "string" },
+              data: { type: "string" },
+              value: { type: "string" },
+              chainId: { type: "number" },
+            },
+            required: ["from", "to", "data"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "traceCall",
+          description: "Full EVM execution trace via debug_traceCall.",
+          parameters: {
+            type: "object",
+            properties: {
+              from: { type: "string" },
+              to: { type: "string" },
+              data: { type: "string" },
+              value: { type: "string" },
+              chainId: { type: "number" },
+            },
+            required: ["from", "to", "data"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "getPortfolio",
+          description: "Get all token balances for the user's wallet across all chains.",
+          parameters: { type: "object", properties: { address: { type: "string" } }, required: ["address"] },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "searchTransactions",
+          description:
+            "Search the wallet's full on-chain transaction history. Use for ANY question about past activity.",
+          parameters: {
+            type: "object",
+            properties: {
+              address: { type: "string" },
+              tokenSymbol: { type: "string" },
+              chainId: { type: "string" },
+              operationType: { type: "string" },
+              afterDate: { type: "string" },
+              beforeDate: { type: "string" },
+              limit: { type: "number" },
+            },
+            required: ["address"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "getTransactionDetails",
+          description: "Look up full details of a specific transaction by hash.",
+          parameters: {
+            type: "object",
+            properties: { hash: { type: "string" }, chain: { type: "string" } },
+            required: ["hash", "chain"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "getOnChainBalance",
+          description: "Get the LIVE on-chain balance of ETH or any ERC-20 token for a wallet address.",
+          parameters: {
+            type: "object",
+            properties: {
+              walletAddress: { type: "string" },
+              chain: { type: "string" },
+              tokenAddress: { type: "string" },
+              tokenSymbol: { type: "string" },
+              tokenDecimals: { type: "number" },
+            },
+            required: ["walletAddress", "chain"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "getTokenPrice",
+          description: "Get the current USD price and 24h change for a token by symbol.",
+          parameters: { type: "object", properties: { symbol: { type: "string" } }, required: ["symbol"] },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "getWalletActivity",
+          description: "Get the user's recent cross-chain transaction history.",
+          parameters: {
+            type: "object",
+            properties: { address: { type: "string" }, limit: { type: "number" } },
+            required: ["address"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "buildRoute",
+          description: "Build swap, bridge, or DeFi zap calldata via LI.FI.",
+          parameters: {
+            type: "object",
+            properties: {
+              fromToken: { type: "string" },
+              toToken: { type: "string" },
+              amountIn: { type: "string" },
+              fromChainId: { type: "number" },
+              toChainId: { type: "number" },
+              fromAddress: { type: "string" },
+            },
+            required: ["fromToken", "toToken", "amountIn", "fromChainId", "toChainId", "fromAddress"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "getRouteStatus",
+          description: "Check the status of a cross-chain LI.FI transfer.",
+          parameters: {
+            type: "object",
+            properties: { txHash: { type: "string" }, fromChain: { type: "number" }, toChain: { type: "number" } },
+            required: ["txHash", "fromChain", "toChain"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "buildTransfer",
+          description: "Build ETH or ERC-20 transfer calldata.",
+          parameters: {
+            type: "object",
+            properties: {
+              to: { type: "string" },
+              amount: { type: "string" },
+              token: { type: "string" },
+              fromAddress: { type: "string" },
+              chainId: { type: "number" },
+            },
+            required: ["to", "amount", "token", "fromAddress"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "resolveENS",
+          description: "Resolve an ENS name to an Ethereum address.",
+          parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "getTokenAddress",
+          description: "Look up a token's contract address by symbol on a given chain.",
+          parameters: {
+            type: "object",
+            properties: { symbol: { type: "string" }, chainId: { type: "number" } },
+            required: ["symbol", "chainId"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "wrapEth",
+          description: "Wrap ETH to WETH.",
+          parameters: {
+            type: "object",
+            properties: { amount: { type: "string" }, chainId: { type: "number" } },
+            required: ["amount"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "unwrapWeth",
+          description: "Unwrap WETH to ETH.",
+          parameters: {
+            type: "object",
+            properties: { amount: { type: "string" }, chainId: { type: "number" } },
+            required: ["amount"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "checkENSAvailability",
+          description: "Check if an ENS name is available for registration.",
+          parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "getENSRentPrice",
+          description: "Get the rent price for registering an ENS name.",
+          parameters: {
+            type: "object",
+            properties: { name: { type: "string" }, years: { type: "number" } },
+            required: ["name"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "buildENSRegistration",
+          description: "Build the 2-step ENS registration transaction.",
+          parameters: {
+            type: "object",
+            properties: { name: { type: "string" }, owner: { type: "string" }, years: { type: "number" } },
+            required: ["name", "owner"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "logMiss",
+          description: "Call this when you cannot fulfill a user request. Log what the user wanted.",
+          parameters: {
+            type: "object",
+            properties: { userRequest: { type: "string" }, reason: { type: "string" }, category: { type: "string" } },
+            required: ["userRequest", "reason", "category"],
+          },
+        },
+      },
+    ];
+
+    // Execute tool by name
+    async function executeTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+      const t = intentTools[name as keyof typeof intentTools];
+      if (!t) return { error: `Unknown tool: ${name}` };
+      return t.execute(args as never);
+    }
+
+    // Agentic loop
+    const loopMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
+    ];
+
+    let finalText = "";
+    for (let step = 0; step < 15; step++) {
+      const completion = await client.chat.completions.create({
+        model: "claude-opus-4-6",
+        messages: loopMessages,
+        tools: openAiTools,
+        tool_choice: "auto",
+        max_tokens: 4096,
+      });
+
+      const choice = completion.choices[0];
+      const assistantMsg: OpenAI.Chat.ChatCompletionMessageParam = {
+        role: "assistant",
+        content: choice.message.content ?? null,
+      };
+      if (choice.message.tool_calls?.length) {
+        (assistantMsg as OpenAI.Chat.ChatCompletionAssistantMessageParam).tool_calls = choice.message.tool_calls;
+      }
+      loopMessages.push(assistantMsg);
+
+      if (!choice.message.tool_calls?.length || choice.finish_reason === "stop") {
+        finalText = choice.message.content ?? "";
+        break;
+      }
+
+      // Execute all tool calls in parallel
+      const toolResults = await Promise.all(
+        choice.message.tool_calls
+          .filter((tc): tc is OpenAI.Chat.ChatCompletionMessageFunctionToolCall => tc.type === "function")
+          .map(async tc => {
+            const args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+            const res = await executeTool(tc.function.name, args);
+            return {
+              role: "tool" as const,
+              tool_call_id: tc.id,
+              content: JSON.stringify(res),
+            };
+          }),
+      );
+      loopMessages.push(...toolResults);
+    }
 
     // Try to parse the AI's final text as JSON
     let parsed: Record<string, unknown> | null = null;
-    if (result.text) {
-      const jsonMatch = result.text.match(/```(?:json)?\s*([\s\S]*?)```/) || result.text.match(/(\{[\s\S]*\})/);
+    if (finalText) {
+      const jsonMatch = finalText.match(/```(?:json)?\s*([\s\S]*?)```/) || finalText.match(/(\{[\s\S]*\})/);
       if (jsonMatch) {
         try {
           parsed = JSON.parse(jsonMatch[1]);
@@ -1468,7 +1638,7 @@ export async function POST(req: NextRequest) {
           | undefined;
         return NextResponse.json({
           type: "transaction",
-          message: (parsed.description as string) || result.text || "Transaction ready",
+          message: (parsed.description as string) || finalText || "Transaction ready",
           transaction: {
             ...txs[0],
             description: (parsed.description as string) || "",
@@ -1478,7 +1648,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Fallback: scan tool results for transaction data (including multistep)
+    // Fallback: scan tool results from the loop messages for transaction data
     type TxData = { to: string; data: string; value: string; chainId: number };
     type SimResult = {
       success: boolean;
@@ -1498,16 +1668,20 @@ export async function POST(req: NextRequest) {
     let lastSim: SimResult | null = null;
     let lastMultistep: MultiStepResult | null = null;
 
-    for (const step of result.steps) {
-      for (const toolResult of step.toolResults) {
-        const r = (toolResult as unknown as { output: Record<string, unknown> }).output;
-        if (r && r.type === "multistep_transaction" && Array.isArray(r.steps)) {
-          lastMultistep = r as unknown as MultiStepResult;
-        } else if (r && typeof r.to === "string" && typeof r.data === "string") {
-          lastTx = r as unknown as TxData;
-        }
-        if (r && typeof r.success === "boolean" && Array.isArray(r.changes)) {
-          lastSim = r as unknown as SimResult;
+    for (const msg of loopMessages) {
+      if (msg.role === "tool" && typeof msg.content === "string") {
+        try {
+          const r = JSON.parse(msg.content) as Record<string, unknown>;
+          if (r && r.type === "multistep_transaction" && Array.isArray(r.steps)) {
+            lastMultistep = r as unknown as MultiStepResult;
+          } else if (r && typeof r.to === "string" && typeof r.data === "string") {
+            lastTx = r as unknown as TxData;
+          }
+          if (r && typeof r.success === "boolean" && Array.isArray(r.changes)) {
+            lastSim = r as unknown as SimResult;
+          }
+        } catch {
+          // not JSON
         }
       }
     }
@@ -1516,7 +1690,7 @@ export async function POST(req: NextRequest) {
     if (lastMultistep) {
       return NextResponse.json({
         type: "multistep_transaction",
-        message: result.text || lastMultistep.message || "Multi-step transaction ready",
+        message: finalText || lastMultistep.message || "Multi-step transaction ready",
         steps: lastMultistep.steps,
         delay: lastMultistep.delay,
         priceEth: lastMultistep.priceEth,
@@ -1528,19 +1702,17 @@ export async function POST(req: NextRequest) {
       const simChanges = lastSim?.changes || [];
       return NextResponse.json({
         type: "transaction",
-        message: result.text || "Transaction ready",
+        message: finalText || "Transaction ready",
         transaction: {
           ...lastTx,
-          description: result.text || "",
+          description: finalText || "",
           simulation: lastSim ? { verified: !!lastSim.success, changes: simChanges } : undefined,
         },
       });
     }
 
     // No transaction built — treat as chat response
-    // Clean up the text (remove JSON wrapper if the AI wrapped it weirdly)
-    let chatMessage = result.text || "I'm not sure how to help with that. Could you rephrase?";
-    // If the text looks like raw JSON that wasn't parsed, extract the message
+    let chatMessage = finalText || "I'm not sure how to help with that. Could you rephrase?";
     try {
       const maybeJson = JSON.parse(chatMessage);
       if (maybeJson.message) chatMessage = maybeJson.message;
