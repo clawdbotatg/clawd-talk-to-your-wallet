@@ -624,33 +624,56 @@ const Home: NextPage = () => {
                       >
                         Speak your desires
                       </p>
-                      <div className="flex flex-col gap-2 w-full max-w-sm">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-4 w-full max-w-2xl">
                         {[
-                          "swap 0.1 ETH for USDC",
-                          "what's the best yield for USDC on Arbitrum?",
-                          "register denarai.eth on ENS",
-                        ].map(suggestion => (
-                          <button
-                            key={suggestion}
-                            className="text-sm px-4 py-2.5 text-left transition-colors cursor-pointer"
-                            style={{
-                              border: "1px solid rgba(201, 168, 76, 0.2)",
-                              color: "#8A8578",
-                              backgroundColor: "transparent",
-                              fontFamily: "var(--font-jetbrains)",
-                            }}
-                            onMouseEnter={e => {
-                              e.currentTarget.style.borderColor = "rgba(201, 168, 76, 0.5)";
-                              e.currentTarget.style.color = "#C9A84C";
-                            }}
-                            onMouseLeave={e => {
-                              e.currentTarget.style.borderColor = "rgba(201, 168, 76, 0.2)";
-                              e.currentTarget.style.color = "#8A8578";
-                            }}
-                            onClick={() => setMessage(suggestion)}
-                          >
-                            {suggestion}
-                          </button>
+                          {
+                            category: "Portfolio",
+                            suggestions: ["how is ETH doing?", "show my recent trades"],
+                          },
+                          {
+                            category: "Swap & Bridge",
+                            suggestions: ["bridge 100 USDC to Base", "swap 0.1 ETH for USDC"],
+                          },
+                          {
+                            category: "DeFi",
+                            suggestions: ["deposit 100 USDC into Aave", "unwrap my WETH"],
+                          },
+                          {
+                            category: "History",
+                            suggestions: ["where did my ETH come from?", "what did I spend gas on?"],
+                          },
+                        ].map(group => (
+                          <div key={group.category} className="flex flex-col gap-1.5">
+                            <span
+                              className="font-[family-name:var(--font-cinzel)] uppercase text-[10px] tracking-[0.2em] mb-1 text-left"
+                              style={{ color: "#8A8578" }}
+                            >
+                              {group.category}
+                            </span>
+                            {group.suggestions.map(suggestion => (
+                              <button
+                                key={suggestion}
+                                className="text-sm px-4 py-2.5 text-left transition-colors cursor-pointer"
+                                style={{
+                                  border: "1px solid rgba(201, 168, 76, 0.2)",
+                                  color: "#8A8578",
+                                  backgroundColor: "transparent",
+                                  fontFamily: "var(--font-jetbrains)",
+                                }}
+                                onMouseEnter={e => {
+                                  e.currentTarget.style.borderColor = "rgba(201, 168, 76, 0.5)";
+                                  e.currentTarget.style.color = "#C9A84C";
+                                }}
+                                onMouseLeave={e => {
+                                  e.currentTarget.style.borderColor = "rgba(201, 168, 76, 0.2)";
+                                  e.currentTarget.style.color = "#8A8578";
+                                }}
+                                onClick={() => setMessage(suggestion)}
+                              >
+                                {suggestion}
+                              </button>
+                            ))}
+                          </div>
                         ))}
                       </div>
                     </div>
