@@ -155,6 +155,16 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
     });
   }, [state, step1Hash, step2Hash, commitTimestamp, storageKey, tx.delay]);
 
+  const handleReset = useCallback(() => {
+    clearPersistedState(storageKey);
+    setState("idle");
+    setStep1Hash(undefined);
+    setStep2Hash(undefined);
+    setExecError("");
+    setCountdown(0);
+    setCommitTimestamp(undefined);
+  }, [storageKey]);
+
   const { sendTransactionAsync } = useSendTransaction();
   const { switchChainAsync } = useSwitchChain();
   const { data: walletClient } = useWalletClient();
@@ -499,6 +509,21 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
             }}
           >
             {execError}
+          </div>
+        )}
+
+        {/* Start over — shown any time the flow has started but isn't complete */}
+        {state !== "idle" && state !== "done" && (
+          <div className="flex justify-end pt-1">
+            <button
+              className="text-xs transition-colors cursor-pointer"
+              style={{ color: "rgba(138, 133, 120, 0.6)" }}
+              onMouseEnter={e => (e.currentTarget.style.color = "#8A8578")}
+              onMouseLeave={e => (e.currentTarget.style.color = "rgba(138, 133, 120, 0.6)")}
+              onClick={handleReset}
+            >
+              start over
+            </button>
           </div>
         )}
 
