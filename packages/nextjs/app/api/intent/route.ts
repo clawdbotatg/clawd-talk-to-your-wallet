@@ -1210,16 +1210,10 @@ DELAY RULES — use the correct delay for each multistep type:
 - Any other multistep: delay: 0 unless there is a specific protocol-required wait
 
 RULES:
-- NEVER invent or guess token addresses — ALWAYS use getTokenAddress tool or the hardcoded addresses below. A single wrong character breaks the transaction.
+- NEVER type a token contract address from memory — ALWAYS call getTokenAddress(symbol, chainId) first. One wrong character silently breaks the transaction. No exceptions.
 - Never return a transaction that failed simulation
 - Amount conversions: always work in wei internally, display in human units
-- For ETH in LI.FI: use symbol "ETH" or address 0x0000000000000000000000000000000000000000 (NOT the 0xEeee... placeholder)
-- WETH on mainnet: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
-- WETH on Base: 0x4200000000000000000000000000000000000006
-- USDC on mainnet: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 (6 decimals!)
-- DAI on mainnet: 0x6B175474E89094C44Da98b954EedeAC495271d0F (18 decimals)
-- USDT on mainnet: 0xdAC17F958D2ee523a2206206994597C13D831ec7 (6 decimals!)
-- For ANY other token address: call getTokenAddress(symbol, chainId) — do not guess
+- For ETH in LI.FI: use symbol "ETH" — LI.FI resolves it, no address needed
 - All amount parameters expect wei (raw units). Convert from human-readable first.
 - If the user's request is unclear, respond with a chat message asking for clarification
 - If simulation fails, respond with a chat message explaining why`;
