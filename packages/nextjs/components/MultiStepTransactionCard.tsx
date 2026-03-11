@@ -119,11 +119,16 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
 
   const getInitialState = (p: PersistedENSState | null): MultiStepState => {
     if (!p) return "idle";
-    // If we were waiting and countdown has already elapsed, jump to step2_confirming
+    // If we were waiting and countdown has already elapsed, jump to step1_confirmed
+    // (show the step 2 button rather than auto-launching wallet popup on reload)
     if (p.state === "waiting" && p.commitTimestamp) {
       const elapsed = Date.now() - p.commitTimestamp;
-      if (elapsed >= p.delayMs) return "step2_confirming";
+      if (elapsed >= p.delayMs) return "step1_confirmed";
     }
+    // Transient wallet-popup states can't be resumed — fall back to safe states
+    if (p.state === "step1_confirming") return "idle";
+    if (p.state === "step2_confirming") return p.step1Hash ? "step1_confirmed" : "idle";
+    // step1_pending / step2_pending have a tx hash — wagmi will re-check on-chain
     return p.state;
   };
 
@@ -141,11 +146,13 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
 
   // Persist state whenever it changes
   useEffect(() => {
-    if (state === "idle") return; // don't persist before anything happens
+    if (state === "idle") return;
     if (state === "done") {
-      clearPersistedState(storageKey); // clean up when done
+      clearPersistedState(storageKey);
       return;
     }
+    // Don't persist transient wallet-popup states — they can't be safely resumed
+    if (state === "step1_confirming" || state === "step2_confirming") return;
     savePersistedState(storageKey, {
       state,
       step1Hash,
