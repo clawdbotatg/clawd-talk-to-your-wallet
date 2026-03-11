@@ -25,7 +25,7 @@ export const Header = () => {
             DENARAI
           </span>
           <span
-            className="font-[family-name:var(--font-cinzel)] text-xl tracking-[0.2em] hidden sm:inline"
+            className="font-[family-name:var(--font-cinzel)] text-2xl tracking-[0.2em] hidden sm:inline"
             style={{ color: "#8A8578" }}
           >
             talk to your coins
