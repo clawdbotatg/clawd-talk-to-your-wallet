@@ -109,7 +109,7 @@ function CopyButton({ text }: { text: string }) {
 
   return (
     <button
-      className="text-xs transition-colors ml-2"
+      className="text-xs transition-colors ml-2 cursor-pointer"
       style={{ color: copied ? "#4CAF50" : "#8A8578" }}
       onClick={() => {
         navigator.clipboard.writeText(text);
@@ -837,7 +837,7 @@ function DetailModalOverlay({ item, onClose }: { item: ModalItem; onClose: () =>
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 cursor-pointer"
       style={{ backgroundColor: "rgba(0, 0, 0, 0.75)", backdropFilter: "blur(4px)" }}
       onClick={onClose}
     >
@@ -851,7 +851,7 @@ function DetailModalOverlay({ item, onClose }: { item: ModalItem; onClose: () =>
       >
         {/* Close button */}
         <button
-          className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center transition-colors z-10"
+          className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center transition-colors z-10 cursor-pointer"
           style={{ color: "#8A8578" }}
           onMouseEnter={e => (e.currentTarget.style.color = "#C9A84C")}
           onMouseLeave={e => (e.currentTarget.style.color = "#8A8578")}
@@ -873,7 +873,7 @@ function DetailModalOverlay({ item, onClose }: { item: ModalItem; onClose: () =>
         {/* Footer */}
         <div className="px-5 py-3 flex justify-end" style={{ borderTop: "1px solid rgba(201, 168, 76, 0.1)" }}>
           <button
-            className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] px-5 py-2 transition-colors"
+            className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] px-5 py-2 transition-colors cursor-pointer"
             style={{
               border: "1px solid rgba(201, 168, 76, 0.3)",
               color: "#C9A84C",

@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import type { NextPage } from "next";
 import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
-import GoldParticles from "~~/components/GoldParticles";
 import ChatMessageRenderer from "~~/components/ChatMessageRenderer";
 import { useDetailModal } from "~~/components/DetailModal";
+import GoldParticles from "~~/components/GoldParticles";
 import MultiStepTransactionCard from "~~/components/MultiStepTransactionCard";
 import TransactionCard from "~~/components/TransactionCard";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
@@ -478,7 +478,7 @@ const Home: NextPage = () => {
 
                         {!showAllAssets && hiddenCount > 0 && (
                           <button
-                            className="w-full text-center text-sm py-2 transition-colors"
+                            className="w-full text-center text-sm py-2 transition-colors cursor-pointer"
                             style={{ color: "#C9A84C" }}
                             onMouseEnter={e => (e.currentTarget.style.color = "#B8963E")}
                             onMouseLeave={e => (e.currentTarget.style.color = "#C9A84C")}
@@ -489,7 +489,7 @@ const Home: NextPage = () => {
                         )}
                         {showAllAssets && hiddenCount > 0 && (
                           <button
-                            className="w-full text-center text-sm py-2 transition-colors"
+                            className="w-full text-center text-sm py-2 transition-colors cursor-pointer"
                             style={{ color: "#C9A84C" }}
                             onMouseEnter={e => (e.currentTarget.style.color = "#B8963E")}
                             onMouseLeave={e => (e.currentTarget.style.color = "#C9A84C")}
@@ -601,7 +601,7 @@ const Home: NextPage = () => {
                 {messages.length > 0 && (
                   <div className="flex justify-end pb-2">
                     <button
-                      className="btn btn-ghost btn-xs transition-colors"
+                      className="btn btn-ghost btn-xs transition-colors cursor-pointer"
                       style={{ color: "#8A8578" }}
                       onMouseEnter={e => (e.currentTarget.style.color = "#9B3D3D")}
                       onMouseLeave={e => (e.currentTarget.style.color = "#8A8578")}
@@ -632,7 +632,7 @@ const Home: NextPage = () => {
                         ].map(suggestion => (
                           <button
                             key={suggestion}
-                            className="text-sm px-4 py-2.5 text-left transition-colors"
+                            className="text-sm px-4 py-2.5 text-left transition-colors cursor-pointer"
                             style={{
                               border: "1px solid rgba(201, 168, 76, 0.2)",
                               color: "#8A8578",
@@ -735,7 +735,7 @@ const Home: NextPage = () => {
                       disabled={isProcessing}
                     />
                     <button
-                      className="px-6 py-2 relative overflow-hidden gold-btn"
+                      className="px-6 py-2 relative overflow-hidden gold-btn cursor-pointer"
                       onClick={handleSubmit}
                       disabled={isProcessing || !message.trim()}
                     >
