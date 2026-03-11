@@ -1191,10 +1191,11 @@ For approve + swap multistep responses — delay MUST be 0 (no waiting needed be
   "delay": 0
 }
 
-DELAY RULES — use the correct delay for each multistep type:
-- ENS registration: delay: 65000 (must wait 60s between commit and register)
-- Approve + swap: delay: 0 (execute step 2 immediately after step 1 confirms)
-- Any other multistep: delay: 0 unless there is a specific protocol-required wait
+DELAY RULES:
+- delay is the number of milliseconds the protocol requires between step 1 confirming and step 2 executing
+- Default is 0 — most protocols require no wait
+- Only set delay > 0 when the protocol explicitly requires it (e.g. ENS registration requires ~65 seconds between commit and register)
+- Do not apply any delay unless you know the specific protocol mandates it
 
 RULES:
 - NEVER type or recall a token contract address from your training memory. ALWAYS call getTokenAddress(symbol, chainId) — it checks a verified on-disk address registry first, then falls back to live lookup. Your training memory for addresses is wrong. The file is right.
@@ -1628,13 +1629,11 @@ export async function POST(req: NextRequest) {
       }
 
       if (parsed.type === "multistep_transaction" && parsed.steps) {
-        const steps = parsed.steps as { label?: string }[];
-        const isEns = steps.some(s => s.label?.toLowerCase() === "commit" || s.label?.toLowerCase() === "register");
         return NextResponse.json({
           type: "multistep_transaction",
           message: parsed.message as string,
           steps: parsed.steps,
-          delay: isEns ? (parsed.delay ?? 65000) : 0,
+          delay: parsed.delay ?? 0,
           priceEth: parsed.priceEth,
           priceWei: parsed.priceWei,
         });
@@ -1696,15 +1695,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Check for multistep first (ENS registration or approve+swap)
     if (lastMultistep) {
-      const msSteps = (lastMultistep.steps || []) as { label?: string }[];
-      const isEns = msSteps.some(s => s.label?.toLowerCase() === "commit" || s.label?.toLowerCase() === "register");
       return NextResponse.json({
         type: "multistep_transaction",
         message: finalText || lastMultistep.message || "Multi-step transaction ready",
         steps: lastMultistep.steps,
-        delay: isEns ? (lastMultistep.delay ?? 65000) : 0,
+        delay: lastMultistep.delay ?? 0,
         priceEth: lastMultistep.priceEth,
         priceWei: lastMultistep.priceWei,
       });
