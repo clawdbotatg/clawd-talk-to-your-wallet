@@ -17,19 +17,27 @@ export const Header = () => {
       }}
     >
       {isConnected ? (
-        <div className="flex items-baseline gap-4">
-          <span
-            className="font-[family-name:var(--font-cinzel)] text-3xl font-bold tracking-[0.25em]"
-            style={{ color: "#C9A84C" }}
-          >
-            DENARAI
-          </span>
-          <span
-            className="font-[family-name:var(--font-cinzel)] text-2xl tracking-[0.2em] hidden sm:inline"
-            style={{ color: "#8A8578" }}
-          >
-            talk to your coins
-          </span>
+        <div className="flex items-center gap-3">
+          <img
+            src="/coins-stack.jpg"
+            alt="coins"
+            className="h-10 w-10 rounded-full object-cover"
+            style={{ boxShadow: "0 0 8px rgba(201,168,76,0.4)" }}
+          />
+          <div className="flex items-baseline gap-4">
+            <span
+              className="font-[family-name:var(--font-cinzel)] text-3xl font-bold tracking-[0.25em]"
+              style={{ color: "#C9A84C" }}
+            >
+              DENARAI
+            </span>
+            <span
+              className="font-[family-name:var(--font-cinzel)] text-2xl tracking-[0.2em] hidden sm:inline"
+              style={{ color: "#8A8578" }}
+            >
+              talk to your coins
+            </span>
+          </div>
         </div>
       ) : (
         <div />
