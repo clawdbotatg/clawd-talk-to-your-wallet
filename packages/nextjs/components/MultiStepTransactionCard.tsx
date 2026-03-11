@@ -323,12 +323,6 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
   const delaySeconds = Math.ceil(tx.delay / 1000);
   const progress = state === "waiting" ? ((delaySeconds - countdown) / delaySeconds) * 100 : 0;
 
-  // ─── Derive ENS name from step descriptions ─────────────────────────────
-
-  const ensNameMatch =
-    step1?.description?.match(/register\s+(\S+\.eth)/i) || step2?.description?.match(/register\s+(\S+\.eth)/i);
-  const ensName = ensNameMatch?.[1] || "your name";
-
   // Needs chain switch?
   const needsSwitch = step1 && currentChainId !== step1.chainId;
 
@@ -394,13 +388,15 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
         {(state === "step1_pending" || state === "step1_confirming") && (
           <div className="text-sm flex items-center gap-2" style={{ color: "#8A8578" }}>
             <span className="loading loading-spinner loading-xs"></span>
-            {state === "step1_confirming" ? "Confirm in wallet..." : "Confirming commit..."}
+            {state === "step1_confirming"
+              ? "Confirm in wallet..."
+              : `Confirming ${step1?.label?.toLowerCase() || "step 1"}...`}
           </div>
         )}
 
         {state === "step1_confirmed" && (
           <div className="text-sm" style={{ color: "#C9A84C" }}>
-            ✓ Commit confirmed —{" "}
+            ✓ {step1?.label || "Step 1"} confirmed —{" "}
             <a
               href={`${explorerBase}${step1Hash}`}
               target="_blank"
@@ -417,7 +413,7 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
         {state === "waiting" && (
           <div className="space-y-2">
             <div className="text-sm" style={{ color: "#C9A84C" }}>
-              ✓ Commit confirmed —{" "}
+              ✓ {step1?.label || "Step 1"} confirmed —{" "}
               <a
                 href={`${explorerBase}${step1Hash}`}
                 target="_blank"
@@ -429,7 +425,7 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
               </a>
             </div>
             <div className="text-sm text-center" style={{ color: "#E8E4DC" }}>
-              Waiting {countdown}s before registration...
+              Waiting {countdown}s...
             </div>
             <div className="w-full h-1.5" style={{ backgroundColor: "rgba(201, 168, 76, 0.1)" }}>
               <div
@@ -446,7 +442,7 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
         {state === "step2_confirming" && step2 && (
           <div className="space-y-2">
             <div className="text-sm" style={{ color: "#C9A84C" }}>
-              ✓ Commit confirmed
+              ✓ {step1?.label || "Step 1"} confirmed
             </div>
             <div className="text-xs" style={{ color: "#8A8578" }}>
               <ChatMessageRenderer content={step2.description} />
@@ -457,11 +453,11 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
         {state === "step2_pending" && (
           <div className="space-y-2">
             <div className="text-sm" style={{ color: "#C9A84C" }}>
-              ✓ Commit confirmed
+              ✓ {step1?.label || "Step 1"} confirmed
             </div>
             <div className="text-sm flex items-center gap-2" style={{ color: "#8A8578" }}>
               <span className="loading loading-spinner loading-xs"></span>
-              Confirming registration...
+              Confirming {step2?.label?.toLowerCase() || "step 2"}...
             </div>
           </div>
         )}
@@ -469,7 +465,7 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
         {state === "done" && (
           <div className="space-y-2">
             <div className="text-sm" style={{ color: "#C9A84C" }}>
-              ✓ {ensName} registered!
+              ✓ {step2?.label || "Complete"}!
             </div>
             {step2Hash && (
               <div className="text-sm" style={{ color: "#C9A84C" }}>
@@ -480,7 +476,7 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
                   className="underline"
                   style={{ color: "#C9A84C" }}
                 >
-                  View registration tx
+                  View transaction
                 </a>
               </div>
             )}
@@ -550,7 +546,7 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
               className="font-[family-name:var(--font-cinzel)] text-sm tracking-[0.15em] uppercase mb-6"
               style={{ color: "#C9A84C" }}
             >
-              ENS Registration — Step 1 of 2
+              {step1?.label || "Step 1"} — Step 1 of 2
             </h3>
 
             <div
@@ -563,7 +559,7 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
               <div className="flex justify-between items-center">
                 <span style={{ color: "#8A8578" }}>Action</span>
                 <span className="font-[family-name:var(--font-cinzel)] text-xs" style={{ color: "#E8E4DC" }}>
-                  Commit
+                  {step1?.label || "Execute"}
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -578,9 +574,11 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
               >
                 <ChatMessageRenderer content={step1?.description || ""} />
               </div>
-              <div className="text-[10px]" style={{ color: "rgba(201, 168, 76, 0.5)" }}>
-                After confirming, you will need to wait ~60 seconds before completing registration.
-              </div>
+              {tx.delay > 0 && (
+                <div className="text-[10px]" style={{ color: "rgba(201, 168, 76, 0.5)" }}>
+                  After confirming, you will need to wait ~{Math.round(tx.delay / 1000)}s before the next step.
+                </div>
+              )}
             </div>
 
             {execError && (
@@ -620,7 +618,7 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
                   </>
                 ) : (
                   <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">
-                    Confirm &amp; Commit
+                    Confirm &amp; {step1?.label || "Execute"}
                   </span>
                 )}
               </button>
