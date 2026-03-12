@@ -22,7 +22,8 @@ export function useDanaraiAuth() {
   // Load from localStorage on mount / address change
   useEffect(() => {
     if (!isConnected || !address) {
-      localStorage.removeItem(STORAGE_KEY);
+      // Don't delete localStorage here — wagmi may still be reconnecting on page load.
+      // Just clear in-memory state; the data will be re-read once the wallet reconnects.
       setAuthData(null);
       return;
     }
