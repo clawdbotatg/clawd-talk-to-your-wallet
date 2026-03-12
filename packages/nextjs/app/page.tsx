@@ -134,6 +134,8 @@ const Home: NextPage = () => {
   const { openModal } = useDetailModal();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const STORAGE_KEY = address ? `clawd-chat-${address.toLowerCase()}` : null;
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -851,9 +853,9 @@ const Home: NextPage = () => {
                     <input
                       type="text"
                       placeholder={
-                        isSigning
+                        mounted && isSigning
                           ? "Please sign the message in your wallet..."
-                          : !isAuthed
+                          : mounted && !isAuthed
                             ? "Sign in with your wallet to continue"
                             : "Your wealth awaits instruction. What is your will, ser?"
                       }
@@ -863,12 +865,12 @@ const Home: NextPage = () => {
                         border: "1px solid rgba(201, 168, 76, 0.15)",
                         color: "#E8E4DC",
                         outline: "none",
-                        opacity: !isAuthed ? 0.5 : 1,
+                        opacity: mounted && !isAuthed ? 0.5 : 1,
                       }}
                       value={message}
                       onChange={e => setMessage(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && !isProcessing && isAuthed && handleSubmit()}
-                      disabled={isProcessing || !isAuthed}
+                      onKeyDown={e => e.key === "Enter" && !isProcessing && (!mounted || isAuthed) && handleSubmit()}
+                      disabled={isProcessing || (mounted && !isAuthed)}
                     />
                     <button
                       className="px-6 py-2 relative overflow-hidden gold-btn cursor-pointer"
