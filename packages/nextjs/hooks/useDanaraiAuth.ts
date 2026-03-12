@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 
 const STORAGE_KEY = "denarai_auth";
@@ -106,14 +106,19 @@ export function useDanaraiAuth() {
 
   const isAuthed = !!authData && authData.expiry > Date.now();
 
-  const authHeaders: Record<string, string> | null =
-    isAuthed && authData
-      ? {
-          "x-denarai-address": authData.address,
-          "x-denarai-sig": authData.signature,
-          "x-denarai-msg": authData.message,
-        }
-      : null;
+  // Stable reference — must not recreate on every render or it breaks useCallback deps in consumers
+  const authHeaders = useMemo<Record<string, string> | null>(
+    () =>
+      isAuthed && authData
+        ? {
+            "x-denarai-address": authData.address,
+            "x-denarai-sig": authData.signature,
+            "x-denarai-msg": authData.message,
+          }
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [authData?.address, authData?.signature, authData?.message, isAuthed],
+  );
 
   return { isAuthed, isSigning, authHeaders, reauth };
 }

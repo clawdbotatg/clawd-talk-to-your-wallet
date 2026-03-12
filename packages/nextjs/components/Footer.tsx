@@ -44,7 +44,7 @@ export const Footer = () => {
     const load = () =>
       fetch("/api/prices")
         .then(r => r.json())
-        .then(setPrices)
+        .then(data => Array.isArray(data) && setPrices(data))
         .catch(() => {});
 
     load();
