@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "../_lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,9 @@ function mapTxType(rawType: string): string {
 }
 
 export async function GET(request: NextRequest) {
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
+
   const { searchParams } = new URL(request.url);
   const address = searchParams.get("address");
   const page = searchParams.get("page") || "1";

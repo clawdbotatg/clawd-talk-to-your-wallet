@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "../_lib/auth";
 
 const ZERION_KEY = process.env.ZERION_API_KEY || "";
 
@@ -42,6 +43,9 @@ function mapPosition(p: ZerionPosition) {
 }
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const walletAddress = req.nextUrl.searchParams.get("address");
     if (!walletAddress) {

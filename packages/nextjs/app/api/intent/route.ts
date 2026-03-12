@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import TOKEN_ADDRESS_FILE from "../../../data/token-addresses.json";
+import { requireAuth } from "../_lib/auth";
 import OpenAI from "openai";
 import { namehash } from "viem/ens";
 
@@ -1209,6 +1210,9 @@ RULES:
 // ─── Route Handler ──────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req);
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const { message, address, portfolio, chainId, recentMessages, recentActivity } = await req.json();
 

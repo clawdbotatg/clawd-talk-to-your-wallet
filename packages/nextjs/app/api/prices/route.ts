@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "../_lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +12,12 @@ const TOKEN_IDS: Record<string, string> = {
   CLAWD: "b07ec41c-2b1c-4ad9-8cfb-a71896b180e2",
 };
 
-export async function GET() {
-  const auth = Buffer.from(`${ZERION_KEY}:`).toString("base64");
-  const headers = { Authorization: `Basic ${auth}`, accept: "application/json" };
+export async function GET(request: NextRequest) {
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
+
+  const zerionAuth = Buffer.from(`${ZERION_KEY}:`).toString("base64");
+  const headers = { Authorization: `Basic ${zerionAuth}`, accept: "application/json" };
 
   try {
     const results = await Promise.all(

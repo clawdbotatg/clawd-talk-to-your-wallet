@@ -10,6 +10,7 @@ import GoldParticles from "~~/components/GoldParticles";
 import MultiStepTransactionCard from "~~/components/MultiStepTransactionCard";
 import TransactionCard from "~~/components/TransactionCard";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
+import { useDanaraiAuth } from "~~/hooks/useDanaraiAuth";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -129,6 +130,7 @@ const MAX_DISPLAY_ASSETS = 8;
 
 const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
+  const { isAuthed, isSigning, authHeaders } = useDanaraiAuth();
   const { openModal } = useDetailModal();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -209,10 +211,12 @@ const Home: NextPage = () => {
   }, [messages, isProcessing]);
 
   const fetchPortfolio = useCallback(async () => {
-    if (!address) return;
+    if (!address || !authHeaders) return;
     setIsLoadingPortfolio(true);
     try {
-      const res = await fetch(`/api/portfolio?address=${address}`);
+      const res = await fetch(`/api/portfolio?address=${address}`, {
+        headers: { ...authHeaders },
+      });
       const data = await res.json();
       if (data.error) {
         console.error("Portfolio error:", data.error);
@@ -229,18 +233,20 @@ const Home: NextPage = () => {
     } finally {
       setIsLoadingPortfolio(false);
     }
-  }, [address]);
+  }, [address, authHeaders]);
 
   const fetchActivity = useCallback(async () => {
-    if (!address) return;
+    if (!address || !authHeaders) return;
     try {
-      const res = await fetch(`/api/activity?address=${address}`);
+      const res = await fetch(`/api/activity?address=${address}`, {
+        headers: { ...authHeaders },
+      });
       const data = await res.json();
       setActivity(data.items || []);
     } catch (e) {
       console.error("Failed to fetch activity:", e);
     }
-  }, [address]);
+  }, [address, authHeaders]);
 
   useEffect(() => {
     if (!address) {
@@ -309,7 +315,7 @@ const Home: NextPage = () => {
   // ─── handleSubmit ────────────────────────────────────────────────────────
 
   const handleSubmit = async () => {
-    if (!message.trim() || !address) return;
+    if (!message.trim() || !address || !isAuthed) return;
 
     const userMsg: ChatMessage = { role: "user", content: message, timestamp: Date.now() };
     setMessages(prev => [...prev, userMsg]);
@@ -319,7 +325,7 @@ const Home: NextPage = () => {
     try {
       const res = await fetch("/api/intent", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
           message,
           address,
@@ -844,18 +850,25 @@ const Home: NextPage = () => {
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="Your wealth awaits instruction. What is your will, ser?"
+                      placeholder={
+                        isSigning
+                          ? "Please sign the message in your wallet..."
+                          : !isAuthed
+                            ? "Sign in with your wallet to continue"
+                            : "Your wealth awaits instruction. What is your will, ser?"
+                      }
                       className="flex-1 text-base px-4 py-2"
                       style={{
                         backgroundColor: "#111111",
                         border: "1px solid rgba(201, 168, 76, 0.15)",
                         color: "#E8E4DC",
                         outline: "none",
+                        opacity: !isAuthed ? 0.5 : 1,
                       }}
                       value={message}
                       onChange={e => setMessage(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && !isProcessing && handleSubmit()}
-                      disabled={isProcessing}
+                      onKeyDown={e => e.key === "Enter" && !isProcessing && isAuthed && handleSubmit()}
+                      disabled={isProcessing || !isAuthed}
                     />
                     <button
                       className="px-6 py-2 relative overflow-hidden gold-btn cursor-pointer"
