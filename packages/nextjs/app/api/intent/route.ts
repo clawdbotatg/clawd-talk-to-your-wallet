@@ -1008,7 +1008,7 @@ Always call this before saying you can't find something. It uses server-side tok
 
   logMiss: {
     description:
-      "Call this whenever you cannot fulfill a user's request — you don't know how to build the transaction, the intent is unclear, or it's outside your capabilities. Log what the user wanted so we can improve coverage.",
+      "Call this whenever your response will NOT end with actual calldata OR a definitive, complete, confident answer. This includes: requests you deflect, things outside your scope, tokens/protocols you can't find, unclear intents you can't resolve, or anything where you ask clarifying questions instead of acting. If you're not 100% sure and not returning calldata — log it first, then respond.",
     execute: async ({ userRequest, reason, category }: any) => {
       try {
         const gistId = process.env.MISS_LOG_GIST_ID;
@@ -1114,7 +1114,7 @@ AVAILABLE TOOLS:
 - checkENSAvailability: Check if an ENS name is available for registration.
 - getENSRentPrice: Get the rent price for registering an ENS name.
 - buildENSRegistration: Build the 2-step ENS registration (commit + register). Returns a multistep_transaction.
-- logMiss: Call this when you CANNOT fulfill a request. Log what the user wanted and why you couldn't do it, then explain to the user what you couldn't do and suggest alternatives. ALWAYS call this before giving up.
+- logMiss: Call this BEFORE responding whenever your answer will NOT be calldata or a 100% confident, complete answer. This means: you're deflecting, out of scope, can't find the token/protocol, asking clarifying questions, or giving a partial/educational answer instead of acting. If you're unsure at all — log it first. No exceptions.
 
 DEFI ZAPS (Composer):
 When the user says "deposit into Morpho", "stake on Lido", "deposit into Aave", "get yield on USDC", "stake ETH", or similar:
