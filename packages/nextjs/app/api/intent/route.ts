@@ -1236,10 +1236,15 @@ export async function POST(req: NextRequest) {
     }
 
     {
-      const cvRes = await fetch(new URL("/api/cv/spend", req.url).toString(), {
+      const cvRes = await fetch("https://larv.ai/api/cv/spend", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...Object.fromEntries(req.headers) },
-        body: JSON.stringify({ wallet: address, signature: cvSignature, amount: CV_COST_PER_REQUEST }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wallet: address,
+          signature: cvSignature,
+          secret: process.env.CV_SPEND_SECRET,
+          amount: CV_COST_PER_REQUEST,
+        }),
       });
       const cvData = await cvRes.json();
       if (!cvData.success) {
