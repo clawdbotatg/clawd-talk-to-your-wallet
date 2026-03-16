@@ -132,7 +132,7 @@ const MAX_DISPLAY_ASSETS = 8;
 const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
   const { isAuthed, isSigning, authHeaders } = useDanaraiAuth();
-  const { cvSignature, hasCvSig } = useCvAuth();
+  const { cvSignature, hasCvSig, updateCvBalance } = useCvAuth();
   const { openModal } = useDetailModal();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -226,14 +226,17 @@ const Home: NextPage = () => {
     if (cvSignature && chargedSessionRef.current !== sessionKey) {
       chargedSessionRef.current = sessionKey;
       try {
-        await fetch("/api/cv/spend", {
+        const cvRes = await fetch("/api/cv/spend", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders },
           body: JSON.stringify({ wallet: address, signature: cvSignature, amount: CV_COST_PAGE_LOAD }),
         });
-        // We intentionally ignore the result here — don't block portfolio load if CV fails
+        const cvData = await cvRes.json();
+        if (cvData.success && typeof cvData.newBalance === "number") {
+          updateCvBalance(cvData.newBalance);
+        }
       } catch {
-        // ignore
+        // ignore — don't block portfolio load
       }
     }
 
