@@ -6,7 +6,7 @@ import { useAccount, useWalletClient } from "wagmi";
 // This is the exact message larv.ai verifies on-chain — must match CV_SPEND_MESSAGE in clawdviction
 export const CV_SPEND_MESSAGE = "larv.ai CV Spend";
 const STORAGE_KEY_PREFIX = "denarai_cv_sig_";
-const LARV_AI_BALANCE_URL = "https://larv.ai/api/cv/balance";
+const CV_BALANCE_URL = "/api/cv/balance"; // proxy — avoids CORS
 
 interface CvAuthState {
   signature: string | null;
@@ -28,7 +28,7 @@ export function useCvAuth() {
   // Fetch live CV balance from larv.ai
   const fetchCvBalance = useCallback(async (wallet: string) => {
     try {
-      const res = await fetch(`${LARV_AI_BALANCE_URL}?address=${wallet}`);
+      const res = await fetch(`${CV_BALANCE_URL}?address=${wallet}`);
       const data = await res.json();
       if (data.success && typeof data.balance === "number") {
         setState(prev => ({ ...prev, balance: data.balance }));
