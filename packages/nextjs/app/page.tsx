@@ -132,7 +132,7 @@ const MAX_DISPLAY_ASSETS = 8;
 const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
   const { isAuthed, isSigning, authHeaders } = useDanaraiAuth();
-  const { cvSignature, hasCvSig, updateCvBalance } = useCvAuth();
+  const { cvSignature, hasCvSig, updateCvBalance, fetchCvBalance } = useCvAuth();
   const { openModal } = useDetailModal();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -235,6 +235,8 @@ const Home: NextPage = () => {
         if (cvData.success && typeof cvData.newBalance === "number") {
           updateCvBalance(cvData.newBalance);
         }
+        // Always refresh live balance from larv.ai after spend attempt
+        fetchCvBalance(address);
       } catch {
         // ignore — don't block portfolio load
       }

@@ -6,7 +6,7 @@ import { useAccount, useWalletClient } from "wagmi";
 // This is the exact message larv.ai verifies on-chain — must match CV_SPEND_MESSAGE in clawdviction
 export const CV_SPEND_MESSAGE = "larv.ai CV Spend";
 const STORAGE_KEY_PREFIX = "denarai_cv_sig_";
-const BALANCE_KEY_PREFIX = "denarai_cv_balance_";
+const LARV_AI_BALANCE_URL = "https://larv.ai/api/cv/balance";
 
 interface CvAuthState {
   signature: string | null;
@@ -25,7 +25,20 @@ export function useCvAuth() {
     balance: null,
   });
 
-  // Load persisted signature for this wallet
+  // Fetch live CV balance from larv.ai
+  const fetchCvBalance = useCallback(async (wallet: string) => {
+    try {
+      const res = await fetch(`${LARV_AI_BALANCE_URL}?address=${wallet}`);
+      const data = await res.json();
+      if (data.success && typeof data.balance === "number") {
+        setState(prev => ({ ...prev, balance: data.balance }));
+      }
+    } catch {
+      // ignore — balance display is best-effort
+    }
+  }, []);
+
+  // Load persisted signature + fetch live balance on connect
   useEffect(() => {
     if (!address || !isConnected) {
       setState({ signature: null, isSigning: false, error: null, balance: null });
@@ -36,13 +49,8 @@ export function useCvAuth() {
       const key = STORAGE_KEY_PREFIX + address.toLowerCase();
       const stored = localStorage.getItem(key);
       if (stored) {
-        const balanceKey = BALANCE_KEY_PREFIX + address.toLowerCase();
-        const storedBalance = localStorage.getItem(balanceKey);
-        setState(prev => ({
-          ...prev,
-          signature: stored,
-          balance: storedBalance !== null ? parseFloat(storedBalance) : null,
-        }));
+        setState(prev => ({ ...prev, signature: stored }));
+        fetchCvBalance(address);
         return;
       }
     } catch {
@@ -50,7 +58,7 @@ export function useCvAuth() {
     }
 
     setState({ signature: null, isSigning: false, error: null, balance: null });
-  }, [address, isConnected]);
+  }, [address, isConnected, fetchCvBalance]);
 
   // Auto-prompt CV signing once wallet is connected and no sig stored
   useEffect(() => {
@@ -62,14 +70,15 @@ export function useCvAuth() {
         const signature = await walletClient.signMessage({ message: CV_SPEND_MESSAGE });
         const key = STORAGE_KEY_PREFIX + address.toLowerCase();
         localStorage.setItem(key, signature);
-        setState({ signature, isSigning: false, error: null, balance: null });
+        setState(prev => ({ ...prev, signature, isSigning: false, error: null }));
+        fetchCvBalance(address);
       } catch {
         setState(prev => ({ ...prev, isSigning: false, error: "CV signing rejected" }));
       }
     };
 
     doSign();
-  }, [isConnected, address, walletClient, state.signature, state.isSigning]);
+  }, [isConnected, address, walletClient, state.signature, state.isSigning, fetchCvBalance]);
 
   const resignCv = useCallback(async () => {
     if (!walletClient || !address) return;
@@ -79,21 +88,16 @@ export function useCvAuth() {
       const key = STORAGE_KEY_PREFIX + address.toLowerCase();
       localStorage.setItem(key, signature);
       setState(prev => ({ ...prev, signature, isSigning: false, error: null }));
+      fetchCvBalance(address);
     } catch {
       setState(prev => ({ ...prev, isSigning: false, error: "CV signing rejected" }));
     }
-  }, [walletClient, address]);
+  }, [walletClient, address, fetchCvBalance]);
 
-  // Call this after a successful spend to update displayed balance
-  const updateCvBalance = useCallback(
-    (newBalance: number) => {
-      if (!address) return;
-      const balanceKey = BALANCE_KEY_PREFIX + address.toLowerCase();
-      localStorage.setItem(balanceKey, String(newBalance));
-      setState(prev => ({ ...prev, balance: newBalance }));
-    },
-    [address],
-  );
+  // Call after a successful spend to reflect the new balance immediately
+  const updateCvBalance = useCallback((newBalance: number) => {
+    setState(prev => ({ ...prev, balance: newBalance }));
+  }, []);
 
   return {
     cvSignature: state.signature,
@@ -102,6 +106,7 @@ export function useCvAuth() {
     cvBalance: state.balance,
     resignCv,
     updateCvBalance,
+    fetchCvBalance,
     hasCvSig: !!state.signature,
   };
 }
