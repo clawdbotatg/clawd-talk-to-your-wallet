@@ -132,7 +132,7 @@ const MAX_DISPLAY_ASSETS = 8;
 const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
   const { isAuthed, isSigning, authHeaders } = useDanaraiAuth();
-  const { cvSignature, hasCvSig, updateCvBalance, fetchCvBalance } = useCvAuth();
+  const { cvSignature, hasCvSig, cvBalance, updateCvBalance, fetchCvBalance } = useCvAuth();
   const { openModal } = useDetailModal();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -215,16 +215,14 @@ const Home: NextPage = () => {
   }, [messages, isProcessing]);
 
   const CV_COST_PAGE_LOAD = 5_000;
-  const chargedSessionRef = useRef<string | null>(null);
+  const [cvCharged, setCvCharged] = useState(false);
+  const [cvChargeError, setCvChargeError] = useState<string | null>(null);
 
-  const fetchPortfolio = useCallback(async () => {
-    if (!address || !authHeaders) return;
-    setIsLoadingPortfolio(true);
+  // Charge 5k CV as soon as we have a CV signature — blocks portfolio load
+  useEffect(() => {
+    if (!address || !authHeaders || !cvSignature || cvCharged) return;
 
-    // Charge 5k CV on page load (once per wallet session)
-    const sessionKey = `${address.toLowerCase()}_${cvSignature?.slice(0, 10) ?? ""}`;
-    if (cvSignature && chargedSessionRef.current !== sessionKey) {
-      chargedSessionRef.current = sessionKey;
+    const charge = async () => {
       try {
         const cvRes = await fetch("/api/cv/spend", {
           method: "POST",
@@ -232,15 +230,32 @@ const Home: NextPage = () => {
           body: JSON.stringify({ wallet: address, signature: cvSignature, amount: CV_COST_PAGE_LOAD }),
         });
         const cvData = await cvRes.json();
-        if (cvData.success && typeof cvData.newBalance === "number") {
-          updateCvBalance(cvData.newBalance);
+        if (cvData.success) {
+          if (typeof cvData.newBalance === "number") updateCvBalance(cvData.newBalance);
+          fetchCvBalance(address);
+          setCvCharged(true);
+          setCvChargeError(null);
+        } else {
+          setCvChargeError(cvData.error || "CV charge failed");
+          fetchCvBalance(address);
         }
-        // Always refresh live balance from larv.ai after spend attempt
-        fetchCvBalance(address);
       } catch {
-        // ignore — don't block portfolio load
+        setCvChargeError("CV charge failed");
       }
-    }
+    };
+
+    charge();
+  }, [address, authHeaders, cvSignature, cvCharged, updateCvBalance, fetchCvBalance]);
+
+  // Reset charge state when wallet changes (new page load for new wallet)
+  useEffect(() => {
+    setCvCharged(false);
+    setCvChargeError(null);
+  }, [address]);
+
+  const fetchPortfolio = useCallback(async () => {
+    if (!address || !authHeaders || !cvCharged) return;
+    setIsLoadingPortfolio(true);
 
     try {
       const res = await fetch(`/api/portfolio?address=${address}`, {
@@ -262,7 +277,7 @@ const Home: NextPage = () => {
     } finally {
       setIsLoadingPortfolio(false);
     }
-  }, [address, authHeaders, cvSignature]);
+  }, [address, authHeaders, cvCharged]);
 
   const fetchActivity = useCallback(async () => {
     if (!address || !authHeaders) return;
@@ -442,6 +457,40 @@ const Home: NextPage = () => {
               </p>
               <div className="h-px w-48" style={{ backgroundColor: "rgba(201, 168, 76, 0.3)" }} />
               <RainbowKitCustomConnectButton />
+            </div>
+          </div>
+        ) : cvChargeError ? (
+          // CV charge failed — block the app
+          <div
+            className="fixed inset-0 flex flex-col items-center justify-center gap-6"
+            style={{ backgroundColor: "#0a0a0a" }}
+          >
+            <GoldParticles foreground={true} />
+            <div className="relative z-10 flex flex-col items-center gap-4 text-center px-6 max-w-sm">
+              <span style={{ fontSize: "3rem" }}>⚠️</span>
+              <h2
+                className="font-[family-name:var(--font-cinzel)] text-2xl font-bold tracking-[0.15em]"
+                style={{ color: "#C9A84C" }}
+              >
+                Insufficient CV
+              </h2>
+              <p className="text-sm" style={{ color: "#8A8578", lineHeight: "1.6" }}>
+                Denarai costs <strong style={{ color: "#E8E4DC" }}>5,000 CV</strong> per page load. Stake $CLAWD on{" "}
+                <a
+                  href="https://larv.ai/stake"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "#C9A84C", textDecoration: "underline" }}
+                >
+                  larv.ai
+                </a>{" "}
+                to earn more CV.
+              </p>
+              {cvBalance !== null && (
+                <p className="text-xs" style={{ color: "#8A8578" }}>
+                  Your balance: <strong style={{ color: "#E8E4DC" }}>{cvBalance.toLocaleString()} CV</strong>
+                </p>
+              )}
             </div>
           </div>
         ) : (
