@@ -10,6 +10,7 @@ import GoldParticles from "~~/components/GoldParticles";
 import MultiStepTransactionCard from "~~/components/MultiStepTransactionCard";
 import TransactionCard from "~~/components/TransactionCard";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
+import { useCvAuth } from "~~/hooks/useCvAuth";
 import { useDanaraiAuth } from "~~/hooks/useDanaraiAuth";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -131,6 +132,7 @@ const MAX_DISPLAY_ASSETS = 8;
 const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
   const { isAuthed, isSigning, authHeaders } = useDanaraiAuth();
+  const { cvSignature, hasCvSig } = useCvAuth();
   const { openModal } = useDetailModal();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -212,9 +214,29 @@ const Home: NextPage = () => {
     }
   }, [messages, isProcessing]);
 
+  const CV_COST_PAGE_LOAD = 5_000;
+  const chargedSessionRef = useRef<string | null>(null);
+
   const fetchPortfolio = useCallback(async () => {
     if (!address || !authHeaders) return;
     setIsLoadingPortfolio(true);
+
+    // Charge 5k CV on page load (once per wallet session)
+    const sessionKey = `${address.toLowerCase()}_${cvSignature?.slice(0, 10) ?? ""}`;
+    if (cvSignature && chargedSessionRef.current !== sessionKey) {
+      chargedSessionRef.current = sessionKey;
+      try {
+        await fetch("/api/cv/spend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders },
+          body: JSON.stringify({ wallet: address, signature: cvSignature, amount: CV_COST_PAGE_LOAD }),
+        });
+        // We intentionally ignore the result here — don't block portfolio load if CV fails
+      } catch {
+        // ignore
+      }
+    }
+
     try {
       const res = await fetch(`/api/portfolio?address=${address}`, {
         headers: { ...authHeaders },
@@ -235,7 +257,7 @@ const Home: NextPage = () => {
     } finally {
       setIsLoadingPortfolio(false);
     }
-  }, [address, authHeaders]);
+  }, [address, authHeaders, cvSignature]);
 
   const fetchActivity = useCallback(async () => {
     if (!address || !authHeaders) return;
@@ -317,7 +339,7 @@ const Home: NextPage = () => {
   // ─── handleSubmit ────────────────────────────────────────────────────────
 
   const handleSubmit = async () => {
-    if (!message.trim() || !address || !isAuthed) return;
+    if (!message.trim() || !address || !isAuthed || !hasCvSig) return;
 
     const userMsg: ChatMessage = { role: "user", content: message, timestamp: Date.now() };
     setMessages(prev => [...prev, userMsg]);
@@ -333,6 +355,7 @@ const Home: NextPage = () => {
           address,
           portfolio,
           defiPositions,
+          cvSignature,
           recentMessages: messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
           recentActivity: activity.slice(0, 50),
         }),

@@ -1216,13 +1216,39 @@ export async function POST(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const { message, address, portfolio, defiPositions, chainId, recentMessages, recentActivity } = await req.json();
+    const { message, address, portfolio, defiPositions, chainId, recentMessages, recentActivity, cvSignature } =
+      await req.json();
 
     if (!process.env.VENICE_API_KEY) {
       return NextResponse.json(
         { type: "chat", message: "API key not configured. Please set VENICE_API_KEY." },
         { status: 500 },
       );
+    }
+
+    // ─── CV charge (25,000 CV per request) ───────────────────────────────────
+    const CV_COST_PER_REQUEST = 25_000;
+    if (!cvSignature) {
+      return NextResponse.json(
+        { type: "chat", message: "⚠️ CV signature required to use Denarai. Please reconnect your wallet." },
+        { status: 402 },
+      );
+    }
+
+    {
+      const cvRes = await fetch(new URL("/api/cv/spend", req.url).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...Object.fromEntries(req.headers) },
+        body: JSON.stringify({ wallet: address, signature: cvSignature, amount: CV_COST_PER_REQUEST }),
+      });
+      const cvData = await cvRes.json();
+      if (!cvData.success) {
+        const isInsufficient = cvRes.status === 402;
+        const msg = isInsufficient
+          ? `⚠️ Insufficient CV balance. Each request costs ${CV_COST_PER_REQUEST.toLocaleString()} CV. Stake CLAWD on [larv.ai](https://larv.ai) to earn more CV.`
+          : `⚠️ CV charge failed: ${cvData.error || "unknown error"}`;
+        return NextResponse.json({ type: "chat", message: msg }, { status: cvRes.status });
+      }
     }
 
     const userChainId = chainId ?? 1;
