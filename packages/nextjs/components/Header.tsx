@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import { useAccount } from "wagmi";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useCvAuth } from "~~/hooks/useCvAuth";
@@ -13,8 +13,17 @@ const formatCv = (balance: number): string => {
 };
 
 export const Header = () => {
-  const { isConnected } = useAccount();
-  const { cvBalance, hasCvSig } = useCvAuth();
+  const { address, isConnected } = useAccount();
+  const { cvBalance, hasCvSig, fetchCvBalance } = useCvAuth();
+
+  // Fetch live balance directly — don't depend on page.tsx's hook instance
+  useEffect(() => {
+    if (!address || !isConnected) return;
+    fetchCvBalance(address);
+    // Refresh every 30s
+    const interval = setInterval(() => fetchCvBalance(address), 30_000);
+    return () => clearInterval(interval);
+  }, [address, isConnected, fetchCvBalance]);
 
   return (
     <div
@@ -46,7 +55,7 @@ export const Header = () => {
         <div />
       )}
       <div className="flex items-center gap-3">
-        {isConnected && hasCvSig && (
+        {isConnected && (hasCvSig || cvBalance !== null) && (
           <div
             className="flex items-center gap-1.5 px-3 py-1 rounded-sm"
             style={{
