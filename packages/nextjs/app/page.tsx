@@ -332,6 +332,7 @@ const Home: NextPage = () => {
           message,
           address,
           portfolio,
+          defiPositions,
           recentMessages: messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
           recentActivity: activity.slice(0, 50),
         }),

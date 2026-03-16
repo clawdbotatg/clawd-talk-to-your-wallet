@@ -1057,11 +1057,13 @@ const SYSTEM_PROMPT = `You are a smart wallet assistant with full visibility int
 
 YOU ALWAYS HAVE:
 - The user's current portfolio (all tokens, all chains, USD values) — injected in context below
+- The user's DeFi positions (staked, deposited, LP, locked tokens with protocol names) — injected in context below
 - The user's recent 20 transactions — injected in context below
 - Tools to look up more detailed history, prices, and to build transactions
 
 WHEN ANSWERING QUESTIONS:
-- Injected portfolio = your starting point for overviews ("what do I have?", "show me my portfolio")
+- Injected portfolio + DeFi positions = your starting point for overviews ("what do I have?", "show me my portfolio")
+- DeFi positions include staked tokens, deposits, LP positions, etc. with their protocol names. When a user asks about a token by name (e.g. "Venice", "DIEM"), check BOTH the portfolio AND DeFi positions — the token name field often differs from the symbol (e.g. VVV symbol = "Venice" name, DIEM symbol might be staked via a protocol)
 - For ANY specific question about a token/balance on a specific chain → call getOnChainBalance to get the LIVE on-chain value. Don't trust the snapshot for specific queries.
 - For "how much X do I have on Y chain?" → ALWAYS call getOnChainBalance. The injected snapshot may be stale.
 - For ANY question about past transactions — "where did X come from?", "when did I buy X?", "what did I pay?", "show my trades", "what did I do on Base?" → call searchTransactions. It resolves token symbols server-side and searches the full history instantly. NEVER say you can't find something without calling this first.
@@ -1214,7 +1216,7 @@ export async function POST(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const { message, address, portfolio, chainId, recentMessages, recentActivity } = await req.json();
+    const { message, address, portfolio, defiPositions, chainId, recentMessages, recentActivity } = await req.json();
 
     if (!process.env.VENICE_API_KEY) {
       return NextResponse.json(
@@ -1241,6 +1243,29 @@ export async function POST(req: NextRequest) {
           .map(
             a =>
               `- ${parseFloat(a.balance).toFixed(4)} ${a.tokenSymbol} ($${parseFloat(a.balanceUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })}) on ${a.blockchain}`,
+          )
+          .join("\n")}`
+      : "";
+
+    // Build DeFi positions context (staked, deposited, LP, locked, etc.)
+    const defiItems =
+      (defiPositions as {
+        tokenName: string;
+        tokenSymbol: string;
+        positionType: string;
+        protocol: string | null;
+        balance: string;
+        balanceUsd: string;
+        blockchain: string;
+        contractAddress?: string;
+      }[]) || [];
+
+    const defiTotalUsd = defiItems.reduce((sum, a) => sum + (parseFloat(a.balanceUsd) || 0), 0);
+    const defiSummary = defiItems.length
+      ? `\n\nDeFi Positions (${defiItems.length} positions, total $${defiTotalUsd.toLocaleString("en-US", { maximumFractionDigits: 0 })}):\n${defiItems
+          .map(
+            a =>
+              `- ${parseFloat(a.balance).toFixed(4)} ${a.tokenSymbol} "${a.tokenName}" [${a.positionType}${a.protocol ? ` via ${a.protocol}` : ""}] ($${parseFloat(a.balanceUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })}) on ${a.blockchain}`,
           )
           .join("\n")}`
       : "";
@@ -1283,7 +1308,7 @@ export async function POST(req: NextRequest) {
           .join("\n")}`
       : "";
 
-    const userPrompt = `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${activitySummary}${recentContext}\n\nUser: ${message}`;
+    const userPrompt = `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${defiSummary}${activitySummary}${recentContext}\n\nUser: ${message}`;
 
     const client = new OpenAI({
       apiKey: process.env.VENICE_API_KEY,
