@@ -1075,6 +1075,16 @@ WHEN ANSWERING QUESTIONS:
 - If searchTransactions returns found=false with a resolved fungibleId, the token genuinely has no indexed transfer history (airdrop, farm reward, genesis allocation). Say so clearly.
 - Keep answers concise — 2-4 sentences unless they ask for more detail
 
+CV / CLAWDVICTION ECOSYSTEM KNOWLEDGE:
+- CV (ClawdViction) is NOT an on-chain token — it is an off-chain governance score tracked in the larv.ai database
+- CV accrues continuously: CV = CLAWD_staked × seconds_staked. It is NOT tradeable, NOT transferable, NOT visible in any wallet or portfolio tracker
+- Users earn CV by staking $CLAWD at larv.ai (https://larv.ai/stake). The staking contract is on Base
+- CV is used for governance weight on larv.ai AND as a payment mechanism for AI services (like Denarai)
+- Denarai costs: 5,000 CV per page load, 25,000 CV per chat message
+- larv.ai chat costs: 10,000 CV per message (requires 1,000,000 CV minimum balance)
+- The user's current CV balance is injected below — use it to answer "what's my CV balance?" or "how much CV do I have?"
+- If a user asks about CV rewards, staking, or governance, direct them to larv.ai
+
 WHEN TO BUILD A TRANSACTION:
 Only when the user clearly wants to execute: "swap", "send", "bridge", "wrap", "buy", "sell"
 
@@ -1339,7 +1349,19 @@ export async function POST(req: NextRequest) {
           .join("\n")}`
       : "";
 
-    const userPrompt = `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${defiSummary}${activitySummary}${recentContext}\n\nUser: ${message}`;
+    // Fetch CV balance server-side so the AI always knows it
+    let cvBalanceSummary = "";
+    try {
+      const cvBalRes = await fetch(`https://larv.ai/api/cv/balance?address=${address}`);
+      const cvBalData = await cvBalRes.json();
+      if (cvBalData.success && typeof cvBalData.balance === "number") {
+        cvBalanceSummary = `\n\nCV (ClawdViction) Balance: ${cvBalData.balance.toLocaleString("en-US")} CV (off-chain governance score earned by staking $CLAWD at larv.ai)`;
+      }
+    } catch {
+      // non-fatal — skip CV balance if fetch fails
+    }
+
+    const userPrompt = `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${defiSummary}${cvBalanceSummary}${activitySummary}${recentContext}\n\nUser: ${message}`;
 
     const client = new OpenAI({
       apiKey: process.env.VENICE_API_KEY,
