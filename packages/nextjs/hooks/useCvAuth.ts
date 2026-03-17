@@ -75,9 +75,10 @@ export function useCvAuth() {
     setState({ signature: null, cvWallet: null, isSigning: false, error: null, balance: null });
   }, [address, isConnected, fetchCvBalance]);
 
-  // Auto-prompt CV signing once wallet is connected and no sig stored
+  // Auto-prompt CV signing once wallet is connected and no sig stored.
+  // If the user already rejected (state.error is set), don't re-prompt — wait for explicit resignCv().
   useEffect(() => {
-    if (!isConnected || !address || !walletClient || state.signature || state.isSigning) return;
+    if (!isConnected || !address || !walletClient || state.signature || state.isSigning || state.error) return;
 
     const doSign = async () => {
       setState(prev => ({ ...prev, isSigning: true, error: null }));
@@ -96,11 +97,11 @@ export function useCvAuth() {
     };
 
     doSign();
-  }, [isConnected, address, walletClient, state.signature, state.isSigning, fetchCvBalance]);
+  }, [isConnected, address, walletClient, state.signature, state.isSigning, state.error, fetchCvBalance]);
 
   const resignCv = useCallback(async () => {
     if (!walletClient || !address) return;
-    setState(prev => ({ ...prev, isSigning: true, error: null }));
+    setState(prev => ({ ...prev, isSigning: true, error: null, signature: null }));
     try {
       const signature = await walletClient.signMessage({ message: CV_SPEND_MESSAGE });
       const cvWallet = address;
