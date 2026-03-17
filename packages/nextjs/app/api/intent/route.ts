@@ -1288,9 +1288,17 @@ export async function POST(req: NextRequest) {
       const cvData = await cvRes.json();
       if (!cvData.success) {
         const isInsufficient = cvRes.status === 402;
-        const msg = isInsufficient
-          ? `⚠️ Insufficient CV balance. Each request costs ${CV_COST_PER_REQUEST.toLocaleString()} CV. Stake CLAWD on [larv.ai](https://larv.ai) to earn more CV.`
-          : `⚠️ CV charge failed: ${cvData.error || "unknown error"}`;
+        const isBadSig =
+          cvRes.status === 400 || (cvData.error && String(cvData.error).toLowerCase().includes("signature"));
+        let msg: string;
+        if (isBadSig) {
+          msg = `⚠️ CV signature invalid or expired. Please disconnect and reconnect your wallet to re-sign, then try again.`;
+        } else if (isInsufficient) {
+          msg = `⚠️ Insufficient CV balance. Each request costs ${CV_COST_PER_REQUEST.toLocaleString()} CV. Your stored signature may be for a different wallet — try disconnecting and reconnecting. Otherwise, stake more CLAWD on [larv.ai](https://larv.ai) to earn more CV.`;
+        } else {
+          msg = `⚠️ CV charge failed: ${cvData.error || "unknown error"} (status ${cvRes.status})`;
+        }
+        console.error("[CV spend failed]", { status: cvRes.status, error: cvData.error, wallet: address });
         return NextResponse.json({ type: "chat", message: msg }, { status: cvRes.status });
       }
     }
