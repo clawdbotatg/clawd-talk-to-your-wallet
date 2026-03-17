@@ -222,10 +222,11 @@ const Home: NextPage = () => {
   }, [messages, isProcessing]);
 
   const CV_COST_PAGE_LOAD = 5_000;
+  // cvCharged persists across wallet switches — we charge once per session, not per wallet
   const [cvCharged, setCvCharged] = useState(false);
   const [cvChargeError, setCvChargeError] = useState<string | null>(null);
 
-  // Charge 5k CV as soon as we have a CV signature — blocks portfolio load
+  // Charge CV once per session as soon as we have a sig — does NOT block portfolio on failure
   useEffect(() => {
     if (!address || !authHeaders || !cvSignature || !cvWallet || cvCharged) return;
 
@@ -234,8 +235,6 @@ const Home: NextPage = () => {
         const cvRes = await fetch("/api/cv/spend", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders },
-          // Use cvWallet (the address that signed) — larv.ai recovers signer from signature
-          // cvWallet may differ from address (operating wallet) if user has a dedicated CV wallet
           body: JSON.stringify({ wallet: cvWallet, signature: cvSignature, amount: CV_COST_PAGE_LOAD }),
         });
         const cvData = await cvRes.json();
@@ -245,25 +244,28 @@ const Home: NextPage = () => {
           setCvCharged(true);
           setCvChargeError(null);
         } else {
-          setCvChargeError(cvData.error || "CV charge failed");
+          // Only hard-block if truly insufficient CV (402) — other errors let the app load
+          if (cvRes.status === 402) {
+            setCvChargeError(cvData.error || "Insufficient CV balance");
+          } else {
+            // Soft fail — let the app load, log the issue
+            console.error("[CV charge soft-fail]", cvData.error);
+            setCvCharged(true);
+          }
           fetchCvBalance(cvWallet);
         }
       } catch {
-        setCvChargeError("CV charge failed");
+        // Network error — let the app load rather than hard-block
+        console.error("[CV charge network error]");
+        setCvCharged(true);
       }
     };
 
     charge();
   }, [address, authHeaders, cvSignature, cvWallet, cvCharged, updateCvBalance, fetchCvBalance]);
 
-  // Reset charge state when wallet changes (new page load for new wallet)
-  useEffect(() => {
-    setCvCharged(false);
-    setCvChargeError(null);
-  }, [address]);
-
   const fetchPortfolio = useCallback(async () => {
-    if (!address || !authHeaders || !cvCharged) return;
+    if (!address || !authHeaders || (!cvCharged && !cvSignature)) return;
     setIsLoadingPortfolio(true);
 
     try {
@@ -286,7 +288,7 @@ const Home: NextPage = () => {
     } finally {
       setIsLoadingPortfolio(false);
     }
-  }, [address, authHeaders, cvCharged]);
+  }, [address, authHeaders, cvCharged, cvSignature]);
 
   const fetchActivity = useCallback(async () => {
     if (!address || !authHeaders) return;
