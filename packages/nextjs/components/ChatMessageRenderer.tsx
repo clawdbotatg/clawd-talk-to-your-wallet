@@ -61,12 +61,12 @@ const CHAIN_NORMALIZE: Record<string, string> = {
 
 const CHAIN_PAT = CHAIN_NAMES_LIST.join("|");
 
-const ASSET_CHAIN_RE = new RegExp(
-  `\\b(\\d+(?:[.,]\\d+)?(?:e-?\\d+)?)\\s+([A-Za-z]{2,10})\\s+on\\s+(${CHAIN_PAT})\\b`,
-  "gi",
-);
+// Matches numbers like 40,000,000 or 1.5 or 1,234.56 — handles multi-group comma separators
+const NUM_PAT = `\\d{1,3}(?:,\\d{3})*(?:\\.\\d+)?|\\.\\d+|\\d+(?:\\.\\d+)?`;
+
+const ASSET_CHAIN_RE = new RegExp(`\\b(${NUM_PAT})\\s+([A-Za-z]{2,10})\\s+on\\s+(${CHAIN_PAT})\\b`, "gi");
 const SYMBOL_CHAIN_RE = new RegExp(`\\b([A-Za-z]{2,10})\\s+on\\s+(${CHAIN_PAT})\\b`, "gi");
-const ASSET_AMOUNT_RE = /\b(\d+(?:[.,]\d+)?(?:e-?\d+)?)\s+([A-Za-z]{2,10})\b/g;
+const ASSET_AMOUNT_RE = new RegExp(`\\b(${NUM_PAT})\\s+([A-Za-z]{2,10})\\b`, "g");
 const ON_CHAIN_RE = new RegExp(`\\bon\\s+(${CHAIN_PAT})\\b`, "gi");
 const BARE_CHAIN_RE = new RegExp(`\\b(${CHAIN_PAT})\\s+(?:chain|network|mainnet)\\b`, "gi");
 
