@@ -2,6 +2,8 @@
 
 A conversational AI wallet interface. Connect your wallet, talk to your coins.
 
+![Denarai Dashboard](packages/nextjs/public/screenshot.jpg)
+
 ## What it does
 
 Type anything — "how is ETH doing?", "swap 100 USDC to ETH", "show my recent trades" — and Denarai handles it through natural language.
