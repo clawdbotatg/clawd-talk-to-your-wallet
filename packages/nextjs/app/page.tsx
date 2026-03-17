@@ -11,7 +11,6 @@ import MultiStepTransactionCard from "~~/components/MultiStepTransactionCard";
 import TransactionCard from "~~/components/TransactionCard";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useCvAuth } from "~~/hooks/useCvAuth";
-import { useDanaraiAuth } from "~~/hooks/useDanaraiAuth";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -131,9 +130,19 @@ const MAX_DISPLAY_ASSETS = 8;
 
 const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
-  const { isAuthed, isSigning, authHeaders } = useDanaraiAuth();
   const { cvSignature, cvWallet, hasCvSig, isCvSigning, cvBalance, updateCvBalance, fetchCvBalance, signCv } =
     useCvAuth();
+
+  // Auth is now just the CV sig — no separate signing step
+  const isAuthed = hasCvSig && !!cvSignature;
+  const authHeaders =
+    isAuthed && cvWallet && cvSignature
+      ? {
+          "x-denarai-cv-wallet": cvWallet,
+          "x-denarai-cv-sig": cvSignature,
+          "x-denarai-address": address || cvWallet,
+        }
+      : null;
   const { openModal } = useDetailModal();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -944,10 +953,10 @@ const Home: NextPage = () => {
                     <input
                       type="text"
                       placeholder={
-                        mounted && isSigning
+                        mounted && isCvSigning
                           ? "Please sign the message in your wallet..."
                           : mounted && !isAuthed
-                            ? "Sign in with your wallet to continue"
+                            ? "Connect your wallet to continue"
                             : "Your wealth awaits instruction. What is your will, ser?"
                       }
                       className="flex-1 text-base px-4 py-2"

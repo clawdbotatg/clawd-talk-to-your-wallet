@@ -3,42 +3,34 @@ import { verifyMessage } from "viem";
 
 const CLAWD_ASSET_ID = "b07ec41c-2b1c-4ad9-8cfb-a71896b180e2";
 const CLAWD_MIN_USD = 1000;
+const CV_SPEND_MESSAGE = "larv.ai CV Spend";
 
 export async function requireAuth(request: NextRequest): Promise<{ address: string } | NextResponse> {
-  const address = request.headers.get("x-denarai-address");
-  const signature = request.headers.get("x-denarai-sig");
-  const message = request.headers.get("x-denarai-msg");
+  // New auth: CV wallet + CV sig — one signature covers everything
+  const cvWallet = request.headers.get("x-denarai-cv-wallet");
+  const cvSig = request.headers.get("x-denarai-cv-sig");
+  // Operating wallet (may differ from cv wallet)
+  const address = request.headers.get("x-denarai-address") || cvWallet;
 
-  if (!address || !signature || !message) {
+  if (!cvWallet || !cvSig) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Verify signature
+  // Verify CV signature — proves ownership of cvWallet
   try {
     const valid = await verifyMessage({
-      address: address as `0x${string}`,
-      message,
-      signature: signature as `0x${string}`,
+      address: cvWallet as `0x${string}`,
+      message: CV_SPEND_MESSAGE,
+      signature: cvSig as `0x${string}`,
     });
     if (!valid) {
-      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+      return NextResponse.json({ error: "Invalid CV signature" }, { status: 401 });
     }
   } catch {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    return NextResponse.json({ error: "Invalid CV signature" }, { status: 401 });
   }
 
-  // Parse expiry from message
-  const expiryMatch = message.match(/expires:\s*(.+)$/);
-  if (!expiryMatch) {
-    return NextResponse.json({ error: "Invalid message format" }, { status: 401 });
-  }
-
-  const expiry = new Date(expiryMatch[1].trim()).getTime();
-  if (isNaN(expiry) || expiry < Date.now()) {
-    return NextResponse.json({ error: "Session expired" }, { status: 401 });
-  }
-
-  // Check CLAWD balance via Zerion
+  // Check CLAWD balance on the CV wallet via Zerion
   const ZERION_KEY = process.env.ZERION_API_KEY;
   if (!ZERION_KEY) {
     return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
@@ -47,7 +39,7 @@ export async function requireAuth(request: NextRequest): Promise<{ address: stri
   try {
     const auth = Buffer.from(`${ZERION_KEY}:`).toString("base64");
     const res = await fetch(
-      `https://api.zerion.io/v1/wallets/${address}/positions/?filter[positions]=only_simple&filter[asset_ids]=${CLAWD_ASSET_ID}&currency=usd`,
+      `https://api.zerion.io/v1/wallets/${cvWallet}/positions/?filter[positions]=only_simple&filter[asset_ids]=${CLAWD_ASSET_ID}&currency=usd`,
       {
         headers: {
           Authorization: `Basic ${auth}`,
@@ -71,9 +63,7 @@ export async function requireAuth(request: NextRequest): Promise<{ address: stri
 
     if (totalValue < CLAWD_MIN_USD) {
       return NextResponse.json(
-        {
-          error: "Insufficient CLAWD balance. Must hold at least $1000 worth of CLAWD.",
-        },
+        { error: "Insufficient CLAWD balance. Must hold at least $1000 worth of CLAWD." },
         { status: 403 },
       );
     }
@@ -82,5 +72,5 @@ export async function requireAuth(request: NextRequest): Promise<{ address: stri
     return NextResponse.json({ error: "Failed to verify CLAWD balance" }, { status: 502 });
   }
 
-  return { address };
+  return { address: address as string };
 }
