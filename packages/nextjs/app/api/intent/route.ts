@@ -1255,8 +1255,21 @@ export async function POST(req: NextRequest) {
   if (auth instanceof NextResponse) return auth;
 
   try {
-    const { message, address, portfolio, defiPositions, chainId, recentMessages, recentActivity, cvSignature } =
-      await req.json();
+    const {
+      message,
+      address,
+      portfolio,
+      defiPositions,
+      chainId,
+      recentMessages,
+      recentActivity,
+      cvSignature,
+      cvWallet,
+    } = await req.json();
+
+    // cvWallet is the address that signed the CV message (may differ from operating wallet `address`)
+    // larv.ai recovers the signer from the signature — we must use cvWallet for spend calls
+    const cvSpendWallet: string = cvWallet || address;
 
     if (!process.env.VENICE_API_KEY) {
       return NextResponse.json(
@@ -1279,7 +1292,7 @@ export async function POST(req: NextRequest) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          wallet: address,
+          wallet: cvSpendWallet,
           signature: cvSignature,
           secret: process.env.CV_SPEND_SECRET,
           amount: CV_COST_PER_REQUEST,
@@ -1298,7 +1311,12 @@ export async function POST(req: NextRequest) {
         } else {
           msg = `⚠️ CV charge failed: ${cvData.error || "unknown error"} (status ${cvRes.status})`;
         }
-        console.error("[CV spend failed]", { status: cvRes.status, error: cvData.error, wallet: address });
+        console.error("[CV spend failed]", {
+          status: cvRes.status,
+          error: cvData.error,
+          cvSpendWallet,
+          operatingWallet: address,
+        });
         return NextResponse.json({ type: "chat", message: msg }, { status: cvRes.status });
       }
     }

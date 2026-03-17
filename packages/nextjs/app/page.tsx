@@ -132,7 +132,7 @@ const MAX_DISPLAY_ASSETS = 8;
 const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
   const { isAuthed, isSigning, authHeaders } = useDanaraiAuth();
-  const { cvSignature, hasCvSig, cvBalance, updateCvBalance, fetchCvBalance } = useCvAuth();
+  const { cvSignature, cvWallet, hasCvSig, cvBalance, updateCvBalance, fetchCvBalance } = useCvAuth();
   const { openModal } = useDetailModal();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -220,24 +220,26 @@ const Home: NextPage = () => {
 
   // Charge 5k CV as soon as we have a CV signature — blocks portfolio load
   useEffect(() => {
-    if (!address || !authHeaders || !cvSignature || cvCharged) return;
+    if (!address || !authHeaders || !cvSignature || !cvWallet || cvCharged) return;
 
     const charge = async () => {
       try {
         const cvRes = await fetch("/api/cv/spend", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders },
-          body: JSON.stringify({ wallet: address, signature: cvSignature, amount: CV_COST_PAGE_LOAD }),
+          // Use cvWallet (the address that signed) — larv.ai recovers signer from signature
+          // cvWallet may differ from address (operating wallet) if user has a dedicated CV wallet
+          body: JSON.stringify({ wallet: cvWallet, signature: cvSignature, amount: CV_COST_PAGE_LOAD }),
         });
         const cvData = await cvRes.json();
         if (cvData.success) {
           if (typeof cvData.newBalance === "number") updateCvBalance(cvData.newBalance);
-          fetchCvBalance(address);
+          fetchCvBalance(cvWallet);
           setCvCharged(true);
           setCvChargeError(null);
         } else {
           setCvChargeError(cvData.error || "CV charge failed");
-          fetchCvBalance(address);
+          fetchCvBalance(cvWallet);
         }
       } catch {
         setCvChargeError("CV charge failed");
@@ -245,7 +247,7 @@ const Home: NextPage = () => {
     };
 
     charge();
-  }, [address, authHeaders, cvSignature, cvCharged, updateCvBalance, fetchCvBalance]);
+  }, [address, authHeaders, cvSignature, cvWallet, cvCharged, updateCvBalance, fetchCvBalance]);
 
   // Reset charge state when wallet changes (new page load for new wallet)
   useEffect(() => {
@@ -376,6 +378,7 @@ const Home: NextPage = () => {
           portfolio,
           defiPositions,
           cvSignature,
+          cvWallet, // the address larv.ai should charge (may differ from operating wallet)
           recentMessages: messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
           recentActivity: activity.slice(0, 50),
         }),

@@ -8,8 +8,14 @@ export const CV_SPEND_MESSAGE = "larv.ai CV Spend";
 const STORAGE_KEY_PREFIX = "denarai_cv_sig_";
 const CV_BALANCE_URL = "/api/cv/balance"; // proxy — avoids CORS
 
+interface StoredCvAuth {
+  signature: string;
+  cvWallet: string; // the address that actually signed — may differ from operating wallet
+}
+
 interface CvAuthState {
   signature: string | null;
+  cvWallet: string | null; // address that signed — this is what larv.ai charges
   isSigning: boolean;
   error: string | null;
   balance: number | null;
@@ -20,12 +26,13 @@ export function useCvAuth() {
   const { data: walletClient } = useWalletClient();
   const [state, setState] = useState<CvAuthState>({
     signature: null,
+    cvWallet: null,
     isSigning: false,
     error: null,
     balance: null,
   });
 
-  // Fetch live CV balance from larv.ai
+  // Fetch live CV balance from larv.ai (always fetch for the CV wallet, not operating wallet)
   const fetchCvBalance = useCallback(async (wallet: string) => {
     try {
       const res = await fetch(`${CV_BALANCE_URL}?address=${wallet}`);
@@ -41,7 +48,7 @@ export function useCvAuth() {
   // Load persisted signature + fetch live balance on connect
   useEffect(() => {
     if (!address || !isConnected) {
-      setState({ signature: null, isSigning: false, error: null, balance: null });
+      setState({ signature: null, cvWallet: null, isSigning: false, error: null, balance: null });
       return;
     }
 
@@ -49,15 +56,23 @@ export function useCvAuth() {
       const key = STORAGE_KEY_PREFIX + address.toLowerCase();
       const stored = localStorage.getItem(key);
       if (stored) {
-        setState(prev => ({ ...prev, signature: stored }));
-        fetchCvBalance(address);
+        // Try new format first (JSON with cvWallet), fall back to bare signature string
+        let parsed: StoredCvAuth | null = null;
+        try {
+          parsed = JSON.parse(stored) as StoredCvAuth;
+        } catch {
+          // Legacy: bare signature — cvWallet was the same as address
+          parsed = { signature: stored, cvWallet: address };
+        }
+        setState(prev => ({ ...prev, signature: parsed!.signature, cvWallet: parsed!.cvWallet }));
+        fetchCvBalance(parsed!.cvWallet);
         return;
       }
     } catch {
       // ignore
     }
 
-    setState({ signature: null, isSigning: false, error: null, balance: null });
+    setState({ signature: null, cvWallet: null, isSigning: false, error: null, balance: null });
   }, [address, isConnected, fetchCvBalance]);
 
   // Auto-prompt CV signing once wallet is connected and no sig stored
@@ -68,10 +83,13 @@ export function useCvAuth() {
       setState(prev => ({ ...prev, isSigning: true, error: null }));
       try {
         const signature = await walletClient.signMessage({ message: CV_SPEND_MESSAGE });
+        // The currently connected wallet IS the CV wallet
+        const cvWallet = address;
+        const stored: StoredCvAuth = { signature, cvWallet };
         const key = STORAGE_KEY_PREFIX + address.toLowerCase();
-        localStorage.setItem(key, signature);
-        setState(prev => ({ ...prev, signature, isSigning: false, error: null }));
-        fetchCvBalance(address);
+        localStorage.setItem(key, JSON.stringify(stored));
+        setState(prev => ({ ...prev, signature, cvWallet, isSigning: false, error: null }));
+        fetchCvBalance(cvWallet);
       } catch {
         setState(prev => ({ ...prev, isSigning: false, error: "CV signing rejected" }));
       }
@@ -85,10 +103,12 @@ export function useCvAuth() {
     setState(prev => ({ ...prev, isSigning: true, error: null }));
     try {
       const signature = await walletClient.signMessage({ message: CV_SPEND_MESSAGE });
+      const cvWallet = address;
+      const stored: StoredCvAuth = { signature, cvWallet };
       const key = STORAGE_KEY_PREFIX + address.toLowerCase();
-      localStorage.setItem(key, signature);
-      setState(prev => ({ ...prev, signature, isSigning: false, error: null }));
-      fetchCvBalance(address);
+      localStorage.setItem(key, JSON.stringify(stored));
+      setState(prev => ({ ...prev, signature, cvWallet, isSigning: false, error: null }));
+      fetchCvBalance(cvWallet);
     } catch {
       setState(prev => ({ ...prev, isSigning: false, error: "CV signing rejected" }));
     }
@@ -101,6 +121,7 @@ export function useCvAuth() {
 
   return {
     cvSignature: state.signature,
+    cvWallet: state.cvWallet, // the address larv.ai should charge — send this to the API
     isCvSigning: state.isSigning,
     cvSignError: state.error,
     cvBalance: state.balance,
