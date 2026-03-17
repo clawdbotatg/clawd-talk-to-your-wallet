@@ -1371,12 +1371,7 @@ export async function POST(req: NextRequest) {
           .join("\n")}`
       : "";
 
-    // Build conversation context from recent messages
-    const recentContext = recentMessages?.length
-      ? `\n\nRecent conversation:\n${(recentMessages as { role: string; content: string }[])
-          .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-          .join("\n")}`
-      : "";
+    // recentMessages is passed as proper OpenAI message objects below — not embedded in the prompt
 
     // Fetch CV balance server-side so the AI always knows it
     let cvBalanceSummary = "";
@@ -1390,7 +1385,7 @@ export async function POST(req: NextRequest) {
       // non-fatal — skip CV balance if fetch fails
     }
 
-    const userPrompt = `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${defiSummary}${cvBalanceSummary}${activitySummary}${recentContext}\n\nUser: ${message}`;
+    // userPrompt is no longer used — wallet context is injected as a priming message pair in loopMessages below
 
     const client = new OpenAI({
       apiKey: process.env.VENICE_API_KEY,
@@ -1661,10 +1656,30 @@ export async function POST(req: NextRequest) {
       return t.execute(args as never);
     }
 
-    // Agentic loop
+    // Build prior conversation turns as proper OpenAI message objects
+    const historyMessages: OpenAI.Chat.ChatCompletionMessageParam[] = (
+      (recentMessages as { role: string; content: string }[]) ?? []
+    ).map(m => ({
+      role: m.role === "user" ? "user" : "assistant",
+      content: m.content,
+    }));
+
+    // Agentic loop — system prompt + wallet context (first user msg) + conversation history + current message
     const loopMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
+      // Inject wallet context as a system-style user turn so it doesn't pollute history
+      {
+        role: "user",
+        content: `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${defiSummary}${cvBalanceSummary}${activitySummary}\n\n[Context injected — ready for conversation]`,
+      },
+      {
+        role: "assistant",
+        content: "Got it. I have your portfolio, DeFi positions, and activity loaded. What would you like to do?",
+      },
+      // Previous turns from the frontend
+      ...historyMessages,
+      // Current message
+      { role: "user", content: message },
     ];
 
     let finalText = "";
