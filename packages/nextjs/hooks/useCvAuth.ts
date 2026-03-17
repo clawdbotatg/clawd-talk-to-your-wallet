@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 
 // This is the exact message larv.ai verifies on-chain — must match CV_SPEND_MESSAGE in clawdviction
@@ -16,7 +16,7 @@ interface StoredCvAuth {
 
 interface CvAuthState {
   signature: string | null;
-  cvWallet: string | null; // address that signed — this is what larv.ai charges
+  cvWallet: string | null;
   isSigning: boolean;
   error: string | null;
   balance: number | null;
@@ -33,7 +33,9 @@ export function useCvAuth() {
     balance: null,
   });
 
-  // Fetch live CV balance from larv.ai (always fetch for the CV wallet, not operating wallet)
+  // True once the load effect has checked localStorage — auto-sign must wait for this
+  const loadedRef = useRef(false);
+
   const fetchCvBalance = useCallback(async (wallet: string) => {
     try {
       const res = await fetch(`${CV_BALANCE_URL}?address=${wallet}`);
@@ -46,9 +48,11 @@ export function useCvAuth() {
     }
   }, []);
 
-  // Load persisted global CV sig on connect (one sig covers all wallets)
+  // Load persisted global CV sig on connect (one sig covers all wallets).
+  // Sets loadedRef AFTER setState so auto-sign effect can't race ahead of it.
   useEffect(() => {
     if (!isConnected) {
+      loadedRef.current = false;
       setState({ signature: null, cvWallet: null, isSigning: false, error: null, balance: null });
       return;
     }
@@ -60,30 +64,37 @@ export function useCvAuth() {
         try {
           parsed = JSON.parse(stored) as StoredCvAuth;
         } catch {
-          // Legacy per-address bare string — treat cvWallet as current address
+          // Legacy bare string — treat cvWallet as current address
           parsed = { signature: stored, cvWallet: address ?? "" };
         }
         setState(prev => ({ ...prev, signature: parsed!.signature, cvWallet: parsed!.cvWallet }));
         fetchCvBalance(parsed!.cvWallet);
+        loadedRef.current = true;
         return;
       }
     } catch {
       // ignore
     }
 
-    setState({ signature: null, cvWallet: null, isSigning: false, error: null, balance: null });
+    // No stored sig found
+    setState(prev => ({ ...prev, signature: null, cvWallet: null }));
+    loadedRef.current = true;
   }, [isConnected, address, fetchCvBalance]);
 
-  // Auto-prompt CV signing once wallet is connected and no sig stored.
-  // If the user already rejected (state.error is set), don't re-prompt — wait for explicit resignCv().
+  // Auto-prompt — only fires if:
+  // 1. loadedRef is true (load effect already checked localStorage)
+  // 2. no sig in state (localStorage was empty)
+  // 3. not already signing
+  // 4. no prior rejection error
   useEffect(() => {
-    if (!isConnected || !address || !walletClient || state.signature || state.isSigning || state.error) return;
+    if (!isConnected || !address || !walletClient) return;
+    if (!loadedRef.current) return;
+    if (state.signature || state.isSigning || state.error) return;
 
     const doSign = async () => {
       setState(prev => ({ ...prev, isSigning: true, error: null }));
       try {
         const signature = await walletClient.signMessage({ message: CV_SPEND_MESSAGE });
-        // The currently connected wallet IS the CV wallet
         const cvWallet = address;
         const stored: StoredCvAuth = { signature, cvWallet };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
@@ -112,14 +123,13 @@ export function useCvAuth() {
     }
   }, [walletClient, address, fetchCvBalance]);
 
-  // Call after a successful spend to reflect the new balance immediately
   const updateCvBalance = useCallback((newBalance: number) => {
     setState(prev => ({ ...prev, balance: newBalance }));
   }, []);
 
   return {
     cvSignature: state.signature,
-    cvWallet: state.cvWallet, // the address larv.ai should charge — send this to the API
+    cvWallet: state.cvWallet,
     isCvSigning: state.isSigning,
     cvSignError: state.error,
     cvBalance: state.balance,
