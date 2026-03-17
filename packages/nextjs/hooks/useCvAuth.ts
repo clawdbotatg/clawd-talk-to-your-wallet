@@ -28,7 +28,6 @@ function readStoredAuth(): StoredCvAuth | null {
     try {
       return JSON.parse(raw) as StoredCvAuth;
     } catch {
-      // legacy bare string — cvWallet unknown at this point, will be patched on connect
       return { signature: raw, cvWallet: "" };
     }
   } catch {
@@ -48,8 +47,7 @@ export function useCvAuth() {
   const { address, isConnected } = useAccount();
   const { data: walletClient } = useWalletClient();
 
-  // Read localStorage synchronously so state.signature is populated on the FIRST render.
-  // This means the auto-sign effect sees state.signature immediately and never races.
+  // Synchronous localStorage read — state.signature is set on first render, no race possible
   const [state, setState] = useState<CvAuthState>(() => {
     const stored = readStoredAuth();
     return {
@@ -74,7 +72,7 @@ export function useCvAuth() {
     }
   }, []);
 
-  // Fetch balance whenever we have a cvWallet
+  // Fetch balance on connect
   useEffect(() => {
     if (!isConnected || !state.cvWallet) return;
     fetchCvBalance(state.cvWallet);
@@ -82,50 +80,23 @@ export function useCvAuth() {
     return () => clearInterval(interval);
   }, [isConnected, state.cvWallet, fetchCvBalance]);
 
-  // Reset on disconnect
+  // Clear balance on disconnect (keep sig — it's global and reusable)
   useEffect(() => {
     if (!isConnected) {
       setState(prev => ({ ...prev, balance: null }));
     }
   }, [isConnected]);
 
-  // Auto-prompt ONLY if: connected, no sig anywhere (state OR localStorage), not already signing, no prior rejection
-  useEffect(() => {
-    if (!isConnected || !address || !walletClient) return;
-    if (state.isSigning || state.error) return;
-
-    // Always re-check localStorage directly — never trust stale state alone
-    const stored = readStoredAuth();
-    if (stored?.signature) {
-      // Found one in storage but not in state (e.g. written by another tab) — sync it
-      if (!state.signature) {
-        setState(prev => ({ ...prev, signature: stored.signature, cvWallet: stored.cvWallet || address }));
-      }
+  // signCv: called explicitly by one component only (page.tsx) — NOT auto-called by the hook
+  const signCv = useCallback(async () => {
+    if (!walletClient || !address || state.isSigning) return;
+    // Check storage one more time before prompting
+    const existing = readStoredAuth();
+    if (existing?.signature) {
+      setState(prev => ({ ...prev, signature: existing.signature, cvWallet: existing.cvWallet || address }));
       return;
     }
-
-    if (state.signature) return;
-
-    // Truly no sig anywhere — prompt once
-    const doSign = async () => {
-      setState(prev => ({ ...prev, isSigning: true, error: null }));
-      try {
-        const signature = await walletClient.signMessage({ message: CV_SPEND_MESSAGE });
-        const auth: StoredCvAuth = { signature, cvWallet: address };
-        writeStoredAuth(auth);
-        setState(prev => ({ ...prev, signature, cvWallet: address, isSigning: false, error: null }));
-        fetchCvBalance(address);
-      } catch {
-        setState(prev => ({ ...prev, isSigning: false, error: "CV signing rejected" }));
-      }
-    };
-
-    doSign();
-  }, [isConnected, address, walletClient, state.signature, state.isSigning, state.error, fetchCvBalance]);
-
-  const resignCv = useCallback(async () => {
-    if (!walletClient || !address) return;
-    setState(prev => ({ ...prev, isSigning: true, error: null, signature: null }));
+    setState(prev => ({ ...prev, isSigning: true, error: null }));
     try {
       const signature = await walletClient.signMessage({ message: CV_SPEND_MESSAGE });
       const auth: StoredCvAuth = { signature, cvWallet: address };
@@ -135,7 +106,7 @@ export function useCvAuth() {
     } catch {
       setState(prev => ({ ...prev, isSigning: false, error: "CV signing rejected" }));
     }
-  }, [walletClient, address, fetchCvBalance]);
+  }, [walletClient, address, state.isSigning, fetchCvBalance]);
 
   const updateCvBalance = useCallback((newBalance: number) => {
     setState(prev => ({ ...prev, balance: newBalance }));
@@ -147,7 +118,8 @@ export function useCvAuth() {
     isCvSigning: state.isSigning,
     cvSignError: state.error,
     cvBalance: state.balance,
-    resignCv,
+    signCv,
+    resignCv: signCv, // same thing — kept for any existing call sites
     updateCvBalance,
     fetchCvBalance,
     hasCvSig: !!state.signature,

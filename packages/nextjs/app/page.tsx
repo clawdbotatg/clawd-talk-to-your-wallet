@@ -132,12 +132,19 @@ const MAX_DISPLAY_ASSETS = 8;
 const Home: NextPage = () => {
   const { address, isConnected } = useAccount();
   const { isAuthed, isSigning, authHeaders } = useDanaraiAuth();
-  const { cvSignature, cvWallet, hasCvSig, cvBalance, updateCvBalance, fetchCvBalance } = useCvAuth();
+  const { cvSignature, cvWallet, hasCvSig, cvBalance, updateCvBalance, fetchCvBalance, signCv } = useCvAuth();
   const { openModal } = useDetailModal();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // Single auto-sign trigger — only here, not in the hook, so it fires exactly once ever
+  useEffect(() => {
+    if (isConnected && !cvSignature && !hasCvSig) {
+      signCv();
+    }
+  }, [isConnected, cvSignature, hasCvSig, signCv]);
 
   const STORAGE_KEY = address ? `clawd-chat-${address.toLowerCase()}` : null;
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
