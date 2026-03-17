@@ -13,7 +13,7 @@ Type anything — "how is ETH doing?", "swap 100 USDC to ETH", "show my recent t
 
 ## Access
 
-Denarai requires a CV (Clawdviction) balance on [larv.ai](https://larv.ai) and holding $1000+ worth of CLAWD. Sign once with your wallet — that's it.
+Denarai requires a CV (Clawdviction) balance on [larv.ai](https://larv.ai). Earn CV by staking $CLAWD. Sign once with your wallet — that's it. Each chat message costs 25,000 CV.
 
 ## Stack
 
