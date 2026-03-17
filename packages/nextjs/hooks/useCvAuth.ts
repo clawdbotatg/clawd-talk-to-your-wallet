@@ -5,7 +5,8 @@ import { useAccount, useWalletClient } from "wagmi";
 
 // This is the exact message larv.ai verifies on-chain — must match CV_SPEND_MESSAGE in clawdviction
 export const CV_SPEND_MESSAGE = "larv.ai CV Spend";
-const STORAGE_KEY_PREFIX = "denarai_cv_sig_";
+// Single global key — one CV sig covers all connected wallets
+const STORAGE_KEY = "denarai_cv_auth";
 const CV_BALANCE_URL = "/api/cv/balance"; // proxy — avoids CORS
 
 interface StoredCvAuth {
@@ -45,24 +46,22 @@ export function useCvAuth() {
     }
   }, []);
 
-  // Load persisted signature + fetch live balance on connect
+  // Load persisted global CV sig on connect (one sig covers all wallets)
   useEffect(() => {
-    if (!address || !isConnected) {
+    if (!isConnected) {
       setState({ signature: null, cvWallet: null, isSigning: false, error: null, balance: null });
       return;
     }
 
     try {
-      const key = STORAGE_KEY_PREFIX + address.toLowerCase();
-      const stored = localStorage.getItem(key);
+      const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        // Try new format first (JSON with cvWallet), fall back to bare signature string
         let parsed: StoredCvAuth | null = null;
         try {
           parsed = JSON.parse(stored) as StoredCvAuth;
         } catch {
-          // Legacy: bare signature — cvWallet was the same as address
-          parsed = { signature: stored, cvWallet: address };
+          // Legacy per-address bare string — treat cvWallet as current address
+          parsed = { signature: stored, cvWallet: address ?? "" };
         }
         setState(prev => ({ ...prev, signature: parsed!.signature, cvWallet: parsed!.cvWallet }));
         fetchCvBalance(parsed!.cvWallet);
@@ -73,7 +72,7 @@ export function useCvAuth() {
     }
 
     setState({ signature: null, cvWallet: null, isSigning: false, error: null, balance: null });
-  }, [address, isConnected, fetchCvBalance]);
+  }, [isConnected, address, fetchCvBalance]);
 
   // Auto-prompt CV signing once wallet is connected and no sig stored.
   // If the user already rejected (state.error is set), don't re-prompt — wait for explicit resignCv().
@@ -87,8 +86,7 @@ export function useCvAuth() {
         // The currently connected wallet IS the CV wallet
         const cvWallet = address;
         const stored: StoredCvAuth = { signature, cvWallet };
-        const key = STORAGE_KEY_PREFIX + address.toLowerCase();
-        localStorage.setItem(key, JSON.stringify(stored));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
         setState(prev => ({ ...prev, signature, cvWallet, isSigning: false, error: null }));
         fetchCvBalance(cvWallet);
       } catch {
@@ -106,8 +104,7 @@ export function useCvAuth() {
       const signature = await walletClient.signMessage({ message: CV_SPEND_MESSAGE });
       const cvWallet = address;
       const stored: StoredCvAuth = { signature, cvWallet };
-      const key = STORAGE_KEY_PREFIX + address.toLowerCase();
-      localStorage.setItem(key, JSON.stringify(stored));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
       setState(prev => ({ ...prev, signature, cvWallet, isSigning: false, error: null }));
       fetchCvBalance(cvWallet);
     } catch {
