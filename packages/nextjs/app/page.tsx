@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { NextPage } from "next";
 import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
@@ -135,14 +135,17 @@ const Home: NextPage = () => {
 
   // Auth is now just the CV sig — no separate signing step
   const isAuthed = hasCvSig && !!cvSignature;
-  const authHeaders =
-    isAuthed && cvWallet && cvSignature
-      ? {
-          "x-denarai-cv-wallet": cvWallet,
-          "x-denarai-cv-sig": cvSignature,
-          "x-denarai-address": address || cvWallet,
-        }
-      : null;
+  const authHeaders = useMemo(
+    () =>
+      isAuthed && cvWallet && cvSignature
+        ? {
+            "x-denarai-cv-wallet": cvWallet,
+            "x-denarai-cv-sig": cvSignature,
+            "x-denarai-address": address || cvWallet,
+          }
+        : null,
+    [isAuthed, cvWallet, cvSignature, address],
+  );
   const { openModal } = useDetailModal();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
