@@ -46,6 +46,25 @@ function padAddress(addr: string): string {
   return addr.toLowerCase().replace("0x", "").padStart(64, "0");
 }
 
+/**
+ * Safely convert an amount string to BigInt (wei).
+ * If the AI passes a decimal like "0.678" instead of wei, detect it and convert to wei.
+ * Handles: "0x1a2b", "1000000000000000000", "0.678", "1.5"
+ */
+function safeBigInt(amount: string | number, decimals = 18): bigint {
+  const s = String(amount);
+  // Already hex
+  if (s.startsWith("0x")) return BigInt(s);
+  // If it contains a decimal point, it's human-readable — convert to wei
+  if (s.includes(".")) {
+    const [whole, frac = ""] = s.split(".");
+    const paddedFrac = frac.padEnd(decimals, "0").slice(0, decimals);
+    return BigInt(whole + paddedFrac);
+  }
+  // Pure integer string — assume already wei
+  return BigInt(s);
+}
+
 // ─── ABI Encoding Helpers ────────────────────────────────────────────────────
 
 function encodeString(s: string): string {
@@ -714,18 +733,19 @@ Always call this before saying you can't find something. It uses server-side tok
 
   buildTransfer: {
     description:
-      "Build ETH or ERC-20 transfer calldata. For ETH: simple value transfer. For ERC-20: encodes transfer(address,uint256). Returns raw tx object.",
-    execute: async ({ to, amount, token, chainId }: any) => {
+      "Build ETH or ERC-20 transfer calldata. For ETH: simple value transfer. For ERC-20: encodes transfer(address,uint256). Returns raw tx object. Amount can be in wei or human-readable (e.g. '0.5' for 0.5 ETH).",
+    execute: async ({ to, amount, token, chainId, tokenDecimals }: any) => {
       const chain = chainId ?? 1;
+      const decimals = tokenDecimals ?? 18;
       if (token.toUpperCase() === "ETH") {
         return {
           to,
           data: "0x",
-          value: toHex(BigInt(amount)),
+          value: toHex(safeBigInt(amount, 18)),
           chainId: chain,
         };
       }
-      const data = "0xa9059cbb" + padAddress(to) + padUint256(BigInt(amount));
+      const data = "0xa9059cbb" + padAddress(to) + padUint256(safeBigInt(amount, decimals));
       return {
         to: token,
         data,
@@ -793,27 +813,29 @@ Always call this before saying you can't find something. It uses server-side tok
   },
 
   wrapEth: {
-    description: "Wrap ETH to WETH. Returns transaction calldata for WETH deposit().",
+    description:
+      "Wrap ETH to WETH. Returns transaction calldata for WETH deposit(). Amount can be in wei or human-readable (e.g. '0.5' for 0.5 ETH).",
     execute: async ({ amount, chainId }: any) => {
       const chain = chainId ?? 1;
       const wethAddr = chain === 8453 ? WETH_BASE : WETH_MAINNET;
       return {
         to: wethAddr,
         data: "0xd0e30db0",
-        value: toHex(BigInt(amount)),
+        value: toHex(safeBigInt(amount, 18)),
         chainId: chain,
       };
     },
   },
 
   unwrapWeth: {
-    description: "Unwrap WETH to ETH. Returns transaction calldata for WETH withdraw().",
+    description:
+      "Unwrap WETH to ETH. Returns transaction calldata for WETH withdraw(). Amount can be in wei or human-readable (e.g. '0.5' for 0.5 ETH).",
     execute: async ({ amount, chainId }: any) => {
       const chain = chainId ?? 1;
       const wethAddr = chain === 8453 ? WETH_BASE : WETH_MAINNET;
       return {
         to: wethAddr,
-        data: "0x2e1a7d4d" + padUint256(BigInt(amount)),
+        data: "0x2e1a7d4d" + padUint256(safeBigInt(amount, 18)),
         value: "0x0",
         chainId: chain,
       };
