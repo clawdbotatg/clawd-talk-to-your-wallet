@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { NextPage } from "next";
 import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
-import AddressChip from "~~/components/AddressChip";
 import ChatMessageRenderer from "~~/components/ChatMessageRenderer";
 import { useDetailModal } from "~~/components/DetailModal";
 import GoldParticles from "~~/components/GoldParticles";
@@ -500,47 +499,6 @@ const Home: NextPage = () => {
         ) : (
           <div className="mt-2">
             <GoldParticles foreground={false} />
-
-            {/* ── Top header bar ── */}
-            <div
-              className="flex items-center justify-between px-1 pb-3"
-              style={{ borderBottom: "1px solid rgba(201, 168, 76, 0.1)" }}
-            >
-              {/* Wordmark */}
-              <span
-                className="font-[family-name:var(--font-cinzel)] text-sm tracking-[0.3em] uppercase"
-                style={{ color: "#C9A84C" }}
-              >
-                DENARAI
-              </span>
-
-              {/* Right: CV balance + optional CV wallet chip + connect button */}
-              <div className="flex items-center gap-3">
-                {cvBalance !== null && (
-                  <div className="flex items-center gap-2">
-                    {/* If CV wallet differs from operating wallet, show which address the CV belongs to */}
-                    {cvWallet && address && cvWallet.toLowerCase() !== address.toLowerCase() && (
-                      <div className="flex items-center gap-1 text-xs" style={{ color: "#8A8578" }}>
-                        <span>CV:</span>
-                        <AddressChip address={cvWallet} />
-                      </div>
-                    )}
-                    <span
-                      className="font-[family-name:var(--font-jetbrains)] text-xs px-2 py-1 rounded"
-                      style={{
-                        color: "#C9A84C",
-                        backgroundColor: "rgba(201, 168, 76, 0.08)",
-                        border: "1px solid rgba(201, 168, 76, 0.2)",
-                      }}
-                    >
-                      {cvBalance.toLocaleString()} CV
-                    </span>
-                  </div>
-                )}
-                <RainbowKitCustomConnectButton />
-              </div>
-            </div>
-
             <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 80px)" }}>
               {/* LEFT SIDEBAR: Portfolio */}
               <div className="w-full lg:w-72 shrink-0 space-y-4 overflow-y-auto">
