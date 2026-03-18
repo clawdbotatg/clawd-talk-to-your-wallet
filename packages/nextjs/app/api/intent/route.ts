@@ -1071,6 +1071,78 @@ Always call this before saying you can't find something. It uses server-side tok
       }
     },
   },
+
+  getTokenLiquidity: {
+    description:
+      "Look up all DEX liquidity pools for a token by contract address on a given chain. Use this when buildRoute fails to find a route — call this to explain WHY (no liquidity, too thin, wrong chain) and show the user what pools exist and how much liquidity is available.",
+    execute: async ({ tokenAddress, chain }: any) => {
+      // Map chain name to GeckoTerminal network id
+      const chainMap: Record<string, string> = {
+        ethereum: "eth",
+        base: "base",
+        arbitrum: "arbitrum",
+        optimism: "optimism",
+        polygon: "polygon",
+        gnosis: "xdai",
+        xdai: "xdai",
+        "binance-smart-chain": "bsc",
+        avalanche: "avax",
+        zksync: "zksync",
+        scroll: "scroll",
+        linea: "linea",
+        mantle: "mantle",
+      };
+      const network = chainMap[chain] || chain;
+
+      try {
+        const res = await fetch(
+          `https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${tokenAddress}/pools?page=1`,
+          { headers: { accept: "application/json" } },
+        );
+        if (!res.ok) {
+          return { error: `GeckoTerminal API error: ${res.status}` };
+        }
+        const data = await res.json();
+        const pools = (data.data || []).map((p: any) => ({
+          dex: p.relationships?.dex?.data?.id,
+          poolAddress: p.attributes?.address,
+          name: p.attributes?.name,
+          liquidityUsd: parseFloat(p.attributes?.reserve_in_usd || "0"),
+          volume24hUsd: parseFloat(p.attributes?.volume_usd?.h24 || "0"),
+          priceUsd: p.attributes?.base_token_price_usd,
+        }));
+
+        if (pools.length === 0) {
+          return {
+            found: false,
+            tokenAddress,
+            chain,
+            message: `No liquidity pools found for ${tokenAddress} on ${chain}. The token may not be tradeable on any DEX.`,
+          };
+        }
+
+        const totalLiquidity = pools.reduce((sum: number, p: any) => sum + p.liquidityUsd, 0);
+        const bestPool = pools[0];
+
+        return {
+          found: true,
+          tokenAddress,
+          chain,
+          totalLiquidityUsd: totalLiquidity,
+          poolCount: pools.length,
+          bestPool,
+          pools: pools.slice(0, 5),
+          swappable: totalLiquidity > 10,
+          warning:
+            totalLiquidity < 100
+              ? `Very low liquidity ($${totalLiquidity.toFixed(2)}) — expect high slippage or swap failure`
+              : undefined,
+        };
+      } catch (e) {
+        return { error: `getTokenLiquidity failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  },
 };
 
 // ─── System Prompt ──────────────────────────────────────────────────────────
@@ -1157,6 +1229,7 @@ AVAILABLE TOOLS:
 - getENSRentPrice: Get the rent price for registering an ENS name.
 - buildENSRegistration: Build the 2-step ENS registration (commit + register). Returns a multistep_transaction.
 - logMiss: Call this BEFORE responding whenever your answer will NOT be calldata or a 100% confident, complete answer. This means: you're deflecting, out of scope, can't find the token/protocol, asking clarifying questions, or giving a partial/educational answer instead of acting. If you're unsure at all — log it first. No exceptions.
+- getTokenLiquidity: Call this when buildRoute fails to find a route for a token. It queries GeckoTerminal for all DEX pools and liquidity for that token on that chain. Use the result to tell the user exactly why the swap failed (no pools, $X liquidity too thin, high slippage risk) and which DEX has the best pool if any exists.
 
 DEFI ZAPS (Composer):
 When the user says "deposit into Morpho", "stake on Lido", "deposit into Aave", "get yield on USDC", "stake ETH", or similar:
@@ -1186,6 +1259,7 @@ MANDATORY WORKFLOW (for transactions only):
 9. If simulation shows unexpected results → call traceCall to diagnose
 10. Only return the transaction if simulation confirms the expected asset changes
 11. For cross-chain txs: after the user submits, use getRouteStatus to track delivery
+12. If buildRoute returns an error → ALWAYS call getTokenLiquidity(tokenAddress, chain) to diagnose why. The token address is in the portfolio context. Tell the user the liquidity situation clearly (e.g. "$0.95 in a single Uniswap V4 pool — not enough to swap")
 
 RESPONSE FORMAT:
 
@@ -1670,6 +1744,22 @@ export async function POST(req: NextRequest) {
             type: "object",
             properties: { userRequest: { type: "string" }, reason: { type: "string" }, category: { type: "string" } },
             required: ["userRequest", "reason", "category"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "getTokenLiquidity",
+          description:
+            "Look up all DEX liquidity pools for a token by contract address. Use when buildRoute fails to explain why and show what pools exist.",
+          parameters: {
+            type: "object",
+            properties: {
+              tokenAddress: { type: "string", description: "Token contract address" },
+              chain: { type: "string", description: "Chain name (e.g. base, ethereum, arbitrum)" },
+            },
+            required: ["tokenAddress", "chain"],
           },
         },
       },
