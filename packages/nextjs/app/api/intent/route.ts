@@ -1240,7 +1240,7 @@ DELAY RULES:
 - Everything else: delay: 0
 
 RULES:
-- NEVER type or recall a token contract address from your training memory. ALWAYS call getTokenAddress(symbol, chainId) — it checks a verified on-disk address registry first, then falls back to live lookup. Your training memory for addresses is wrong. The file is right.
+- Token contract addresses are injected directly in the portfolio context as [0x...] after each token. USE THESE FIRST before calling getTokenAddress. If the user says "swap FOMO to ETH" and FOMO shows [0xabc...] on base in their portfolio — use that address directly. Only call getTokenAddress if the token is NOT in their portfolio.
 - Never return a transaction that failed simulation
 - Amount conversions: always work in wei internally, display in human units
 - For ETH in LI.FI: use symbol "ETH" — LI.FI resolves it, no address needed
@@ -1338,7 +1338,7 @@ export async function POST(req: NextRequest) {
       ? `\n\nPortfolio (${portfolioAssets.length} assets, total $${totalUsd.toLocaleString("en-US", { maximumFractionDigits: 0 })}):\n${portfolioAssets
           .map(
             a =>
-              `- ${parseFloat(a.balance).toFixed(4)} ${a.tokenSymbol} ($${parseFloat(a.balanceUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })}) on ${a.blockchain}`,
+              `- ${parseFloat(a.balance).toFixed(4)} ${a.tokenSymbol} ($${parseFloat(a.balanceUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })}) on ${a.blockchain}${a.contractAddress ? ` [${a.contractAddress}]` : ""}`,
           )
           .join("\n")}`
       : "";
@@ -1361,7 +1361,7 @@ export async function POST(req: NextRequest) {
       ? `\n\nDeFi Positions (${defiItems.length} positions, total $${defiTotalUsd.toLocaleString("en-US", { maximumFractionDigits: 0 })}):\n${defiItems
           .map(
             a =>
-              `- ${parseFloat(a.balance).toFixed(4)} ${a.tokenSymbol} "${a.tokenName}" [${a.positionType}${a.protocol ? ` via ${a.protocol}` : ""}] ($${parseFloat(a.balanceUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })}) on ${a.blockchain}`,
+              `- ${parseFloat(a.balance).toFixed(4)} ${a.tokenSymbol} "${a.tokenName}" [${a.positionType}${a.protocol ? ` via ${a.protocol}` : ""}] ($${parseFloat(a.balanceUsd).toLocaleString("en-US", { maximumFractionDigits: 0 })}) on ${a.blockchain}${a.contractAddress ? ` [${a.contractAddress}]` : ""}`,
           )
           .join("\n")}`
       : "";
