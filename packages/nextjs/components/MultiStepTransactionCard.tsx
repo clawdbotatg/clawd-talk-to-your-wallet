@@ -147,12 +147,9 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
   // Persist state whenever it changes
   useEffect(() => {
     if (state === "idle") return;
-    if (state === "done") {
-      clearPersistedState(storageKey);
-      return;
-    }
     // Don't persist transient wallet-popup states — they can't be safely resumed
     if (state === "step1_confirming" || state === "step2_confirming") return;
+    // Persist "done" so re-renders don't reset the step counter to "Step 1 of 2"
     savePersistedState(storageKey, {
       state,
       step1Hash,

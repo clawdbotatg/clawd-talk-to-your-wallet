@@ -844,11 +844,87 @@ Always call this before saying you can't find something. It uses server-side tok
 
   // ─── ENS Registration Tools ─────────────────────────────────────────────
 
+  validateENSName: {
+    description:
+      "Validate an ENS name BEFORE checking availability or building transactions. Returns { valid, name } or { valid: false, error }. Call this first in any ENS registration workflow.",
+    execute: async ({ name }: any) => {
+      const label = name.replace(/\.eth$/i, "").toLowerCase();
+      // Min 3 chars, max 173 chars
+      if (label.length < 3) {
+        return { valid: false, name: label, error: `ENS name "${label}" is too short — minimum 3 characters.` };
+      }
+      if (label.length > 173) {
+        return { valid: false, name: label, error: `ENS name "${label}" is too long — maximum 173 characters.` };
+      }
+      // Valid characters: a-z, 0-9, underscore, hyphen
+      if (!/^[a-z0-9_-]+$/.test(label)) {
+        return {
+          valid: false,
+          name: label,
+          error: `ENS name "${label}" contains invalid characters. Only lowercase letters (a-z), numbers (0-9), hyphens (-), and leading underscores are allowed.`,
+        };
+      }
+      // Underscores only allowed as leading characters (e.g. _foo is valid, foo_bar is not)
+      if (label.includes("_")) {
+        const firstNonUnderscore = label.search(/[^_]/);
+        if (firstNonUnderscore === -1) {
+          return { valid: false, name: label, error: `ENS name cannot be only underscores.` };
+        }
+        const afterPrefix = label.slice(firstNonUnderscore);
+        if (afterPrefix.includes("_")) {
+          return {
+            valid: false,
+            name: label,
+            error: `ENS name "${label}" has underscores in invalid positions. Underscores are only allowed as leading characters (e.g. "_foo" is valid, "foo_bar" is not).`,
+          };
+        }
+      }
+      return { valid: true, name: label };
+    },
+  },
+
   checkENSAvailability: {
-    description: "Check if an ENS name is available for registration",
+    description:
+      "Check if an ENS name is available for registration. IMPORTANT: Call validateENSName first to ensure the name is actually registerable.",
     execute: async ({ name }: any) => {
       const label = name.replace(/\.eth$/i, "").toLowerCase();
       const fullName = `${label}.eth`;
+
+      // Validate before making on-chain calls — don't waste RPC calls on invalid names
+      if (label.length < 3)
+        return {
+          available: false,
+          name: label,
+          valid: false,
+          error: `ENS name "${label}" is too short — minimum 3 characters.`,
+        };
+      if (label.length > 173)
+        return {
+          available: false,
+          name: label,
+          valid: false,
+          error: `ENS name "${label}" is too long — maximum 173 characters.`,
+        };
+      if (!/^[a-z0-9_-]+$/.test(label))
+        return {
+          available: false,
+          name: label,
+          valid: false,
+          error: `ENS name "${label}" contains invalid characters.`,
+        };
+      if (label.includes("_")) {
+        const firstNonUnderscore = label.search(/[^_]/);
+        const afterPrefix = firstNonUnderscore === -1 ? "" : label.slice(firstNonUnderscore);
+        if (firstNonUnderscore === -1 || afterPrefix.includes("_")) {
+          return {
+            available: false,
+            name: label,
+            valid: false,
+            error: `ENS name "${label}" has underscores in invalid positions. Underscores are only allowed as leading characters (e.g. "_foo" is valid, "foo_bar" is not).`,
+          };
+        }
+      }
+
       try {
         // Use viem's namehash + BuidlGuidl mainnet RPC + ENS registry owner()
         // ENS Registry: 0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e
@@ -872,7 +948,7 @@ Always call this before saying you can't find something. It uses server-side tok
         const owner = "0x" + result?.slice(-40);
         const available = !result || owner === "0x0000000000000000000000000000000000000000";
         // Don't return the owner address — AI will leak it into responses
-        return { available, name: label };
+        return { available, valid: true, name: label };
       } catch (e) {
         return { error: `Failed to check ENS availability: ${e instanceof Error ? e.message : String(e)}` };
       }
@@ -929,10 +1005,24 @@ Always call this before saying you can't find something. It uses server-side tok
 
   buildENSRegistration: {
     description:
-      "Build the 2-step ENS registration transaction. Returns a multistep_transaction with commit + register steps. The user must execute step 1 (commit), wait 60+ seconds, then execute step 2 (register).",
+      "Build the 2-step ENS registration transaction. Returns a multistep_transaction with commit + register steps. The user must execute step 1 (commit), wait 60+ seconds, then execute step 2 (register). IMPORTANT: Call validateENSName first.",
     execute: async ({ name, years, owner }: any) => {
-      const label = name.replace(/\.eth$/i, "");
+      const label = name.replace(/\.eth$/i, "").toLowerCase();
       const duration = BigInt(years * 365 * 24 * 60 * 60);
+
+      // Server-side validation guard — prevent building transactions for invalid names
+      if (label.length < 3) return { error: `ENS name "${label}" is too short — minimum 3 characters.` };
+      if (label.length > 173) return { error: `ENS name "${label}" is too long — maximum 173 characters.` };
+      if (!/^[a-z0-9_-]+$/.test(label)) return { error: `ENS name "${label}" contains invalid characters.` };
+      if (label.includes("_")) {
+        const firstNonUnderscore = label.search(/[^_]/);
+        const afterPrefix = firstNonUnderscore === -1 ? "" : label.slice(firstNonUnderscore);
+        if (firstNonUnderscore === -1 || afterPrefix.includes("_")) {
+          return {
+            error: `ENS name "${label}" has underscores in invalid positions. Underscores are only allowed as leading characters (e.g. "_foo" is valid, "foo_bar" is not).`,
+          };
+        }
+      }
 
       // Generate random secret (bytes32)
       const secretBytes = new Uint8Array(32);
@@ -1225,7 +1315,8 @@ AVAILABLE TOOLS:
 - getTokenAddress: Look up token contract address by symbol.
 - wrapEth: Wrap ETH to WETH (simpler/cheaper than routing through LI.FI for WETH specifically).
 - unwrapWeth: Unwrap WETH to ETH (simpler/cheaper than routing through LI.FI for WETH specifically).
-- checkENSAvailability: Check if an ENS name is available for registration.
+- validateENSName: Validate an ENS name before registration. MUST be called first in any ENS workflow. Returns { valid, name } or { valid: false, error }.
+- checkENSAvailability: Check if an ENS name is available for registration. Also validates the name server-side.
 - getENSRentPrice: Get the rent price for registering an ENS name.
 - buildENSRegistration: Build the 2-step ENS registration (commit + register). Returns a multistep_transaction.
 - logMiss: Call this BEFORE responding whenever your answer will NOT be calldata or a 100% confident, complete answer. This means: you're deflecting, out of scope, can't find the token/protocol, asking clarifying questions, or giving a partial/educational answer instead of acting. If you're unsure at all — log it first. No exceptions.
@@ -1240,12 +1331,21 @@ You can even do cross-chain zaps (e.g. ETH on mainnet → Morpho vault on Base).
 
 ENS REGISTRATION:
 When user wants to register an ENS name, use this workflow:
-1. Call checkENSAvailability(name) first
-2. Call getENSRentPrice(name, years) to get the cost
-3. Tell the user the name availability and price
-4. Call buildENSRegistration(name, owner, years) to build the 2-step transaction
-5. Return the result from buildENSRegistration directly — it already has type "multistep_transaction"
+1. Call validateENSName(name) FIRST — if valid is false, tell the user WHY and stop. Do NOT proceed to availability check or transaction building for invalid names.
+2. Call checkENSAvailability(name) — if not available, tell the user and stop.
+3. Call getENSRentPrice(name, years) to get the cost.
+4. Tell the user the name availability and price. WAIT for the user to confirm they want to proceed before building the transaction. Do NOT auto-build.
+5. Only after user confirms: call buildENSRegistration(name, owner, years) to build the 2-step transaction.
+6. Return the result from buildENSRegistration directly — it already has type "multistep_transaction".
 Never tell the user to go to app.ens.domains — handle it inline.
+
+ENS NAME VALIDITY RULES:
+- Valid characters: lowercase letters (a-z), numbers (0-9), hyphens (-), and underscores (position-restricted)
+- Underscores are ONLY allowed as leading characters: _foo.eth ✅, __bar.eth ✅, foo_bar.eth ❌, zeitgeist_jones.eth ❌
+- This is a position-based rule, NOT a blanket "no underscores" rule
+- Minimum length: 3 characters (excluding .eth)
+- Maximum length: 173 characters (excluding .eth)
+- IMPORTANT: "available" does NOT mean "valid" — a name can show as available on-chain but still be unregisterable due to normalization rules. Always validate first.
 
 MANDATORY WORKFLOW (for transactions only):
 1. If you need balance info → call getPortfolio first
@@ -1320,7 +1420,10 @@ RULES:
 - For ETH in LI.FI: use symbol "ETH" — LI.FI resolves it, no address needed
 - All amount parameters expect wei (raw units). Convert from human-readable first.
 - If the user's request is unclear, respond with a chat message asking for clarification
-- If simulation fails, respond with a chat message explaining why`;
+- If simulation fails, respond with a chat message explaining why
+- NEVER claim you "logged a bug", "filed a ticket", or "flagged an issue" to any external system. You cannot do that. The only logging you can do is via the logMiss tool, which logs to an internal miss log — not a bug tracker. Be honest about your capabilities.
+- NEVER claim on-chain verification results (e.g. "the name is registered", "forward resolution is working", "it's propagating") without actually calling a verification tool and getting a confirmed result. If you haven't verified something on-chain, say so explicitly.
+- If you recommend the user bridge funds, top up gas, or perform any action to fix a balance issue, you MUST call getOnChainBalance or getPortfolio to verify the balance AFTER they claim to have done it. Do NOT just accept their word — always verify before proceeding with transactions.`;
 
 // ─── Route Handler ──────────────────────────────────────────────────────────
 
@@ -1706,8 +1809,18 @@ export async function POST(req: NextRequest) {
       {
         type: "function",
         function: {
+          name: "validateENSName",
+          description:
+            "Validate an ENS name before checking availability or building transactions. Must be called FIRST in any ENS registration workflow. Returns { valid, name } or { valid: false, error }.",
+          parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+        },
+      },
+      {
+        type: "function",
+        function: {
           name: "checkENSAvailability",
-          description: "Check if an ENS name is available for registration.",
+          description:
+            "Check if an ENS name is available for registration. Also validates the name — returns { valid: false, error } if the name is not registerable.",
           parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
         },
       },
@@ -1875,7 +1988,7 @@ export async function POST(req: NextRequest) {
           type: "multistep_transaction",
           message: parsed.message as string,
           steps: parsed.steps,
-          delay: Math.min(typeof parsed.delay === "number" ? parsed.delay : 3000, 10000), // Cap at 10s — ENS 65s comes via buildENSRegistration tool result, not here
+          delay: typeof parsed.delay === "number" ? parsed.delay : 3000, // Preserve delay from tool result (ENS needs 65s)
           priceEth: parsed.priceEth,
           priceWei: parsed.priceWei,
         });
