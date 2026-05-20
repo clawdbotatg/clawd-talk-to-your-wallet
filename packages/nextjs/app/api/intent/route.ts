@@ -1448,6 +1448,7 @@ export async function POST(req: NextRequest) {
     // larv.ai recovers the signer from the signature — we must use cvWallet for spend calls
     const cvSpendWallet: string = cvWallet || address;
 
+    // Bankr: claude-opus-4.7 via llm.bankr.bot/v1
     if (!process.env.BANKR_API_KEY) {
       return NextResponse.json(
         { type: "chat", message: "API key not configured. Please set BANKR_API_KEY." },
