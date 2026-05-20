@@ -1448,9 +1448,9 @@ export async function POST(req: NextRequest) {
     // larv.ai recovers the signer from the signature — we must use cvWallet for spend calls
     const cvSpendWallet: string = cvWallet || address;
 
-    if (!process.env.VENICE_API_KEY) {
+    if (!process.env.BANKR_API_KEY) {
       return NextResponse.json(
-        { type: "chat", message: "API key not configured. Please set VENICE_API_KEY." },
+        { type: "chat", message: "API key not configured. Please set BANKR_API_KEY." },
         { status: 500 },
       );
     }
@@ -1590,10 +1590,53 @@ export async function POST(req: NextRequest) {
 
     // userPrompt is no longer used — wallet context is injected as a priming message pair in loopMessages below
 
-    const client = new OpenAI({
-      apiKey: process.env.VENICE_API_KEY,
-      baseURL: "https://api.venice.ai/api/v1",
-    });
+    // Bankr LLM Gateway — OpenAI-compatible format with X-API-Key auth
+    const bankrBase = "https://llm.bankr.bot/v1";
+    const bankrKey = process.env.BANKR_API_KEY;
+
+    async function bankrChatCompletion(opts: {
+      model: string;
+      messages: OpenAI.Chat.ChatCompletionMessageParam[];
+      tools?: OpenAI.Chat.ChatCompletionFunctionTool[];
+      tool_choice?: "auto" | "none";
+      max_tokens?: number;
+      stream?: boolean;
+    }) {
+      const res = await fetch(`${bankrBase}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": bankrKey || "",
+        },
+        body: JSON.stringify({
+          model: opts.model,
+          messages: opts.messages,
+          tools: opts.tools,
+          tool_choice: opts.tool_choice ?? "auto",
+          max_tokens: opts.max_tokens ?? 4096,
+          stream: opts.stream ?? false,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Bankr API error ${res.status}: ${err}`);
+      }
+      return res.json() as Promise<{
+        id: string;
+        choices: {
+          finish_reason: string;
+          message: {
+            role: string;
+            content: string | null;
+            tool_calls?: {
+              id: string;
+              type: "function";
+              function: { name: string; arguments: string };
+            }[];
+          };
+        }[];
+      }>;
+    }
 
     // Tool schemas for OpenAI format
     const openAiTools: OpenAI.Chat.ChatCompletionFunctionTool[] = [
@@ -1913,8 +1956,8 @@ export async function POST(req: NextRequest) {
 
     let finalText = "";
     for (let step = 0; step < 15; step++) {
-      const completion = await client.chat.completions.create({
-        model: "claude-opus-4-6",
+      const completion = await bankrChatCompletion({
+        model: "claude-opus-4.7",
         messages: loopMessages,
         tools: openAiTools,
         tool_choice: "auto",
