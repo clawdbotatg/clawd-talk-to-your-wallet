@@ -39,9 +39,14 @@ Your working directory is the repo. The live agent's brain is `bridge/brain/`.
 
 ## Rules
 
-- **Do not commit, push, or restart services.** The runner handles that: doc-only
-  changes ship automatically, code changes go to a branch for human review. Just leave
-  your edits in the working tree.
+- **Do not commit, push, or restart services.** Leave your edits in the working tree;
+  the runner lands them. How that works, so you know what actually reaches users:
+  - A **skill file** you write is live immediately — the agent reads `skills/` from
+    disk. This is the highest-value thing you can produce.
+  - A **code change** to `wallet.mjs` / `CLAUDE.md` is exported as a patch for human
+    review and then reverted from the tree. So a code fix does NOT take effect on its
+    own: make your summary good enough for a reviewer to act on, and **also capture
+    the finding as a skill** so the knowledge helps even before the code lands.
 - **Touch only** `bridge/brain/skills/`, `bridge/brain/tools/wallet.mjs`, and
   `bridge/brain/CLAUDE.md`. Never `bridge/server.py`, never anything under
   `packages/`, never `.env`/secret files. Never print a secret.

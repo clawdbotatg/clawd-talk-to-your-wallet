@@ -155,40 +155,65 @@ def build_prompt(miss, turns):
 
 
 def ship(gap_text):
-    """Commit what the researcher produced. Docs auto-push; code goes to a branch."""
+    """Land what the researcher produced.
+
+    The production box has no git push credentials, and a dirty tree would block
+    the deploy pull — so nothing is committed here. Instead:
+
+      new skills/ files  → LEFT IN PLACE. The live agent reads skills from the
+                           filesystem, so knowledge is live immediately; untracked
+                           files don't block `git pull`.
+      code changes       → exported as a reviewable .patch and the tree restored
+                           clean (this code builds transactions users sign, so it
+                           gets human review before it ships).
+
+    Harvest both with `run.py --harvest` from a machine that can push.
+    """
     changed = git_dirty()
     if not changed:
         return {"shipped": "nothing", "changed": []}
 
     stray = [c for c in changed if not c.startswith(ALLOWED_PATHS)]
     if stray:
-        sh("git", "checkout", "--", *stray)
+        # Outside the researcher's remit — revert tracked, delete untracked.
+        for p in stray:
+            full = os.path.join(REPO, p)
+            if sh("git", "ls-files", "--error-unmatch", p).returncode == 0:
+                sh("git", "checkout", "--", p)
+            elif os.path.isfile(full):
+                try:
+                    os.remove(full)
+                except OSError:
+                    pass
         changed = [c for c in changed if c.startswith(ALLOWED_PATHS)]
-        if not changed:
-            return {"shipped": "nothing", "reverted_stray": stray}
 
-    doc_only = all(c.startswith(DOC_ONLY) for c in changed)
-    sh("git", "add", *changed)
-    msg = (
-        f"research: {gap_text[:70]}\n\n"
-        f"Autonomous researcher run. Files: {', '.join(changed)}\n\n"
-        "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
+    skills = [c for c in changed if c.startswith("bridge/brain/skills/")]
+    code = [c for c in changed if not c.startswith("bridge/brain/skills/")]
+    result = {"shipped": "nothing", "skills_live": skills, "stray_reverted": stray}
+
+    if code:
+        patch_dir = os.path.join(BRIDGE, "research-patches")
+        os.makedirs(patch_dir, exist_ok=True)
+        patch = os.path.join(patch_dir, f"{slug(gap_text)}-{int(time.time())}.patch")
+        diff = sh("git", "diff", "--", *code).stdout
+        with open(patch, "w", encoding="utf-8") as f:
+            f.write(f"# researcher patch for gap: {gap_text}\n# files: {', '.join(code)}\n{diff}")
+        sh("git", "checkout", "--", *code)          # tree clean again → deploys keep working
+        result["patch"] = patch
+        result["code_files"] = code
+
+    result["shipped"] = (
+        "skills-live+patch" if skills and code else "skills-live" if skills else "patch" if code else "nothing"
     )
-    branch = None
-    if not doc_only:
-        branch = f"research/{slug(gap_text)}"
-        sh("git", "checkout", "-b", branch)
-    c = sh("git", "commit", "-m", msg)
-    if c.returncode != 0:
-        return {"shipped": "commit-failed", "stderr": c.stderr[-400:], "changed": changed, "stray": stray}
-    if doc_only and AUTOPUSH_DOCS:
-        p = sh("git", "push", "origin", "HEAD")
-        return {"shipped": "docs-pushed", "changed": changed, "ok": p.returncode == 0, "stray": stray}
-    if branch:
-        p = sh("git", "push", "origin", branch)
-        sh("git", "checkout", "main")
-        return {"shipped": "branch-pushed", "branch": branch, "changed": changed, "ok": p.returncode == 0, "stray": stray}
-    return {"shipped": "committed-local", "changed": changed, "stray": stray}
+    return result
+
+
+def harvest():
+    """Print what's pending on this box: live skills not in git, and patches."""
+    untracked = sh("git", "ls-files", "-o", "--exclude-standard", "bridge/brain/skills/").stdout.split()
+    patch_dir = os.path.join(BRIDGE, "research-patches")
+    patches = sorted(os.listdir(patch_dir)) if os.path.isdir(patch_dir) else []
+    print(json.dumps({"uncommitted_skills": untracked, "patches": patches}, indent=2))
 
 
 def research(gap_text, miss=None):
@@ -228,7 +253,12 @@ def main():
     ap.add_argument("--limit", type=int, default=MAX_PER_RUN)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--gap", help="research this text instead of the queue")
+    ap.add_argument("--harvest", action="store_true", help="list live skills not yet in git, and pending patches")
     a = ap.parse_args()
+
+    if a.harvest:
+        harvest()
+        return
 
     if a.gap:
         research(a.gap)
