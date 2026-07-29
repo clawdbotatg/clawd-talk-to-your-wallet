@@ -300,6 +300,30 @@ const UR_EXECUTE = {
   outputs: [],
 };
 
+/** Universal Router execute() calldata for a single V4 exact-in swap. */
+function buildV4SwapCalldata(poolKey, zeroForOne, amount, minOut, isNativeIn) {
+  const { V4Planner, Actions } = requireFrom("@uniswap/v4-sdk");
+  const { RoutePlanner, CommandType } = requireFrom("@uniswap/universal-router-sdk");
+  const planner = new V4Planner();
+  planner.addAction(Actions.SWAP_EXACT_IN_SINGLE, [
+    { poolKey, zeroForOne, amountIn: amount.toString(), amountOutMinimum: minOut.toString(), hookData: "0x" },
+  ]);
+  planner.addAction(Actions.SETTLE_ALL, [zeroForOne ? poolKey.currency0 : poolKey.currency1, amount.toString()]);
+  planner.addAction(Actions.TAKE_ALL, [zeroForOne ? poolKey.currency1 : poolKey.currency0, minOut.toString()]);
+  const route = new RoutePlanner();
+  route.addCommand(CommandType.V4_SWAP, [planner.actions, planner.params]);
+  const deadline = Math.floor(Date.now() / 1000) + 1800;
+  return {
+    data: viem.encodeFunctionData({
+      abi: [UR_EXECUTE],
+      functionName: "execute",
+      args: [route.commands, [planner.finalize()], BigInt(deadline)],
+    }),
+    value: isNativeIn ? toHex(amount) : "0x0",
+    deadline,
+  };
+}
+
 // ─── tools ───────────────────────────────────────────────────────────────────
 const tools = {
   async simulateAssetChanges({ from, to, data, value, chainId }) {
@@ -852,15 +876,78 @@ const tools = {
     const best = arr => arr.reduce((a, b) => (b.out > (a?.out ?? 0n) ? b : a), null);
     const bestHookless = best(quoted.filter(p => p.key.hooks === NATIVE));
     const bestHooked = best(quoted.filter(p => p.key.hooks !== NATIVE));
-    const pick = bestHookless || bestHooked;
-    if (!pick)
+    let pick = bestHookless || bestHooked;
+    let quoteSource = "quoter";
+
+    // Some hooks revert the official Quoter even though real swaps work fine
+    // (the pool has live liquidity + volume). Fall back to quote-by-simulation:
+    // build the swap with a floor minimum, simulate it, read the actual output.
+    // Only possible when the input side needs no approvals (native ETH in, or
+    // approvals already granted) — simulation can't fake an allowance.
+    if (!pick && live.length > 0) {
+      const cand = live.reduce((a, b) => (b.liq > (a?.liq ?? 0n) ? b : a), null);
+      const probe = buildV4SwapCalldata(cand.key, zeroForOne, amount, 1n, inAddr === NATIVE);
+      try {
+        const sim = await tools.simulateAssetChanges({
+          from: fromAddress,
+          to: v4.universalRouter,
+          data: probe.data,
+          value: probe.value,
+          chainId: chain,
+        });
+        const outAddrLc = outAddr === NATIVE ? null : outAddr;
+        const inChange = (sim.changes || []).find(
+          c => c.direction === "in" && (outAddrLc ? (c.contractAddress || "").toLowerCase() === outAddrLc : c.assetType === "NATIVE"),
+        );
+        if (sim.success && inChange?.rawAmount) {
+          pick = { key: cand.key, liq: cand.liq, out: BigInt(inChange.rawAmount) };
+          quoteSource = "simulation";
+        } else if (!sim.success) {
+          failures.push(`simulation probe: ${sim.error || "reverted"}`);
+        }
+      } catch (e) {
+        failures.push(`simulation probe: ${e.message?.slice(0, 80)}`);
+      }
+    }
+
+    if (!pick) {
+      // Trace one live pool so the failure is explainable rather than mysterious:
+      // the deepest reverting frame names the contract that rejected the swap
+      // (usually the hook), which the agent can then read with getContractSource.
+      let rejectedBy = null;
+      if (live.length > 0) {
+        try {
+          const cand = live.reduce((a, b) => (b.liq > (a?.liq ?? 0n) ? b : a), null);
+          const probe = buildV4SwapCalldata(cand.key, zeroForOne, amount, 1n, inAddr === NATIVE);
+          const t = await tools.traceCall({
+            from: fromAddress,
+            to: v4.universalRouter,
+            data: probe.data,
+            value: probe.value,
+            chainId: chain,
+          });
+          const deepest = (t.internalCalls || []).slice(-1)[0];
+          if (deepest) {
+            rejectedBy = deepest.to;
+            if (cand.key.hooks !== NATIVE && deepest.to?.toLowerCase() === cand.key.hooks)
+              rejectedBy = `${deepest.to} (the pool's HOOK — read it with getContractSource to find the gate, e.g. a buys-disabled flag or allowlist)`;
+          }
+        } catch {
+          /* best effort */
+        }
+      }
       return {
         error:
           live.length > 0
-            ? `${live.length} live V4 pool(s) for this pair on chain ${chain} but none could quote this amount — too large for the liquidity, or the pools' hooks reject plain swaps.`
+            ? `${live.length} live V4 pool(s) for this pair on chain ${chain} but neither the Quoter nor a simulation probe could price this swap${inAddr !== NATIVE ? " (note: ERC-20 input can only be simulation-quoted after approvals exist — try the ETH side, or complete approvals first)" : ""}.`
             : `Found ${candidates.length} pool(s) via Initialize logs but none has liquidity.`,
         quoteFailures: failures.slice(0, 4),
+        rejectedBy,
+        nextStep: rejectedBy
+          ? "Call getContractSource on the rejecting contract (grep for 'revert' / 'Swap') and ethCall any gate flags it exposes, then tell the user the REAL reason."
+          : undefined,
       };
+    }
     const poolKey = pick.key;
     const poolLiquidity = pick.liq;
     const amountOut = pick.out;
@@ -868,39 +955,23 @@ const tools = {
       poolKey.hooks !== NATIVE
         ? `This pool uses a custom hook (${poolKey.hooks}) — behavior at execution can differ from the quote. Simulation is mandatory; tell the user about the hook.`
         : undefined;
-    const slipBps = BigInt(Math.round((slippagePct ?? 1) * 100));
+    // Simulation-derived quotes get a wider default slippage floor — the sim
+    // reflects one block's state, and hooked pools can move fees per-swap.
+    const slipBps = BigInt(Math.round((slippagePct ?? (quoteSource === "simulation" ? 2 : 1)) * 100));
     const minOut = (amountOut * (10000n - slipBps)) / 10000n;
 
     // 3. Encode the swap via Uniswap's own SDKs (V4Planner + RoutePlanner)
-    const { V4Planner, Actions } = requireFrom("@uniswap/v4-sdk");
-    const { RoutePlanner, CommandType } = requireFrom("@uniswap/universal-router-sdk");
-    const planner = new V4Planner();
-    planner.addAction(Actions.SWAP_EXACT_IN_SINGLE, [
-      {
-        poolKey,
-        zeroForOne,
-        amountIn: amount.toString(),
-        amountOutMinimum: minOut.toString(),
-        hookData: "0x",
-      },
-    ]);
-    planner.addAction(Actions.SETTLE_ALL, [zeroForOne ? currency0 : currency1, amount.toString()]);
-    planner.addAction(Actions.TAKE_ALL, [zeroForOne ? currency1 : currency0, minOut.toString()]);
-    const route = new RoutePlanner();
-    route.addCommand(CommandType.V4_SWAP, [planner.actions, planner.params]);
-    const deadline = Math.floor(Date.now() / 1000) + 1800;
-    const swapData = viem.encodeFunctionData({
-      abi: [UR_EXECUTE],
-      functionName: "execute",
-      args: [route.commands, [planner.finalize()], BigInt(deadline)],
-    });
+    const built = buildV4SwapCalldata(poolKey, zeroForOne, amount, minOut, inAddr === NATIVE);
+    const swapData = built.data;
+    const deadline = built.deadline;
 
     const quote = {
       pool: { ...poolKey, liquidity: poolLiquidity.toString() },
       amountIn: amount.toString(),
       amountOut: amountOut.toString(),
       amountOutMinimum: minOut.toString(),
-      slippagePct: slippagePct ?? 1,
+      slippagePct: Number(slipBps) / 100,
+      quoteSource,
       ...(hookWarning ? { hookWarning } : {}),
     };
 
@@ -1024,6 +1095,47 @@ const tools = {
     const slot = await rpc(rpcUrl, "eth_getStorageAt", [address, "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc", "latest"]);
     const impl = slot.result && BigInt(slot.result) !== 0n ? "0x" + slot.result.slice(-40) : null;
     return { isContract: code !== "0x", codeSize: (code.length - 2) / 2, eip1967Implementation: impl };
+  },
+
+  async getContractSource({ address, chain, chainId, grep, maxChars }) {
+    const CHAIN_HOSTS = {
+      1: "eth.blockscout.com",
+      8453: "base.blockscout.com",
+      42161: "arbitrum.blockscout.com",
+      10: "optimism.blockscout.com",
+      137: "polygon.blockscout.com",
+      100: "gnosis.blockscout.com",
+    };
+    const NAMED = { ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10, polygon: 137, gnosis: 100, xdai: 100 };
+    const id = chainId ?? NAMED[chain] ?? 1;
+    const host = CHAIN_HOSTS[id];
+    if (!host) return { error: `No source explorer configured for chain ${chain ?? id}` };
+    try {
+      const res = await fetch(`https://${host}/api/v2/smart-contracts/${address}`, { headers: { accept: "application/json" } });
+      if (!res.ok) return { error: `Explorer returned ${res.status} — contract may be unverified` };
+      const d = await res.json();
+      const src = d.source_code || "";
+      if (!src) return { name: d.name || null, verified: false, error: "Source not verified for this address" };
+      const abiFns = (d.abi || [])
+        .filter(x => x.type === "function")
+        .map(x => `${x.name}(${(x.inputs || []).map(i => i.type).join(",")})${x.stateMutability === "view" ? " view" : ""}`);
+      const out = { name: d.name || null, verified: true, isProxy: !!d.is_proxy, implementation: d.implementations?.[0]?.address || null, functions: abiFns.slice(0, 80), sourceChars: src.length };
+      if (grep) {
+        // return the regions around each match — how you read a big contract cheaply
+        const re = new RegExp(grep, "gi");
+        const hits = [];
+        let m;
+        while ((m = re.exec(src)) && hits.length < 8) hits.push(src.slice(Math.max(0, m.index - 300), m.index + 900));
+        out.matches = hits;
+        out.matchCount = hits.length;
+      } else {
+        out.source = src.slice(0, Math.min(maxChars || 6000, 20000));
+        out.truncated = src.length > (maxChars || 6000);
+      }
+      return out;
+    } catch (e) {
+      return { error: `getContractSource failed: ${e.message}` };
+    }
   },
 
   async getTokenLiquidity({ tokenAddress, chain }) {

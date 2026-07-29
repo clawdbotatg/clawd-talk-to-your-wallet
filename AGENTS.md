@@ -2,6 +2,24 @@
 
 This file provides guidance to coding agents working in this repository.
 
+## Denarai AI agent (production) — read this if the task touches the AI
+
+The chat assistant on **denar.ai** runs as a `claude -p` agent (claude-p-agent
+pattern), NOT as an API call from the Next.js route. It lives in **`bridge/`** and
+runs on the **zkllmapi** AWS box (`ssh zkllmapi`), fronted by
+`https://agent.denar.ai`. `/api/intent` calls it first and falls back to the Bankr
+gateway if it's unavailable.
+
+- **`bridge/README.md`** — architecture, deploy, env.
+- **`bridge/IMPROVING.md`** — **the improvement loop: every user turn is logged, and
+  you can read those logs plus the agent's own tool-call transcripts to see exactly
+  what it did, diagnose why it fell short, fix it, deploy, verify.** Start here for
+  any "make the agent smarter / why did it answer that?" task.
+- **`bridge/brain/CLAUDE.md`** — the agent's persona + tool docs (most fixes go here).
+- **`bridge/brain/tools/wallet.mjs`** — its tools, including generic on-chain research
+  primitives (`ethCall`, `getLogs`, `getCode`, `getContractSource`) and direct
+  Uniswap V4 swaps.
+
 ## Project Overview
 
 Scaffold-ETH 2 (SE-2) is a starter kit for building dApps on Ethereum. It comes in **two flavors** based on the Solidity framework:
