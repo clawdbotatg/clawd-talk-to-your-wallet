@@ -3,3 +3,5 @@
 .memory/
 turns.jsonl
 .claude-settings.json
+misses.jsonl
+research-log.jsonl

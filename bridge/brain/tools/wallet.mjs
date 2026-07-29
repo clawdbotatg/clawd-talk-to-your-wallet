@@ -2,7 +2,7 @@
 // wallet.mjs — every denarai wallet tool as a CLI: node tools/wallet.mjs <tool> '<json-args>'
 // Prints a single JSON result on stdout. Ported 1:1 from packages/nextjs/app/api/intent/route.ts
 // so the claude-p brain and the Bankr fallback path behave identically.
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -784,10 +784,55 @@ const tools = {
     };
   },
 
+  // ─── learned-knowledge corpus (skills/) ────────────────────────────────────
+  // Exposed as tools rather than file reads: the agent's Bash is locked to one
+  // wallet.mjs invocation (see hooks/bash_guard.py), so this is how it reads.
+
+  async listSkills() {
+    const dir = join(HERE, "..", "skills");
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory());
+      const skills = entries
+        .map(e => {
+          try {
+            const md = readFileSync(join(dir, e.name, "SKILL.md"), "utf8");
+            const desc = md.match(/^description:\s*(.+)$/m)?.[1]?.trim();
+            const verified = md.match(/^verified:\s*(.+)$/m)?.[1]?.trim();
+            return { name: e.name, description: desc || "(no description)", verified };
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
+      return { count: skills.length, skills };
+    } catch {
+      return { count: 0, skills: [] };
+    }
+  },
+
+  async readSkill({ name }) {
+    if (!name || !/^[A-Za-z0-9._-]+$/.test(name)) return { error: "invalid skill name" };
+    try {
+      return { name, content: readFileSync(join(HERE, "..", "skills", name, "SKILL.md"), "utf8") };
+    } catch {
+      return { error: `No skill named '${name}'. Call listSkills to see what exists.` };
+    }
+  },
+
   async logMiss({ userRequest, reason, category }) {
+    // Local queue first — this is what the researcher agent consumes. Written
+    // even when the gist isn't configured, and never blocks on the network.
+    try {
+      appendFileSync(
+        join(HERE, "..", "..", "misses.jsonl"),
+        JSON.stringify({ ts: new Date().toISOString(), userRequest, reason, category, researched: false }) + "\n",
+      );
+    } catch {
+      /* non-fatal */
+    }
     const gistId = process.env.MISS_LOG_GIST_ID;
     const token = process.env.GITHUB_GIST_TOKEN;
-    if (!gistId || !token) return { logged: false };
+    if (!gistId || !token) return { logged: true, queue: "local" };
     try {
       const getRes = await fetch(`https://api.github.com/gists/${gistId}`, {
         headers: { Authorization: `Bearer ${token}`, "User-Agent": "denarai" },
