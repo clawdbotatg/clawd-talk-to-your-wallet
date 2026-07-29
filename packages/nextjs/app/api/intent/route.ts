@@ -27,6 +27,9 @@ const BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
+// Agentic turns (bridge or Bankr loop) routinely exceed the default function window
+export const maxDuration = 300;
+
 // ─── ENS Constants ───────────────────────────────────────────────────────────
 
 const ENS_REGISTRAR = "0x253553366Da8546fC250F225fe3d25d0C782303b";
@@ -1448,24 +1451,26 @@ export async function POST(req: NextRequest) {
     // larv.ai recovers the signer from the signature — we must use cvWallet for spend calls
     const cvSpendWallet: string = cvWallet || address;
 
-    // Bankr: claude-opus-4.7 via llm.bankr.bot/v1
-    if (!process.env.BANKR_API_KEY) {
+    // Engines: claude-p bridge (DENARAI_BRIDGE_URL) first, Bankr as fallback
+    if (!process.env.BANKR_API_KEY && !process.env.DENARAI_BRIDGE_URL) {
       return NextResponse.json(
-        { type: "chat", message: "API key not configured. Please set BANKR_API_KEY." },
+        { type: "chat", message: "No AI engine configured. Set DENARAI_BRIDGE_URL or BANKR_API_KEY." },
         { status: 500 },
       );
     }
 
     // ─── CV charge (25,000 CV per request) ───────────────────────────────────
+    // Local-dev bypass: CV_DEV_BYPASS=1 skips the charge, but never in production
+    const cvBypass = process.env.CV_DEV_BYPASS === "1" && process.env.NODE_ENV !== "production";
     const CV_COST_PER_REQUEST = 25_000;
-    if (!cvSignature) {
+    if (!cvSignature && !cvBypass) {
       return NextResponse.json(
         { type: "chat", message: "⚠️ CV signature required to use Denarai. Please reconnect your wallet." },
         { status: 402 },
       );
     }
 
-    {
+    if (!cvBypass) {
       const cvRes = await fetch("https://larv.ai/api/cv/spend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1589,9 +1594,52 @@ export async function POST(req: NextRequest) {
       // non-fatal — skip CV balance if fetch fails
     }
 
-    // userPrompt is no longer used — wallet context is injected as a priming message pair in loopMessages below
+    // Shared wallet-context block — used verbatim by both engines
+    const contextBlock = `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${defiSummary}${cvBalanceSummary}${activitySummary}`;
 
-    // Bankr LLM Gateway — OpenAI-compatible format with X-API-Key auth
+    // ─── Engine 1: claude-p bridge (subscription-billed Opus) ────────────────
+    // The bridge answers 503 when the subscription lacks headroom or it's
+    // saturated; any non-OK/timeout falls through to Bankr so users never
+    // see an engine outage.
+    const bridgeUrl = process.env.DENARAI_BRIDGE_URL;
+    if (bridgeUrl) {
+      try {
+        const bridgeRes = await fetch(`${bridgeUrl.replace(/\/$/, "")}/intent`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Bridge-Secret": process.env.DENARAI_BRIDGE_SECRET || "",
+          },
+          body: JSON.stringify({
+            message,
+            address,
+            chainId: userChainId,
+            context: contextBlock,
+            recentMessages,
+          }),
+          signal: AbortSignal.timeout(Number(process.env.DENARAI_BRIDGE_TIMEOUT_MS) || 240_000),
+        });
+        if (bridgeRes.ok) {
+          const bridgeData = await bridgeRes.json();
+          if (["chat", "transaction", "multistep_transaction"].includes(bridgeData?.type)) {
+            return NextResponse.json(bridgeData);
+          }
+          console.warn("[bridge] unexpected payload — falling back to Bankr");
+        } else {
+          console.warn(`[bridge] ${bridgeRes.status} — falling back to Bankr`);
+        }
+      } catch (e) {
+        console.warn(`[bridge] unreachable (${e instanceof Error ? e.message : String(e)}) — falling back to Bankr`);
+      }
+    }
+
+    // ─── Engine 2: Bankr LLM Gateway — OpenAI-compatible format with X-API-Key auth
+    if (!process.env.BANKR_API_KEY) {
+      return NextResponse.json(
+        { type: "chat", message: "The AI engine is temporarily unavailable. Please try again in a minute." },
+        { status: 503 },
+      );
+    }
     const bankrBase = "https://llm.bankr.bot/v1";
     const bankrKey = process.env.BANKR_API_KEY;
 
@@ -1943,7 +1991,7 @@ export async function POST(req: NextRequest) {
       // Inject wallet context as a system-style user turn so it doesn't pollute history
       {
         role: "user",
-        content: `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${defiSummary}${cvBalanceSummary}${activitySummary}\n\n[Context injected — ready for conversation]`,
+        content: `${contextBlock}\n\n[Context injected — ready for conversation]`,
       },
       {
         role: "assistant",
@@ -2016,6 +2064,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           type: "chat",
           message: parsed.message as string,
+          engine: "bankr",
         });
       }
 
@@ -2024,6 +2073,7 @@ export async function POST(req: NextRequest) {
           type: "transaction",
           message: parsed.message as string,
           transaction: parsed.transaction,
+          engine: "bankr",
         });
       }
 
@@ -2035,6 +2085,7 @@ export async function POST(req: NextRequest) {
           delay: typeof parsed.delay === "number" ? parsed.delay : 3000, // Preserve delay from tool result (ENS needs 65s)
           priceEth: parsed.priceEth,
           priceWei: parsed.priceWei,
+          engine: "bankr",
         });
       }
 
@@ -2102,6 +2153,7 @@ export async function POST(req: NextRequest) {
         delay: lastMultistep.delay ?? 0,
         priceEth: lastMultistep.priceEth,
         priceWei: lastMultistep.priceWei,
+        engine: "bankr",
       });
     }
 
@@ -2115,6 +2167,7 @@ export async function POST(req: NextRequest) {
           description: finalText || "",
           simulation: lastSim ? { verified: !!lastSim.success, changes: simChanges } : undefined,
         },
+        engine: "bankr",
       });
     }
 
@@ -2130,6 +2183,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       type: "chat",
       message: chatMessage,
+      engine: "bankr",
     });
   } catch (error: unknown) {
     const errMessage = error instanceof Error ? error.message : "Unknown error";
