@@ -9,8 +9,18 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..", "..");
-// viem is installed under packages/nextjs — resolve from there
-const { namehash } = createRequire(join(REPO_ROOT, "packages", "nextjs", "package.json"))("viem/ens");
+// viem: prefer a local install (bridge/brain/tools/node_modules — `npm i` here),
+// else fall back to the monorepo's copy under packages/nextjs
+const { namehash } = (() => {
+  for (const anchor of [join(HERE, "package.json"), join(REPO_ROOT, "packages", "nextjs", "package.json")]) {
+    try {
+      return createRequire(anchor)("viem/ens");
+    } catch {
+      /* try next */
+    }
+  }
+  throw new Error("viem not found — run `npm install` in bridge/brain/tools/ or `yarn install` at the repo root");
+})();
 const TOKEN_ADDRESS_FILE = JSON.parse(
   readFileSync(join(REPO_ROOT, "packages", "nextjs", "data", "token-addresses.json"), "utf8"),
 );
