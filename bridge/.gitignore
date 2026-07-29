@@ -2,3 +2,4 @@
 .bridge-secret
 .memory/
 turns.jsonl
+.claude-settings.json

@@ -33,6 +33,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 BRAIN = os.path.join(HERE, "brain")
+GUARD = os.path.join(BRAIN, "hooks", "bash_guard.py")
+# Generated at boot: a PreToolUse hook is the REAL boundary on what shell the
+# agent may run (--allowedTools prefix-matches, which chaining defeats).
+SETTINGS_PATH = os.path.join(HERE, ".claude-settings.json")
 
 
 def _load_env_file(path):
@@ -89,6 +93,26 @@ def _secret():
 
 
 SECRET = _secret()
+
+
+def _write_settings():
+    """Hook config for the child: every Bash call is vetted by bash_guard.py."""
+    settings = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [{"type": "command", "command": f"python3 {GUARD}"}],
+                }
+            ]
+        }
+    }
+    with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=2)
+    return SETTINGS_PATH
+
+
+_write_settings()
 
 VALID_TYPES = {"chat", "transaction", "multistep_transaction"}
 
@@ -194,8 +218,9 @@ def handle_intent(body):
         extra_args=[
             "--model", MODEL,
             "--max-turns", "40",
+            "--settings", SETTINGS_PATH,          # PreToolUse guard — the real boundary
             "--allowedTools", "Bash(node tools/wallet.mjs:*)",
-            "--disallowedTools", "Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,TodoWrite",
+            "--disallowedTools", "Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,TodoWrite,Read,Glob,Grep",
         ],
     )
     dt = time.time() - t0
