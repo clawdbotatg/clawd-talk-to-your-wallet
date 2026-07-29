@@ -436,6 +436,11 @@ const PayPage = () => {
             )}
 
             <p className="text-xs text-center" style={{ color: MUTED }}>
+              Every top-up buys and burns 🔥 $CLAWD — your USDC is swapped to CLAWD and sent to the dead address, never
+              to a treasury.
+            </p>
+
+            <p className="text-xs text-center" style={{ color: MUTED }}>
               Prefer staking? Earn CV (used before USDC) by staking $CLAWD on{" "}
               <a
                 href="https://larv.ai/stake"
