@@ -6,3 +6,5 @@ turns.jsonl
 misses.jsonl
 research-log.jsonl
 research-patches/
+__pycache__/
+*.pyc
