@@ -1235,6 +1235,147 @@ const tools = {
         totalLiquidity < 100 ? `Very low liquidity ($${totalLiquidity.toFixed(2)}) — expect high slippage or swap failure` : undefined,
     };
   },
+
+  // ─── ERC-20 approvals: who can spend the wallet's tokens, and revoking them ──
+
+  async getTokenApprovals({ owner, tokenAddress, tokens, chain, chainId, fromBlock, includeZero, limit }) {
+    if (!owner) return { error: "owner (the wallet address) is required" };
+    const rpcUrl = chain ? RPC_URLS[chain]?.() : alchemyUrl(chainId ?? 1);
+    if (!rpcUrl) return { error: `Unknown chain '${chain ?? chainId ?? 1}'` };
+
+    // Approval logs are the on-chain registry of every spender the wallet has ever
+    // approved. Filtering by the indexed owner topic keeps the result set small even
+    // over full history, so scanning all tokens needs no address filter. HIGH-SIGNAL
+    // path: pass `tokens` (the addresses the user actually holds, from getPortfolio) —
+    // scam tokens spam fake Approval logs to unrelated wallets, so an unscoped scan on
+    // a busy wallet is mostly phantom approvals on worthless tokens.
+    const APPROVAL = viem.parseAbiItem("event Approval(address indexed owner, address indexed spender, uint256 value)");
+    const topics = viem.encodeEventTopics({ abi: [APPROVAL], eventName: "Approval", args: { owner } });
+    const filter = { topics, fromBlock: fromBlock != null ? toHex(BigInt(fromBlock)) : "0x0", toBlock: "latest" };
+    const scope = tokenAddress ? [tokenAddress] : Array.isArray(tokens) && tokens.length ? tokens : null;
+    if (scope) filter.address = scope.length === 1 ? scope[0] : scope; // eth_getLogs accepts an address array
+    const logJson = await rpc(rpcUrl, "eth_getLogs", [filter]);
+    if (logJson.error)
+      return {
+        error: logJson.error.message || JSON.stringify(logJson.error),
+        hint: "Log range too wide for this RPC. Pass `tokens` (the wallet's actual holdings from getPortfolio) or `fromBlock` to narrow it.",
+      };
+
+    // Distinct (token, spender), keeping the latest Approval per pair for context.
+    // spender is always the 2nd indexed topic, so we never decode the data field —
+    // that also means ERC-721 Approval logs (same topic0 hash, tokenId in topic3)
+    // don't corrupt us; they drop out below when allowance() has no result.
+    const pairs = new Map();
+    for (const l of logJson.result || []) {
+      if (!l.topics || l.topics.length < 3) continue;
+      const token = l.address.toLowerCase();
+      const spender = "0x" + l.topics[2].slice(-40);
+      const block = parseInt(l.blockNumber, 16);
+      const key = `${token}:${spender}`;
+      const prev = pairs.get(key);
+      if (!prev || block > prev.block) pairs.set(key, { token, spender, block, txHash: l.transactionHash });
+    }
+
+    // Cap how many pairs we hit with RPC in an unscoped scan — a spammed wallet can
+    // have thousands. Check the most recent first (most likely to be real/relevant).
+    const MAX_CHECK = 300;
+    const ordered = [...pairs.values()].sort((a, b) => b.block - a.block);
+    const checked = scope ? ordered : ordered.slice(0, MAX_CHECK);
+    const pairsTruncated = !scope && ordered.length > MAX_CHECK;
+
+    const HUGE = 1n << 255n; // ≥ this ⇒ effectively unlimited (covers uint256 max and near-max patterns)
+    const call = (to, data) => rpc(rpcUrl, "eth_call", [{ to, data }, "latest"]).then(j => (j.error ? null : j.result));
+    const decodeStr = hex => {
+      if (!hex || hex === "0x") return null;
+      try {
+        return viem.decodeAbiParameters([{ type: "string" }], hex)[0] || null;
+      } catch {
+        /* not an ABI string — try bytes32 (e.g. MKR) */
+      }
+      try {
+        return viem.hexToString(hex, { size: 32 }).replace(/\0+$/, "") || null;
+      } catch {
+        return null;
+      }
+    };
+
+    const approvals = (
+      await Promise.all(
+        checked.map(async p => {
+          // Current allowance is the source of truth — the logs are only history;
+          // an allowance may since have been spent down, revoked, or re-approved.
+          const allowHex = await call(p.token, "0xdd62ed3e" + padAddress(owner) + padAddress(p.spender));
+          if (allowHex == null || allowHex === "0x") return null; // no allowance() ⇒ not an ERC-20 approval (e.g. an NFT)
+          const raw = BigInt(allowHex);
+          if (raw === 0n && !includeZero) return null; // already revoked / fully spent
+          const [symHex, decHex] = await Promise.all([call(p.token, "0x95d89b41"), call(p.token, "0x313ce567")]);
+          const decimals = decHex && decHex !== "0x" ? Number(BigInt(decHex)) : 18;
+          const isUnlimited = raw >= HUGE;
+          return {
+            token: p.token,
+            tokenSymbol: decodeStr(symHex),
+            tokenDecimals: decimals,
+            spender: p.spender,
+            allowanceRaw: raw.toString(),
+            allowance: isUnlimited ? "unlimited" : (Number(raw) / 10 ** decimals).toString(),
+            isUnlimited,
+            lastApprovalBlock: p.block,
+            lastApprovalTx: p.txHash,
+          };
+        }),
+      )
+    ).filter(Boolean);
+
+    // Riskiest first: unlimited approvals, then largest remaining allowance.
+    approvals.sort((a, b) =>
+      a.isUnlimited !== b.isUnlimited
+        ? Number(b.isUnlimited) - Number(a.isUnlimited)
+        : BigInt(a.allowanceRaw) < BigInt(b.allowanceRaw)
+          ? 1
+          : -1,
+    );
+    const cap = Math.min(limit || 60, 200);
+    const shown = approvals.slice(0, cap);
+    const notes = [];
+    if (shown.length)
+      notes.push(
+        "Each entry is a spender that CAN pull that token from the wallet right now. Revoke risky ones (unlimited especially) with buildRevoke, which sets the allowance to 0.",
+      );
+    else notes.push("No active (non-zero) ERC-20 approvals found for this wallet in the scanned scope.");
+    if (!scope)
+      notes.push(
+        "Unscoped scan — some entries may be phantom approvals from scam tokens that fake Approval logs and allowance() returns. For a trustworthy list, re-run with `tokens` set to the wallet's real holdings from getPortfolio.",
+      );
+    if (pairsTruncated)
+      notes.push(`Wallet has ${ordered.length} approval pairs; only the ${MAX_CHECK} most recent were checked. Use \`tokens\` to scope to real holdings.`);
+    if (approvals.length > shown.length) notes.push(`Showing the ${shown.length} riskiest of ${approvals.length} active approvals; raise \`limit\` for more.`);
+
+    return {
+      owner,
+      chain: chain ?? chainId ?? 1,
+      scanned: tokenAddress ? `token ${tokenAddress}` : scope ? `${scope.length} specified token(s)` : "all tokens on this chain",
+      activeApprovals: approvals.length,
+      unlimitedApprovals: approvals.filter(a => a.isUnlimited).length,
+      approvals: shown,
+      note: notes.join(" "),
+    };
+  },
+
+  async buildRevoke({ tokenAddress, spender, chainId, chain, tokenSymbol }) {
+    if (!tokenAddress || !spender) return { error: "tokenAddress and spender are required" };
+    const NAMED = { ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10, polygon: 137, gnosis: 100, xdai: 100 };
+    const id = chainId ?? NAMED[chain] ?? 1;
+    // approve(spender, 0) — the standard revoke. The wallet is msg.sender = owner,
+    // so no owner arg is needed. Simulate it before returning: Alchemy reports this
+    // as an APPROVE asset change of amount 0, which confirms the revoke.
+    return {
+      to: tokenAddress,
+      data: "0x095ea7b3" + padAddress(spender) + padUint256(0n),
+      value: "0x0",
+      chainId: id,
+      description: `Revoke ${spender}'s approval to spend ${tokenSymbol || tokenAddress} (set allowance to 0)`,
+    };
+  },
 };
 
 // ─── main ────────────────────────────────────────────────────────────────────
