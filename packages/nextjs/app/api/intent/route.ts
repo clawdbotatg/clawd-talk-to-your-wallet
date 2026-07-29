@@ -179,25 +179,37 @@ const intentTools = {
         if (result.error) {
           return { success: false, error: result.error.message || result.error, changes: result.changes || [] };
         }
-        const changes = (result.changes || []).map(
-          (c: {
-            changeType: string;
-            symbol: string;
-            amount: string;
-            rawAmount: string;
-            decimals: number;
-            assetType: string;
-            contractAddress?: string;
-          }) => ({
-            direction: c.changeType === "TRANSFER" ? "out" : c.changeType,
-            symbol: c.symbol,
-            amount: c.amount,
-            rawAmount: c.rawAmount,
-            decimals: c.decimals,
-            assetType: c.assetType,
-            contractAddress: c.contractAddress,
-          }),
-        );
+        const wallet = (from || "").toLowerCase();
+        const changes = (result.changes || [])
+          .filter(
+            (c: { changeType: string; from?: string; to?: string }) =>
+              c.changeType !== "TRANSFER" ||
+              (c.from || "").toLowerCase() === wallet ||
+              (c.to || "").toLowerCase() === wallet,
+          )
+          .map(
+            (c: {
+              changeType: string;
+              symbol: string;
+              amount: string;
+              rawAmount: string;
+              decimals: number;
+              assetType: string;
+              contractAddress?: string;
+              from?: string;
+              to?: string;
+            }) => ({
+              // direction relative to the user's wallet (Alchemy reports raw from/to)
+              direction:
+                c.changeType !== "TRANSFER" ? c.changeType : (c.to || "").toLowerCase() === wallet ? "in" : "out",
+              symbol: c.symbol,
+              amount: c.amount,
+              rawAmount: c.rawAmount,
+              decimals: c.decimals,
+              assetType: c.assetType,
+              contractAddress: c.contractAddress,
+            }),
+          );
         return { success: true, changes };
       } catch (e) {
         return {

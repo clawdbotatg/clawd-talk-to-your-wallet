@@ -12,18 +12,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@ai-sdk/anthropic@npm:^3.0.58":
-  version: 3.0.59
-  resolution: "@ai-sdk/anthropic@npm:3.0.59"
-  dependencies:
-    "@ai-sdk/provider": 3.0.8
-    "@ai-sdk/provider-utils": 4.0.20
-  peerDependencies:
-    zod: ^3.25.76 || ^4.1.8
-  checksum: 402ebb91bd844e3a830c52712e09ae3e4940ecd3c47535caaebf09d1906b7fbc417bd7db271c999992c94566ac6bd3b58614bd5da707a8155fad7d91de58e7b7
-  languageName: node
-  linkType: hard
-
 "@ai-sdk/gateway@npm:3.0.69":
   version: 3.0.69
   resolution: "@ai-sdk/gateway@npm:3.0.69"
@@ -75,22 +63,6 @@ __metadata:
   version: 5.2.0
   resolution: "@alloc/quick-lru@npm:5.2.0"
   checksum: bdc35758b552bcf045733ac047fb7f9a07c4678b944c641adfbd41f798b4b91fffd0fdc0df2578d9b0afc7b4d636aa6e110ead5d6281a2adc1ab90efd7f057f8
-  languageName: node
-  linkType: hard
-
-"@anthropic-ai/sdk@npm:^0.78.0":
-  version: 0.78.0
-  resolution: "@anthropic-ai/sdk@npm:0.78.0"
-  dependencies:
-    json-schema-to-ts: ^3.1.1
-  peerDependencies:
-    zod: ^3.25.0 || ^4.0.0
-  peerDependenciesMeta:
-    zod:
-      optional: true
-  bin:
-    anthropic-ai-sdk: bin/cli
-  checksum: dabebec70deb9937458db97a8573598d647f0afdf3800d26c2f148c69e69dc680bbb63b48f122d6d113471604dbfc5b999621c1f95463fa0df4ee15a71381611
   languageName: node
   linkType: hard
 
@@ -191,7 +163,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@babel/runtime@npm:^7.12.5, @babel/runtime@npm:^7.18.3, @babel/runtime@npm:^7.21.0, @babel/runtime@npm:^7.25.0, @babel/runtime@npm:^7.26.0":
+"@babel/runtime@npm:^7.12.5, @babel/runtime@npm:^7.21.0, @babel/runtime@npm:^7.25.0, @babel/runtime@npm:^7.26.0":
   version: 7.28.6
   resolution: "@babel/runtime@npm:7.28.6"
   checksum: 42d8a868c2fc2e9a77927945a6daa7ec03c7ea49e611e0d15442933cdabb12f20e3a6849c729259076c10a4247adec229331d1f94c2d0073ea0979d7853e29fd
@@ -2681,9 +2653,6 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@se-2/nextjs@workspace:packages/nextjs"
   dependencies:
-    "@ai-sdk/anthropic": ^3.0.58
-    "@ai-sdk/openai": ^3.0.41
-    "@anthropic-ai/sdk": ^0.78.0
     "@coinbase/x402": ^2.1.0
     "@heroicons/react": ~2.1.5
     "@rainbow-me/rainbowkit": 2.2.9
@@ -10015,16 +9984,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"json-schema-to-ts@npm:^3.1.1":
-  version: 3.1.1
-  resolution: "json-schema-to-ts@npm:3.1.1"
-  dependencies:
-    "@babel/runtime": ^7.18.3
-    ts-algebra: ^2.0.0
-  checksum: b616f1c2d7492502e11eec4f8e4539ee1e897543a679d929494afdc164d9557275cead8372747b73f239b1e68056ffbf551b03ae82d0047bba0dfe2bbd6b64f4
-  languageName: node
-  linkType: hard
-
 "json-schema-traverse@npm:^0.4.1":
   version: 0.4.1
   resolution: "json-schema-traverse@npm:0.4.1"
@@ -14495,13 +14454,6 @@ __metadata:
   version: 3.0.0
   resolution: "treeverse@npm:3.0.0"
   checksum: 73168d9887fa57b0719218f176c5a3cfbaaf310922879acb4adf76665bc17dcdb6ed3e4163f0c27eee17e346886186a1515ea6f87e96cdc10df1dce13bf622a0
-  languageName: node
-  linkType: hard
-
-"ts-algebra@npm:^2.0.0":
-  version: 2.0.0
-  resolution: "ts-algebra@npm:2.0.0"
-  checksum: 970b0e7db49cf8c1a8ff2a816eb047fac8add47511f5e4995e4998c56c6f7b226399284412de88f3e137ab55c857a4262c0d8f02f0765730e7d3a021de2ea7ef
   languageName: node
   linkType: hard
 

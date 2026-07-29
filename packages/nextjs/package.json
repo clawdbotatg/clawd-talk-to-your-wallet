@@ -16,9 +16,6 @@
     "vercel:login": "vercel login"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.58",
-    "@ai-sdk/openai": "^3.0.41",
-    "@anthropic-ai/sdk": "^0.78.0",
     "@coinbase/x402": "^2.1.0",
     "@heroicons/react": "~2.1.5",
     "@rainbow-me/rainbowkit": "2.2.9",
