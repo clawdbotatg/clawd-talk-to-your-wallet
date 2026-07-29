@@ -9,18 +9,20 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..", "..");
-// viem: prefer a local install (bridge/brain/tools/node_modules — `npm i` here),
+// deps: prefer a local install (bridge/brain/tools/node_modules — `npm i` here),
 // else fall back to the monorepo's copy under packages/nextjs
-const { namehash } = (() => {
+function requireFrom(pkg) {
   for (const anchor of [join(HERE, "package.json"), join(REPO_ROOT, "packages", "nextjs", "package.json")]) {
     try {
-      return createRequire(anchor)("viem/ens");
+      return createRequire(anchor)(pkg);
     } catch {
       /* try next */
     }
   }
-  throw new Error("viem not found — run `npm install` in bridge/brain/tools/ or `yarn install` at the repo root");
-})();
+  throw new Error(`${pkg} not found — run \`npm install\` in bridge/brain/tools/`);
+}
+const { namehash } = requireFrom("viem/ens");
+const viem = requireFrom("viem");
 const TOKEN_ADDRESS_FILE = JSON.parse(
   readFileSync(join(REPO_ROOT, "packages", "nextjs", "data", "token-addresses.json"), "utf8"),
 );
@@ -141,6 +143,122 @@ function mapZerionPosition(p) {
   };
 }
 
+// ─── Uniswap V4 (Universal Router) ───────────────────────────────────────────
+// Addresses verified against developers.uniswap.org/docs/protocols/v4/deployments
+const V4 = {
+  1: {
+    poolManager: "0x000000000004444c5dc75cB358380D2e3dE08A90",
+    quoter: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203",
+    stateView: "0x7ffe42c4a5deea5b0fec41c94c136cf115597227",
+    universalRouter: "0x66a9893cc07d91d95644aedd05d03f95e1dba8af",
+  },
+  8453: {
+    poolManager: "0x498581ff718922c3f8e6a244956af099b2652b2b",
+    quoter: "0x0d5e0f971ed27fbff6c2837bf31316121532048d",
+    stateView: "0xa3c0c9b65bad0b08107aa264b0f3db444b867a71",
+    universalRouter: "0x6ff5693b99212da76ad316178a184ab56d299b43",
+  },
+};
+const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+const NATIVE = "0x0000000000000000000000000000000000000000";
+// standard hookless fee tiers: [fee (hundredths of a bip), tickSpacing]
+const V4_FEE_TIERS = [
+  [100, 1],
+  [500, 10],
+  [3000, 60],
+  [10000, 200],
+];
+
+const POOL_KEY_ABI = [
+  { type: "address", name: "currency0" },
+  { type: "address", name: "currency1" },
+  { type: "uint24", name: "fee" },
+  { type: "int24", name: "tickSpacing" },
+  { type: "address", name: "hooks" },
+];
+
+function v4PoolId(key) {
+  return viem.keccak256(
+    viem.encodeAbiParameters(
+      [{ type: "tuple", components: POOL_KEY_ABI }],
+      [[key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks]],
+    ),
+  );
+}
+
+async function v4EthCall(chainId, to, abiItem, args) {
+  const data = viem.encodeFunctionData({ abi: [abiItem], functionName: abiItem.name, args });
+  const json = await rpc(alchemyUrl(chainId), "eth_call", [{ to, data }, "latest"]);
+  if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+  const decoded = viem.decodeFunctionResult({ abi: [abiItem], functionName: abiItem.name, data: json.result });
+  return Array.isArray(decoded) ? decoded : [decoded]; // single-output fns decode to a bare value
+}
+
+const STATEVIEW_GET_LIQUIDITY = {
+  type: "function",
+  name: "getLiquidity",
+  stateMutability: "view",
+  inputs: [{ type: "bytes32", name: "poolId" }],
+  outputs: [{ type: "uint128", name: "liquidity" }],
+};
+const QUOTER_EXACT_IN_SINGLE = {
+  type: "function",
+  name: "quoteExactInputSingle",
+  stateMutability: "nonpayable",
+  inputs: [
+    {
+      type: "tuple",
+      name: "params",
+      components: [
+        { type: "tuple", name: "poolKey", components: POOL_KEY_ABI },
+        { type: "bool", name: "zeroForOne" },
+        { type: "uint128", name: "exactAmount" },
+        { type: "bytes", name: "hookData" },
+      ],
+    },
+  ],
+  outputs: [
+    { type: "uint256", name: "amountOut" },
+    { type: "uint256", name: "gasEstimate" },
+  ],
+};
+const ERC20_ALLOWANCE = {
+  type: "function",
+  name: "allowance",
+  stateMutability: "view",
+  inputs: [
+    { type: "address", name: "owner" },
+    { type: "address", name: "spender" },
+  ],
+  outputs: [{ type: "uint256" }],
+};
+const PERMIT2_ALLOWANCE = {
+  type: "function",
+  name: "allowance",
+  stateMutability: "view",
+  inputs: [
+    { type: "address", name: "user" },
+    { type: "address", name: "token" },
+    { type: "address", name: "spender" },
+  ],
+  outputs: [
+    { type: "uint160", name: "amount" },
+    { type: "uint48", name: "expiration" },
+    { type: "uint32", name: "nonce" },
+  ],
+};
+const UR_EXECUTE = {
+  type: "function",
+  name: "execute",
+  stateMutability: "payable",
+  inputs: [
+    { type: "bytes", name: "commands" },
+    { type: "bytes[]", name: "inputs" },
+    { type: "uint256", name: "deadline" },
+  ],
+  outputs: [],
+};
+
 // ─── tools ───────────────────────────────────────────────────────────────────
 const tools = {
   async simulateAssetChanges({ from, to, data, value, chainId }) {
@@ -151,7 +269,9 @@ const tools = {
     if (!result) return { success: false, error: "No result from simulation", changes: [] };
     if (result.error) return { success: false, error: result.error.message || result.error, changes: result.changes || [] };
     const wallet = (from || "").toLowerCase();
-    const changes = (result.changes || []).map(c => ({
+    const touchesWallet = c =>
+      c.changeType !== "TRANSFER" || (c.from || "").toLowerCase() === wallet || (c.to || "").toLowerCase() === wallet;
+    const changes = (result.changes || []).filter(touchesWallet).map(c => ({
       // direction relative to the user's wallet (Alchemy gives raw from/to)
       direction:
         c.changeType !== "TRANSFER"
@@ -619,6 +739,149 @@ const tools = {
     } catch {
       return { logged: false };
     }
+  },
+
+  async buildUniV4Swap({ tokenIn, tokenOut, amountIn, chainId, fromAddress, slippagePct, fee, tickSpacing, hooks }) {
+    const chain = chainId ?? 1;
+    const v4 = V4[chain];
+    if (!v4) return { error: `Uniswap V4 swaps supported on chains ${Object.keys(V4).join(", ")} — got ${chain}` };
+
+    const norm = t => (!t || t.toUpperCase?.() === "ETH" || t === NATIVE ? NATIVE : t.toLowerCase());
+    const inAddr = norm(tokenIn);
+    const outAddr = norm(tokenOut);
+    if (inAddr === outAddr) return { error: "tokenIn and tokenOut are the same" };
+    const [currency0, currency1] = [inAddr, outAddr].sort();
+    const zeroForOne = inAddr === currency0;
+    const amount = safeBigInt(amountIn, 0); // raw units expected; hex ok
+    if (amount <= 0n) return { error: "amountIn must be > 0 (raw units)" };
+    if (amount >= 1n << 128n) return { error: "amountIn exceeds uint128" };
+
+    // 1+2. Find the pool and quote it. With explicit key params, quote just that
+    // pool; otherwise scan standard hookless fee tiers, quote every live one via
+    // the official V4 Quoter, and take the best output.
+    const hooksAddr = (hooks || NATIVE).toLowerCase();
+    const tiers = fee != null ? [[fee, tickSpacing ?? { 100: 1, 500: 10, 3000: 60, 10000: 200 }[fee]]] : V4_FEE_TIERS;
+    let poolKey = null;
+    let poolLiquidity = 0n;
+    let amountOut = 0n;
+    let sawPool = false;
+    for (const [f, ts] of tiers) {
+      if (ts == null) return { error: `tickSpacing required for non-standard fee ${f}` };
+      const key = { currency0, currency1, fee: f, tickSpacing: ts, hooks: hooksAddr };
+      try {
+        const [liq] = await v4EthCall(chain, v4.stateView, STATEVIEW_GET_LIQUIDITY, [v4PoolId(key)]);
+        if (liq === 0n) continue;
+        sawPool = true;
+        const [out] = await v4EthCall(chain, v4.quoter, QUOTER_EXACT_IN_SINGLE, [
+          { poolKey: key, zeroForOne, exactAmount: amount, hookData: "0x" },
+        ]);
+        if (out > amountOut) {
+          amountOut = out;
+          poolKey = key;
+          poolLiquidity = liq;
+        }
+      } catch {
+        /* tier doesn't exist or can't fill this size */
+      }
+    }
+    if (!poolKey)
+      return {
+        error: sawPool
+          ? `V4 pool(s) exist for this pair on chain ${chain} but none could quote this amount — likely too large for the available liquidity.`
+          : `No initialized hookless V4 pool found for this pair on chain ${chain}. If the pool uses hooks or a custom fee, pass fee/tickSpacing/hooks explicitly (find them on the pool's info page).`,
+      };
+    const slipBps = BigInt(Math.round((slippagePct ?? 1) * 100));
+    const minOut = (amountOut * (10000n - slipBps)) / 10000n;
+
+    // 3. Encode the swap via Uniswap's own SDKs (V4Planner + RoutePlanner)
+    const { V4Planner, Actions } = requireFrom("@uniswap/v4-sdk");
+    const { RoutePlanner, CommandType } = requireFrom("@uniswap/universal-router-sdk");
+    const planner = new V4Planner();
+    planner.addAction(Actions.SWAP_EXACT_IN_SINGLE, [
+      {
+        poolKey,
+        zeroForOne,
+        amountIn: amount.toString(),
+        amountOutMinimum: minOut.toString(),
+        hookData: "0x",
+      },
+    ]);
+    planner.addAction(Actions.SETTLE_ALL, [zeroForOne ? currency0 : currency1, amount.toString()]);
+    planner.addAction(Actions.TAKE_ALL, [zeroForOne ? currency1 : currency0, minOut.toString()]);
+    const route = new RoutePlanner();
+    route.addCommand(CommandType.V4_SWAP, [planner.actions, planner.params]);
+    const deadline = Math.floor(Date.now() / 1000) + 1800;
+    const swapData = viem.encodeFunctionData({
+      abi: [UR_EXECUTE],
+      functionName: "execute",
+      args: [route.commands, [planner.finalize()], BigInt(deadline)],
+    });
+
+    const quote = {
+      pool: { ...poolKey, liquidity: poolLiquidity.toString() },
+      amountIn: amount.toString(),
+      amountOut: amountOut.toString(),
+      amountOutMinimum: minOut.toString(),
+      slippagePct: slippagePct ?? 1,
+    };
+
+    const swapTx = {
+      to: v4.universalRouter,
+      data: swapData,
+      value: inAddr === NATIVE ? toHex(amount) : "0x0",
+      chainId: chain,
+    };
+
+    // 4. Native input needs no approvals — single transaction.
+    if (inAddr === NATIVE) return { ...swapTx, quote };
+
+    // ERC-20 input: Universal Router pulls through Permit2, so check both hops
+    if (!fromAddress) return { error: "fromAddress required for ERC-20 input (approval checks)" };
+    const steps = [];
+    try {
+      const [erc20Allow] = await v4EthCall(chain, inAddr, ERC20_ALLOWANCE, [fromAddress, PERMIT2]);
+      if (erc20Allow < amount) {
+        steps.push({
+          to: inAddr,
+          data: viem.encodeFunctionData({
+            abi: [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }],
+            functionName: "approve",
+            args: [PERMIT2, viem.maxUint256],
+          }),
+          value: "0x0",
+          chainId: chain,
+          description: "Approve token for Permit2 (one-time)",
+          label: "Approve",
+        });
+      }
+      const [p2Amount, p2Exp] = await v4EthCall(chain, PERMIT2, PERMIT2_ALLOWANCE, [fromAddress, inAddr, v4.universalRouter]);
+      if (p2Amount < amount || p2Exp <= Math.floor(Date.now() / 1000)) {
+        steps.push({
+          to: PERMIT2,
+          data: viem.encodeFunctionData({
+            abi: [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address", name: "token" }, { type: "address", name: "spender" }, { type: "uint160", name: "amount" }, { type: "uint48", name: "expiration" }], outputs: [] }],
+            functionName: "approve",
+            args: [inAddr, v4.universalRouter, (1n << 160n) - 1n, deadline + 30 * 24 * 3600],
+          }),
+          value: "0x0",
+          chainId: chain,
+          description: "Authorize Uniswap Universal Router via Permit2",
+          label: "Permit2",
+        });
+      }
+    } catch (e) {
+      return { error: `Allowance check failed: ${e.message}` };
+    }
+
+    if (steps.length === 0) return { ...swapTx, quote };
+    steps.push({ ...swapTx, description: "Swap via Uniswap V4", label: "Swap" });
+    return {
+      type: "multistep_transaction",
+      steps,
+      delay: 3000,
+      quote,
+      note: `${steps.length - 1} approval step(s) needed before the swap (token → Permit2 → Universal Router).`,
+    };
   },
 
   async getTokenLiquidity({ tokenAddress, chain }) {

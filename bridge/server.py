@@ -92,6 +92,24 @@ SECRET = _secret()
 
 VALID_TYPES = {"chat", "transaction", "multistep_transaction"}
 
+# ── training-data capture ────────────────────────────────────────────────────
+# Every turn (all users) appended as one JSONL record: the full prompt context,
+# the user message, and exactly what the agent answered. This file IS the
+# training set — keep it out of git (bridge/.gitignore).
+TURNS_LOG = os.environ.get("BRIDGE_TURNS_LOG", os.path.join(HERE, "turns.jsonl"))
+_log_lock = threading.Lock()
+
+
+def log_turn(record):
+    try:
+        record["ts"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        line = json.dumps(record, ensure_ascii=False)
+        with _log_lock:
+            with open(TURNS_LOG, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+    except Exception as e:  # noqa: BLE001 — logging must never break a turn
+        print(f"[turns] log failed: {e}", flush=True)
+
 _turns = threading.Semaphore(MAX_CONCURRENT)
 _active = {"n": 0}
 _active_lock = threading.Lock()
@@ -186,11 +204,26 @@ def handle_intent(body):
     if parsed and parsed.get("type") in VALID_TYPES:
         parsed["engine"] = "claude-p"
         print(f"[intent] {address[:10]}… {parsed['type']} in {dt:.1f}s", flush=True)
-        return 200, parsed
-    if text:
+        response = parsed
+    elif text:
         # Model spoke prose instead of the contract — still a usable chat reply.
         print(f"[intent] {address[:10]}… non-contract reply in {dt:.1f}s", flush=True)
-        return 200, {"type": "chat", "message": text, "engine": "claude-p"}
+        response = {"type": "chat", "message": text, "engine": "claude-p"}
+    else:
+        response = None
+
+    log_turn({
+        "wallet": address,
+        "message": message,
+        "context": context,
+        "raw_reply": text,
+        "response": response,
+        "contract": bool(parsed and parsed.get("type") in VALID_TYPES),
+        "duration_s": round(dt, 1),
+        "engine": "claude-p",
+    })
+    if response:
+        return 200, response
     return 502, {"type": "chat", "message": "empty reply from agent"}
 
 

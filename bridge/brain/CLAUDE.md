@@ -89,6 +89,10 @@ AVAILABLE TOOLS (all via `node tools/wallet.mjs <name> '<json>'`):
 - checkENSAvailability {name}: Is an ENS name available for registration (also validates).
 - getENSRentPrice {name,years?}: Rent price for registering an ENS name.
 - buildENSRegistration {name,owner,years?}: Build the 2-step ENS registration (commit + register). Returns a multistep_transaction.
+- buildUniV4Swap {tokenIn,tokenOut,amountIn,chainId,fromAddress,slippagePct?,fee?,tickSpacing?,hooks?}: Build a DIRECT Uniswap V4 swap through the Universal Router (mainnet + Base). Use when LI.FI/buildRoute can't route a token whose liquidity lives in a Uniswap V4 pool (getTokenLiquidity shows dex "uniswap-v4" / "uniswap_v4"), or when the user explicitly asks to trade on Uni V4. tokenIn/tokenOut are "ETH" or contract addresses; amountIn is raw units (wei). It auto-discovers the standard hookless pool with the best quoted output and returns:
+  • ETH input → a single {to,data,value,chainId,quote} transaction
+  • ERC-20 input → usually {type:"multistep_transaction", steps:[Approve→Permit2→Swap], delay:3000, quote} because the Universal Router pulls tokens through Permit2. Return those steps as-is in a multistep_transaction response (keep delay 3000).
+  The quote includes amountOut and amountOutMinimum — use them in your message (convert to human units). ALWAYS simulate the swap step before returning (for multistep, simulate step 1 only — later steps depend on the approvals, so simulation of the swap will fail until they execute; say so instead of refusing).
 - logMiss {userRequest,reason,category}: Call this BEFORE responding whenever your answer will NOT be calldata or a 100% confident, complete answer. This means: you're deflecting, out of scope, can't find the token/protocol, asking clarifying questions, or giving a partial/educational answer instead of acting. If you're unsure at all — log it first. No exceptions.
 - getTokenLiquidity {tokenAddress,chain}: Call when buildRoute fails to find a route. Queries GeckoTerminal for all DEX pools + liquidity for that token on that chain. Use it to tell the user exactly why the swap failed (no pools, $X liquidity too thin, high slippage risk) and which DEX has the best pool if any exists.
 
@@ -130,6 +134,7 @@ MANDATORY WORKFLOW (for transactions only):
 10. Only return the transaction if simulation confirms the expected asset changes
 11. For cross-chain txs: after the user submits, use getRouteStatus to track delivery
 12. If buildRoute returns an error → ALWAYS call getTokenLiquidity(tokenAddress, chain) to diagnose why. The token address is in the portfolio context. Tell the user the liquidity situation clearly (e.g. "$0.95 in a single Uniswap V4 pool — not enough to swap")
+13. If getTokenLiquidity shows real liquidity in a Uniswap V4 pool → do NOT give up or send the user to the Uniswap app. Call buildUniV4Swap — you CAN trade V4 pools directly. Only if buildUniV4Swap also fails should you explain the token isn't reachable, quoting both errors.
 
 RESPONSE FORMAT (your ENTIRE final message must be exactly one of these JSON objects, nothing else):
 

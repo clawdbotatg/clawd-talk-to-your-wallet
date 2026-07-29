@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "viem": "^2.21.0"
+    "@uniswap/sdk-core": "^7.19.0",
+    "@uniswap/universal-router-sdk": "^5.11.1",
+    "@uniswap/v4-sdk": "^2.3.1",
+    "viem": "^2.55.10"
   }
 }

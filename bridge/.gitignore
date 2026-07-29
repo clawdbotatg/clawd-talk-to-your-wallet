@@ -1,3 +1,4 @@
 .env
 .bridge-secret
 .memory/
+turns.jsonl
