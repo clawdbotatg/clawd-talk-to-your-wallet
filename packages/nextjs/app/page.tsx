@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import type { NextPage } from "next";
 import { useAccount } from "wagmi";
 import ActivityPanel from "~~/components/ActivityPanel";
@@ -234,21 +235,21 @@ const Home: NextPage = () => {
     }
   }, [messages, isProcessing]);
 
-  const CV_COST_PAGE_LOAD = 5_000;
   // cvCharged persists across wallet switches — we charge once per session, not per wallet
   const [cvCharged, setCvCharged] = useState(false);
   const [cvChargeError, setCvChargeError] = useState<string | null>(null);
 
-  // Charge CV once per session as soon as we have a sig — does NOT block portfolio on failure
+  // Charge once per session (CV first, USDC credits fallback) as soon as we have
+  // a sig — does NOT block portfolio on failure
   useEffect(() => {
     if (!address || !authHeaders || !cvSignature || !cvWallet || cvCharged) return;
 
     const charge = async () => {
       try {
-        const cvRes = await fetch("/api/cv/spend", {
+        const cvRes = await fetch("/api/credits/spend", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders },
-          body: JSON.stringify({ wallet: cvWallet, signature: cvSignature, amount: CV_COST_PAGE_LOAD }),
+          body: JSON.stringify({ kind: "page_load" }),
         });
         const cvData = await cvRes.json();
         if (cvData.success) {
@@ -257,19 +258,19 @@ const Home: NextPage = () => {
           setCvCharged(true);
           setCvChargeError(null);
         } else {
-          // Only hard-block if truly insufficient CV (402) — other errors let the app load
+          // Only hard-block if truly insufficient (402: no CV and no USDC) — other errors let the app load
           if (cvRes.status === 402) {
-            setCvChargeError(cvData.error || "Insufficient CV balance");
+            setCvChargeError(cvData.error || "Insufficient balance");
           } else {
             // Soft fail — let the app load, log the issue
-            console.error("[CV charge soft-fail]", cvData.error);
+            console.error("[charge soft-fail]", cvData.error);
             setCvCharged(true);
           }
           fetchCvBalance(cvWallet);
         }
       } catch {
         // Network error — let the app load rather than hard-block
-        console.error("[CV charge network error]");
+        console.error("[charge network error]");
         setCvCharged(true);
       }
     };
@@ -482,10 +483,17 @@ const Home: NextPage = () => {
               </p>
               <div className="h-px w-48" style={{ backgroundColor: "rgba(201, 168, 76, 0.3)" }} />
               <RainbowKitCustomConnectButton />
+              <Link
+                href="/pay"
+                className="text-sm no-underline hover:underline"
+                style={{ color: "#8A8578", textShadow: "0 1px 12px rgba(0,0,0,0.9)" }}
+              >
+                or pay with <span style={{ color: "#C9A84C" }}>USDC</span>
+              </Link>
             </div>
           </div>
         ) : cvChargeError ? (
-          // CV charge failed — block the app
+          // Charge failed — block the app
           <div
             className="fixed inset-0 flex flex-col items-center justify-center gap-6"
             style={{ backgroundColor: "#0a0a0a" }}
@@ -497,10 +505,25 @@ const Home: NextPage = () => {
                 className="font-[family-name:var(--font-cinzel)] text-2xl font-bold tracking-[0.15em]"
                 style={{ color: "#C9A84C" }}
               >
-                Insufficient CV
+                Insufficient Balance
               </h2>
               <p className="text-sm" style={{ color: "#8A8578", lineHeight: "1.6" }}>
-                Denarai costs <strong style={{ color: "#E8E4DC" }}>5,000 CV</strong> per page load. Stake $CLAWD on{" "}
+                Denarai costs <strong style={{ color: "#E8E4DC" }}>5,000 CV</strong> or{" "}
+                <strong style={{ color: "#E8E4DC" }}>$0.001 USDC</strong> per page load.
+              </p>
+              <Link
+                href="/pay"
+                className="px-6 py-2 font-[family-name:var(--font-cinzel)] text-sm font-bold tracking-[0.15em] no-underline"
+                style={{
+                  color: "#0a0a0a",
+                  backgroundColor: "#C9A84C",
+                  border: "1px solid #C9A84C",
+                }}
+              >
+                TOP UP WITH USDC
+              </Link>
+              <p className="text-sm" style={{ color: "#8A8578", lineHeight: "1.6" }}>
+                or stake $CLAWD on{" "}
                 <a
                   href="https://larv.ai/stake"
                   target="_blank"
@@ -509,7 +532,7 @@ const Home: NextPage = () => {
                 >
                   larv.ai
                 </a>{" "}
-                to earn more CV.
+                to earn CV.
               </p>
               {cvBalance !== null && (
                 <p className="text-xs" style={{ color: "#8A8578" }}>

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "~~/app/api/_lib/auth";
+import { LARV_AI_BASE_URL } from "~~/app/api/_lib/chainConfig";
 
-const LARV_AI_SPEND_URL = "https://larv.ai/api/cv/spend";
+const LARV_AI_SPEND_URL = `${LARV_AI_BASE_URL}/api/cv/spend`;
 const CV_SPEND_SECRET = process.env.CV_SPEND_SECRET;
 
 export async function POST(req: NextRequest) {

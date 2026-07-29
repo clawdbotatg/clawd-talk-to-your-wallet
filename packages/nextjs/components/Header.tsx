@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useEffect } from "react";
+import Link from "next/link";
 import { useAccount } from "wagmi";
 import AddressChip from "~~/components/AddressChip";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useCvAuth } from "~~/hooks/useCvAuth";
+import { formatUsdc, useUsdcCredits } from "~~/hooks/useUsdcCredits";
 
 const formatCv = (balance: number): string => {
   if (balance >= 1_000_000_000) return `${(balance / 1_000_000_000).toFixed(1)}B`;
@@ -16,6 +18,7 @@ const formatCv = (balance: number): string => {
 export const Header = () => {
   const { address, isConnected } = useAccount();
   const { cvBalance, cvWallet, hasCvSig, fetchCvBalance } = useCvAuth();
+  const { usdcMicro, topupsEnabled } = useUsdcCredits(isConnected ? cvWallet || address || null : null);
 
   const cvWalletDiffers = isConnected && cvWallet && address && cvWallet.toLowerCase() !== address.toLowerCase();
 
@@ -77,6 +80,25 @@ export const Header = () => {
               {cvBalance !== null ? `${formatCv(cvBalance)} CV` : "— CV"}
             </span>
           </div>
+        )}
+        {/* USDC credit chip — hidden until the ledger is reachable and top-ups are configured */}
+        {isConnected && usdcMicro !== null && topupsEnabled && (
+          <Link
+            href="/pay"
+            className="flex items-center gap-2 px-3 py-1 rounded-sm no-underline"
+            style={{
+              border: "1px solid rgba(201, 168, 76, 0.3)",
+              backgroundColor: "rgba(201, 168, 76, 0.05)",
+            }}
+            title="Your USDC credit balance — click to top up"
+          >
+            <span className="font-[family-name:var(--font-jetbrains)] text-sm font-medium" style={{ color: "#C9A84C" }}>
+              {formatUsdc(usdcMicro)}
+            </span>
+            <span className="text-xs" style={{ color: "#8A8578" }}>
+              top up
+            </span>
+          </Link>
         )}
         <RainbowKitCustomConnectButton />
       </div>

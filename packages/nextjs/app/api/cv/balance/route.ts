@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { LARV_AI_BASE_URL } from "~~/app/api/_lib/chainConfig";
 
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get("address");
@@ -7,7 +8,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const res = await fetch(`https://larv.ai/api/cv/balance?address=${address}`, {
+    const res = await fetch(`${LARV_AI_BASE_URL}/api/cv/balance?address=${address}`, {
       headers: { "Content-Type": "application/json" },
     });
     const data = await res.json();

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyMessage } from "viem";
+import { getPublicClient } from "./chainConfig";
 
 const CV_SPEND_MESSAGE = "larv.ai CV Spend";
 
-export async function requireAuth(request: NextRequest): Promise<{ address: string } | NextResponse> {
+export async function requireAuth(
+  request: NextRequest,
+): Promise<{ address: string; cvWallet: string; cvSignature: string } | NextResponse> {
   // New auth: CV wallet + CV sig — one signature covers everything
   const cvWallet = request.headers.get("x-denarai-cv-wallet");
   const cvSig = request.headers.get("x-denarai-cv-sig");
@@ -14,9 +16,10 @@ export async function requireAuth(request: NextRequest): Promise<{ address: stri
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Verify CV signature — proves ownership of cvWallet
+  // Verify CV signature — proves ownership of cvWallet.
+  // publicClient.verifyMessage handles both EOAs and ERC-1271 smart wallets.
   try {
-    const valid = await verifyMessage({
+    const valid = await getPublicClient().verifyMessage({
       address: cvWallet as `0x${string}`,
       message: CV_SPEND_MESSAGE,
       signature: cvSig as `0x${string}`,
@@ -28,5 +31,5 @@ export async function requireAuth(request: NextRequest): Promise<{ address: stri
     return NextResponse.json({ error: "Invalid CV signature" }, { status: 401 });
   }
 
-  return { address: address as string };
+  return { address: address as string, cvWallet, cvSignature: cvSig };
 }
