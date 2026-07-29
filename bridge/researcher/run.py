@@ -54,6 +54,27 @@ ALLOWED_PATHS = ("bridge/brain/skills/", "bridge/brain/tools/wallet.mjs", "bridg
 DOC_ONLY = ("bridge/brain/skills/", "bridge/brain/CLAUDE.md")
 
 
+RESEARCH_GUARD = os.path.join(HERE, "hooks", "research_guard.py")
+RESEARCH_SETTINGS = os.path.join(HERE, ".research-settings.json")
+
+
+def _write_research_settings():
+    """Hook config: the researcher's shell is limited to verification commands."""
+    with open(RESEARCH_SETTINGS, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {"matcher": "Bash", "hooks": [{"type": "command", "command": f"python3 {RESEARCH_GUARD}"}]}
+                    ]
+                }
+            },
+            f,
+            indent=2,
+        )
+    return RESEARCH_SETTINGS
+
+
 def sh(*args, **kw):
     return subprocess.run(args, cwd=REPO, capture_output=True, text=True, **kw)
 
@@ -189,7 +210,36 @@ def ship(gap_text):
 
     skills = [c for c in changed if c.startswith("bridge/brain/skills/")]
     code = [c for c in changed if not c.startswith("bridge/brain/skills/")]
+
+    # A skill goes live the moment it exists, so an UNPROVEN one is a liability:
+    # it would speak with the corpus's authority about money. Quarantine any whose
+    # `verified:` line is missing or still a placeholder.
+    quarantined = []
+    for s in list(skills):
+        full = os.path.join(REPO, s)
+        if not s.endswith(".md") or not os.path.isfile(full):
+            continue
+        try:
+            head = open(full, encoding="utf-8").read(1200)
+        except OSError:
+            continue
+        m = re.search(r"^verified:\s*(.*)$", head, re.M)
+        val = (m.group(1) if m else "").strip()
+        if (not val) or re.search(r"pending|tbd|todo|unverified|n/?a", val, re.I):
+            qdir = os.path.join(BRIDGE, "research-quarantine")
+            os.makedirs(qdir, exist_ok=True)
+            dest = os.path.join(qdir, f"{slug(s)}-{int(time.time())}.md")
+            os.replace(full, dest)
+            try:                                  # drop the now-empty skill dir
+                os.rmdir(os.path.dirname(full))
+            except OSError:
+                pass
+            skills.remove(s)
+            quarantined.append({"skill": s, "verified": val or "(missing)", "moved_to": dest})
+
     result = {"shipped": "nothing", "skills_live": skills, "stray_reverted": stray}
+    if quarantined:
+        result["quarantined_unverified"] = quarantined
 
     if code:
         patch_dir = os.path.join(BRIDGE, "research-patches")
@@ -231,7 +281,11 @@ def research(gap_text, miss=None):
             extra_args=[
                 "--model", MODEL,
                 "--max-turns", "80",
-                "--permission-mode", "acceptEdits",
+                # acceptEdits alone blocks Bash, so the agent can never prove its
+                # work; bypassPermissions would give it an unrestricted shell on a
+                # prompt containing attacker-influenceable miss text. Guarded shell:
+                "--permission-mode", "bypassPermissions",
+                "--settings", _write_research_settings(),
                 "--add-dir", REPO,
                 "--disallowedTools", "Task",
             ],

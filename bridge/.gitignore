@@ -11,3 +11,5 @@ __pycache__/
 ops-alerts.log
 .ops-alert-state
 turns-archive/
+research-quarantine/
+.research-settings.json

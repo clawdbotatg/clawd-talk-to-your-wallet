@@ -135,14 +135,64 @@ outage. `engine` in every response tells you which one served.
 
 ---
 
-## 6. Known gaps / next
+## 6. The self-research loop (it runs itself)
 
-- **No self-research loop yet.** `logMiss` writes misses to a gist; nothing consumes
-  them. The intended design: a second `claude -p` agent that reads new misses + the
-  matching turns, researches (docs + on-chain), and writes `brain/skills/<topic>/SKILL.md`
-  and/or a new tool — docs auto-merge, transaction-building code goes through a PR.
-- **No skills corpus.** Knowledge the agent learns is currently only ever written into
-  CLAUDE.md by a human. `brain/skills/` + a persona rule to consult it is the cheap
-  version of retrieval (no vector DB needed at this scale).
+The agent is wired to grow its own capability. You mostly **review** this rather than
+drive it:
+
+```
+live agent can't do something
+   └→ logMiss  →  bridge/misses.jsonl  (local queue)
+                        │
+        researcher (cron 05:37 daily, or run it by hand)
+        bridge/researcher/run.py — a second `claude -p` agent, persona in
+        bridge/researcher/CLAUDE.md, reads the miss + the real turns that hit it,
+        researches docs + on-chain (using the live agent's own tools), then:
+             ├→ writes brain/skills/<topic>/SKILL.md   → LIVE IMMEDIATELY
+             │    (the agent reads skills from disk via listSkills/readSkill;
+             │     untracked files don't block deploy pulls)
+             └→ code changes → bridge/research-patches/*.patch, tree restored clean
+                  (transaction-building code gets human review; it is NOT live)
+```
+
+Run it yourself:
+
+```bash
+ssh zkllmapi 'cd ~/clawd-talk-to-your-wallet && python3 bridge/researcher/run.py --dry-run'
+ssh zkllmapi 'cd ~/clawd-talk-to-your-wallet && python3 bridge/researcher/run.py --gap "describe the gap"'
+ssh zkllmapi 'cd ~/clawd-talk-to-your-wallet && python3 bridge/researcher/run.py --harvest'   # what's pending
+```
+
+**Your job as a coding agent: harvest.** New skills live only on the box until someone
+commits them; patches need review. `--harvest` lists both. Read
+`bridge/research-log.jsonl` for what each run concluded. Review a patch as you would a
+PR — especially that any calldata path is simulated — then apply, commit, push, deploy.
+
+The box has **no git push credentials** (deliberately: nothing autonomous pushes to
+main). That's why skills land on disk and code lands as patches.
+
+## 7. Operations
+
+Installed on the box via cron:
+
+| Job | Schedule | What |
+|---|---|---|
+| `bridge/ops/healthcheck.sh` | every 10 min | alerts if the bridge is down, refusing for lack of subscription headroom, or the box's `claude` login died. Set `ALERT_WEBHOOK` in `bridge/.env` for push alerts; always appends to `bridge/ops-alerts.log`. |
+| `bridge/ops/rotate-turns.sh` | 04:17 daily | daily compressed snapshot + size rotation of `turns.jsonl` into `bridge/turns-archive/` (the corpus exists only on this box) |
+| `bridge/researcher/run.py` | 05:37 daily | processes queued misses (see above) |
+
+Security boundary worth knowing before you touch it: the live agent's Bash is limited
+to **one** `node tools/wallet.mjs …` call by `brain/hooks/bash_guard.py` (a PreToolUse
+hook), because `--allowedTools` only prefix-matches and `; cat .env` defeated it —
+verified. Read/Glob/Grep are disallowed, which is why the skills corpus is exposed as
+`listSkills`/`readSkill` tools rather than file reads. Don't "simplify" that away.
+
+## 8. Known gaps / next
+
 - **Etherscan ABI fallback** — `getContractSource` uses Blockscout only; unverified
   contracts remain opaque.
+- **Nothing mines `turns.jsonl` for quality**, only misses. A nightly pass that finds
+  turns which *succeeded badly* (wrong answer, `contract: false`) and queues them as
+  gaps would close the loop the rest of the way.
+- **No eval set.** There's no regression suite of "questions that used to be answered
+  wrong"; each fix is verified once, by hand.
