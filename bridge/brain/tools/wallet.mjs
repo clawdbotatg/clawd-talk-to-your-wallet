@@ -247,6 +247,47 @@ const PERMIT2_ALLOWANCE = {
     { type: "uint32", name: "nonce" },
   ],
 };
+// PoolManager Initialize event — the on-chain registry of every V4 pool's PoolKey
+const V4_INITIALIZE_EVENT =
+  "event Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, uint24 fee, int24 tickSpacing, address hooks, uint160 sqrtPriceX96, int24 tick)";
+// PoolManager deployment blocks (fallback when fromBlock 0x0 is rejected)
+const V4_DEPLOY_BLOCK = { 1: 21688329, 8453: 25350988 };
+
+async function v4GetLogs(chain, topics, fromBlock) {
+  const json = await rpc(alchemyUrl(chain), "eth_getLogs", [
+    { address: V4[chain].poolManager, topics, fromBlock, toBlock: "latest" },
+  ]);
+  if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+  return json.result || [];
+}
+
+/** Every V4 pool ever initialized for a currency pair (or a specific poolId), hooks included. */
+async function findV4Pools(chain, { currency0, currency1, poolId }) {
+  const abiItem = viem.parseAbiItem(V4_INITIALIZE_EVENT);
+  const topics = viem.encodeEventTopics({
+    abi: [abiItem],
+    eventName: "Initialize",
+    args: poolId ? { id: poolId } : { currency0, currency1 },
+  });
+  let logs;
+  try {
+    logs = await v4GetLogs(chain, topics, "0x0");
+  } catch {
+    logs = await v4GetLogs(chain, topics, toHex(BigInt(V4_DEPLOY_BLOCK[chain])));
+  }
+  return logs.map(l => {
+    const { args } = viem.decodeEventLog({ abi: [abiItem], data: l.data, topics: l.topics });
+    return {
+      poolId: args.id,
+      currency0: args.currency0.toLowerCase(),
+      currency1: args.currency1.toLowerCase(),
+      fee: Number(args.fee),
+      tickSpacing: Number(args.tickSpacing),
+      hooks: args.hooks.toLowerCase(),
+    };
+  });
+}
+
 const UR_EXECUTE = {
   type: "function",
   name: "execute",
@@ -741,7 +782,7 @@ const tools = {
     }
   },
 
-  async buildUniV4Swap({ tokenIn, tokenOut, amountIn, chainId, fromAddress, slippagePct, fee, tickSpacing, hooks }) {
+  async buildUniV4Swap({ tokenIn, tokenOut, amountIn, chainId, fromAddress, slippagePct, fee, tickSpacing, hooks, poolId }) {
     const chain = chainId ?? 1;
     const v4 = V4[chain];
     if (!v4) return { error: `Uniswap V4 swaps supported on chains ${Object.keys(V4).join(", ")} — got ${chain}` };
@@ -756,40 +797,77 @@ const tools = {
     if (amount <= 0n) return { error: "amountIn must be > 0 (raw units)" };
     if (amount >= 1n << 128n) return { error: "amountIn exceeds uint128" };
 
-    // 1+2. Find the pool and quote it. With explicit key params, quote just that
-    // pool; otherwise scan standard hookless fee tiers, quote every live one via
-    // the official V4 Quoter, and take the best output.
-    const hooksAddr = (hooks || NATIVE).toLowerCase();
-    const tiers = fee != null ? [[fee, tickSpacing ?? { 100: 1, 500: 10, 3000: 60, 10000: 200 }[fee]]] : V4_FEE_TIERS;
-    let poolKey = null;
-    let poolLiquidity = 0n;
-    let amountOut = 0n;
-    let sawPool = false;
-    for (const [f, ts] of tiers) {
-      if (ts == null) return { error: `tickSpacing required for non-standard fee ${f}` };
-      const key = { currency0, currency1, fee: f, tickSpacing: ts, hooks: hooksAddr };
-      try {
-        const [liq] = await v4EthCall(chain, v4.stateView, STATEVIEW_GET_LIQUIDITY, [v4PoolId(key)]);
-        if (liq === 0n) continue;
-        sawPool = true;
-        const [out] = await v4EthCall(chain, v4.quoter, QUOTER_EXACT_IN_SINGLE, [
-          { poolKey: key, zeroForOne, exactAmount: amount, hookData: "0x" },
-        ]);
-        if (out > amountOut) {
-          amountOut = out;
-          poolKey = key;
-          poolLiquidity = liq;
-        }
-      } catch {
-        /* tier doesn't exist or can't fill this size */
-      }
+    // 1. Collect candidate PoolKeys:
+    //    - explicit fee/tickSpacing/hooks or poolId → just that pool
+    //    - otherwise the PoolManager's Initialize logs are the ground truth for
+    //      EVERY pool ever created for this pair — hooked and non-standard
+    //      included. (No app, no indexer: the chain itself.)
+    let candidates;
+    if (fee != null) {
+      const ts = tickSpacing ?? { 100: 1, 500: 10, 3000: 60, 10000: 200 }[fee];
+      if (ts == null) return { error: `tickSpacing required for non-standard fee ${fee}` };
+      candidates = [{ currency0, currency1, fee, tickSpacing: ts, hooks: (hooks || NATIVE).toLowerCase() }];
+    } else if (poolId) {
+      candidates = await findV4Pools(chain, { poolId });
+      if (candidates.length === 0) return { error: `No Initialize event found for poolId ${poolId} on chain ${chain}` };
+      const c = candidates[0];
+      if (c.currency0 !== currency0 || c.currency1 !== currency1)
+        return { error: `poolId ${poolId} is for pair ${c.currency0}/${c.currency1}, not the requested tokens` };
+    } else {
+      candidates = await findV4Pools(chain, { currency0, currency1 });
+      if (candidates.length === 0)
+        return { error: `No V4 pool has ever been initialized for this pair on chain ${chain} (checked PoolManager Initialize logs).` };
     }
-    if (!poolKey)
+
+    // 2. Liquidity-sweep all candidates in parallel, then quote the live ones.
+    //    Policy: best HOOKLESS pool wins; unknown hooks are only considered when
+    //    no hookless pool can serve, and the result carries a hookWarning —
+    //    a too-good quote from an arbitrary hook is how users get rugged.
+    const keys = candidates.map(c => ({ currency0, currency1, fee: c.fee, tickSpacing: c.tickSpacing, hooks: c.hooks }));
+    const liqs = await Promise.all(
+      keys.map(key =>
+        v4EthCall(chain, v4.stateView, STATEVIEW_GET_LIQUIDITY, [v4PoolId(key)]).then(
+          ([liq]) => liq,
+          () => 0n,
+        ),
+      ),
+    );
+    const live = keys.map((key, i) => ({ key, liq: liqs[i] })).filter(p => p.liq > 0n);
+    const failures = [];
+    const quoted = (
+      await Promise.all(
+        live.map(p =>
+          v4EthCall(chain, v4.quoter, QUOTER_EXACT_IN_SINGLE, [
+            { poolKey: p.key, zeroForOne, exactAmount: amount, hookData: "0x" },
+          ]).then(
+            ([out]) => ({ ...p, out }),
+            e => {
+              failures.push(`fee ${p.key.fee}/${p.key.tickSpacing}${p.key.hooks !== NATIVE ? ` hooks ${p.key.hooks.slice(0, 10)}…` : ""}: ${e.message?.slice(0, 80)}`);
+              return null;
+            },
+          ),
+        ),
+      )
+    ).filter(Boolean);
+    const best = arr => arr.reduce((a, b) => (b.out > (a?.out ?? 0n) ? b : a), null);
+    const bestHookless = best(quoted.filter(p => p.key.hooks === NATIVE));
+    const bestHooked = best(quoted.filter(p => p.key.hooks !== NATIVE));
+    const pick = bestHookless || bestHooked;
+    if (!pick)
       return {
-        error: sawPool
-          ? `V4 pool(s) exist for this pair on chain ${chain} but none could quote this amount — likely too large for the available liquidity.`
-          : `No initialized hookless V4 pool found for this pair on chain ${chain}. If the pool uses hooks or a custom fee, pass fee/tickSpacing/hooks explicitly (find them on the pool's info page).`,
+        error:
+          live.length > 0
+            ? `${live.length} live V4 pool(s) for this pair on chain ${chain} but none could quote this amount — too large for the liquidity, or the pools' hooks reject plain swaps.`
+            : `Found ${candidates.length} pool(s) via Initialize logs but none has liquidity.`,
+        quoteFailures: failures.slice(0, 4),
       };
+    const poolKey = pick.key;
+    const poolLiquidity = pick.liq;
+    const amountOut = pick.out;
+    const hookWarning =
+      poolKey.hooks !== NATIVE
+        ? `This pool uses a custom hook (${poolKey.hooks}) — behavior at execution can differ from the quote. Simulation is mandatory; tell the user about the hook.`
+        : undefined;
     const slipBps = BigInt(Math.round((slippagePct ?? 1) * 100));
     const minOut = (amountOut * (10000n - slipBps)) / 10000n;
 
@@ -823,6 +901,7 @@ const tools = {
       amountOut: amountOut.toString(),
       amountOutMinimum: minOut.toString(),
       slippagePct: slippagePct ?? 1,
+      ...(hookWarning ? { hookWarning } : {}),
     };
 
     const swapTx = {
@@ -882,6 +961,69 @@ const tools = {
       quote,
       note: `${steps.length - 1} approval step(s) needed before the swap (token → Permit2 → Universal Router).`,
     };
+  },
+
+  // ─── generic on-chain research: read ANY contract state or event history ──
+
+  async ethCall({ to, signature, args, chainId, chain }) {
+    const rpcUrl = chain ? RPC_URLS[chain]?.() : alchemyUrl(chainId ?? 1);
+    if (!rpcUrl) return { error: `Unknown chain '${chain}'` };
+    try {
+      const abiItem = viem.parseAbiItem(signature.startsWith("function") ? signature : `function ${signature}`);
+      const data = viem.encodeFunctionData({ abi: [abiItem], functionName: abiItem.name, args: args || [] });
+      const json = await rpc(rpcUrl, "eth_call", [{ to, data }, "latest"]);
+      if (json.error) return { error: json.error.message || JSON.stringify(json.error) };
+      if (!json.result || json.result === "0x") return { error: "empty return (wrong address, signature, or reverted)" };
+      const decoded = viem.decodeFunctionResult({ abi: [abiItem], functionName: abiItem.name, data: json.result });
+      const jsonify = v =>
+        typeof v === "bigint" ? v.toString() : Array.isArray(v) ? v.map(jsonify) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, jsonify(x)])) : v;
+      return { result: jsonify(decoded) };
+    } catch (e) {
+      return { error: `ethCall failed: ${e.message}` };
+    }
+  },
+
+  async getLogs({ address, eventSignature, indexedArgs, fromBlock, toBlock, chainId, chain, limit }) {
+    const rpcUrl = chain ? RPC_URLS[chain]?.() : alchemyUrl(chainId ?? 1);
+    if (!rpcUrl) return { error: `Unknown chain '${chain}'` };
+    try {
+      const abiItem = viem.parseAbiItem(eventSignature.startsWith("event") ? eventSignature : `event ${eventSignature}`);
+      const topics = viem.encodeEventTopics({ abi: [abiItem], eventName: abiItem.name, args: indexedArgs || {} });
+      const json = await rpc(rpcUrl, "eth_getLogs", [
+        {
+          address,
+          topics,
+          fromBlock: fromBlock != null ? toHex(BigInt(fromBlock)) : "0x0",
+          toBlock: toBlock != null ? toHex(BigInt(toBlock)) : "latest",
+        },
+      ]);
+      if (json.error) return { error: json.error.message || JSON.stringify(json.error), hint: "Alchemy caps log queries — narrow the block range or add indexed filters." };
+      const jsonify = v =>
+        typeof v === "bigint" ? v.toString() : Array.isArray(v) ? v.map(jsonify) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, jsonify(x)])) : v;
+      const logs = (json.result || []).slice(0, Math.min(limit || 25, 100)).map(l => {
+        try {
+          const { args: a } = viem.decodeEventLog({ abi: [abiItem], data: l.data, topics: l.topics });
+          return { blockNumber: parseInt(l.blockNumber, 16), txHash: l.transactionHash, args: jsonify(a) };
+        } catch {
+          return { blockNumber: parseInt(l.blockNumber, 16), txHash: l.transactionHash, raw: { data: l.data, topics: l.topics } };
+        }
+      });
+      return { totalFound: (json.result || []).length, returned: logs.length, logs };
+    } catch (e) {
+      return { error: `getLogs failed: ${e.message}` };
+    }
+  },
+
+  async getCode({ address, chainId, chain }) {
+    const rpcUrl = chain ? RPC_URLS[chain]?.() : alchemyUrl(chainId ?? 1);
+    if (!rpcUrl) return { error: `Unknown chain '${chain}'` };
+    const json = await rpc(rpcUrl, "eth_getCode", [address, "latest"]);
+    if (json.error) return { error: json.error.message };
+    const code = json.result || "0x";
+    // EIP-1967 implementation slot — detect proxies so research follows the real logic
+    const slot = await rpc(rpcUrl, "eth_getStorageAt", [address, "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc", "latest"]);
+    const impl = slot.result && BigInt(slot.result) !== 0n ? "0x" + slot.result.slice(-40) : null;
+    return { isContract: code !== "0x", codeSize: (code.length - 2) / 2, eip1967Implementation: impl };
   },
 
   async getTokenLiquidity({ tokenAddress, chain }) {
