@@ -8,3 +8,6 @@ research-log.jsonl
 research-patches/
 __pycache__/
 *.pyc
+ops-alerts.log
+.ops-alert-state
+turns-archive/
