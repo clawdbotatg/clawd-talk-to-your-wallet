@@ -56,6 +56,9 @@ const PayPage = () => {
   const [customAmount, setCustomAmount] = useState("");
   const [autoStatus, setAutoStatus] = useState<Status>({ kind: "idle" });
   const [autoAmount, setAutoAmount] = useState("5");
+  // Wallet's spendable USDC on Base — what top-ups are actually paid from. Shown
+  // because a $0 balance is the most common reason a top-up can't settle.
+  const [walletUsdcMicro, setWalletUsdcMicro] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/credits/config")
@@ -63,6 +66,33 @@ const PayPage = () => {
       .then(setConfig)
       .catch(() => setConfig(null));
   }, []);
+
+  const refreshWalletUsdc = useCallback(async () => {
+    if (!publicClient || !config || !address) return setWalletUsdcMicro(null);
+    try {
+      const bal = (await publicClient.readContract({
+        address: config.usdcAddress,
+        abi: [
+          {
+            type: "function",
+            name: "balanceOf",
+            stateMutability: "view",
+            inputs: [{ type: "address" }],
+            outputs: [{ type: "uint256" }],
+          },
+        ],
+        functionName: "balanceOf",
+        args: [address],
+      })) as bigint;
+      setWalletUsdcMicro(Number(bal));
+    } catch {
+      setWalletUsdcMicro(null);
+    }
+  }, [publicClient, config, address]);
+
+  useEffect(() => {
+    refreshWalletUsdc();
+  }, [refreshWalletUsdc]);
 
   // Prompt for the CV sig once connected — same ceremony the main page uses
   useEffect(() => {
@@ -340,6 +370,20 @@ const PayPage = () => {
                     {usdcMicro !== null ? formatUsdc(usdcMicro) : "—"}
                   </span>
                 </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs" style={{ color: MUTED }}>
+                    In your wallet (USDC on Base)
+                  </span>
+                  <span className="font-[family-name:var(--font-jetbrains)] text-sm" style={{ color: CREAM }}>
+                    {walletUsdcMicro !== null ? formatUsdc(walletUsdcMicro) : "—"}
+                  </span>
+                </div>
+                {walletUsdcMicro === 0 && (
+                  <p className="text-xs" style={{ color: MUTED }}>
+                    Top-ups are paid from this. You&apos;ll need USDC on Base before one can go through — bridge some
+                    over, or ask Denarai to swap a little ETH into USDC for you.
+                  </p>
+                )}
                 {config && (
                   <p className="text-xs" style={{ color: MUTED }}>
                     Usage costs {formatUsdc(config.costs.pageLoadMicro)} per page load and{" "}
