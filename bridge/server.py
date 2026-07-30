@@ -25,6 +25,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import sys
 import threading
 import time
@@ -146,6 +147,25 @@ _headroom_cache = {"pct": None, "ts": 0.0}
 _headroom_lock = threading.Lock()
 
 
+def _probe_subprocess():
+    """Same probe in a fresh interpreter. Observed 2026-07-30: a long-lived
+    process can start returning None while a fresh one reads the value fine
+    (the service had booted while the box's login was broken). Cause not yet
+    pinned down, so rather than require a restart we re-probe out-of-process
+    before declaring usage unknowable."""
+    code = (
+        "import sys;sys.path.insert(0,%r);"
+        "from agent import _usage_pct;"
+        "v=_usage_pct('');print('' if v is None else v)" % AGENT_HOME
+    )
+    try:
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=40)
+        out = (r.stdout or "").strip()
+        return float(out) if out else None
+    except Exception:
+        return None
+
+
 def best_headroom_pct():
     """% used of the LEAST-used signed-in plan (the one the router will pick),
     or None if usage is unknowable (endpoint down) — in which case we serve
@@ -165,6 +185,11 @@ def best_headroom_pct():
             pct = _usage_pct(cfg)
             if pct is not None and (best is None or pct < best):
                 best = pct
+        if best is None:
+            best = _probe_subprocess()
+            if best is not None:
+                print("[headroom] in-process probe failed, subprocess probe read "
+                      f"{best:.0f}% — investigate stale state", flush=True)
         _headroom_cache.update(pct=best, ts=now)
         return best
 

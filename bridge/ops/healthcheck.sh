@@ -75,7 +75,12 @@ print('NOSERVE' if not h.get('wouldServe') else 'NOAUTH' if pct is None else f'O
 
 case "$verdict" in
   NOSERVE) alert noserve "refusing requests — subscription headroom exhausted (${health}). Users are on Bankr." ;;
-  NOAUTH)  alert noauth  "usage endpoint unreadable — the box's claude login may be dead. Run: ssh zkllmapi claude /login" ;;
+  # Usage-unknown is NOT an outage: the agent still serves (wouldServe stays true)
+  # and turns work — only the pre-emptive headroom gate is blind, so exhaustion
+  # shows up as a failed turn that the Vercel route falls back to Bankr. Worth
+  # knowing, not worth paging every 10 minutes.
+  NOAUTH)  ALERT_COOLDOWN=86400 alert noauth \
+             "headroom unreadable — agent still serving, but the exhaustion gate is blind. Check: ssh zkllmapi 'python3 ~/clawd-harness/tools/usage_probe.py'" ;;
   BADJSON) alert badjson "/health returned unparseable output" ;;
   *)       note "ok ($verdict)" ;;
 esac
