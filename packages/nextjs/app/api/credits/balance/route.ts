@@ -24,7 +24,10 @@ export async function GET(req: NextRequest) {
     cv: cv?.success && typeof cv.balance === "number" ? cv.balance : null,
     usdcMicro: usdc?.success && typeof usdc.balanceMicro === "number" ? usdc.balanceMicro : null,
     autoTopup: usdc?.success ? (usdc.autoTopup ?? null) : null,
-    // false while DENARAI_TREASURY_ADDRESS is unset — clients hide top-up UI
-    topupsEnabled: !!TREASURY_ADDRESS,
+    // Clients hide top-up UI unless a payment can actually settle: we need both a
+    // payTo (DENARAI_TREASURY_ADDRESS) and a facilitator to submit the EIP-3009
+    // authorization (CDP keys on mainnet, or an explicit X402_FACILITATOR_URL).
+    // Without the facilitator the button would render and then fail at settlement.
+    topupsEnabled: !!TREASURY_ADDRESS && (!!process.env.CDP_API_KEY_ID || !!process.env.X402_FACILITATOR_URL),
   });
 }
