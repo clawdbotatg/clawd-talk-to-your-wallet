@@ -31,6 +31,24 @@ alert() {                       # alert <key> <message>
   grep -v "^$key " "$STATE" > "$STATE.tmp" 2>/dev/null || true
   printf '%s %s\n' "$key" "$now" >> "$STATE.tmp"; mv "$STATE.tmp" "$STATE"
   note "ALERT($key): $msg"
+
+  # Telegram: reuse the controller bot already on this box (no new bot needed).
+  # Token/chat id come from ~/clawd-harness/.env.controller unless overridden.
+  local tg_token="${ALERT_TELEGRAM_TOKEN:-}" tg_chat="${ALERT_TELEGRAM_CHAT:-}"
+  local ctl="$HOME/clawd-harness/.env.controller"
+  if [ -z "$tg_token" ] && [ -f "$ctl" ]; then
+    tg_token=$(sed -n 's/^CONTROLLER_TELEGRAM_TOKEN=//p' "$ctl" | tr -d '"' | head -1)
+    # CONTROLLER_TELEGRAM_ALLOW is a comma/space list of allowed chat ids
+    [ -z "$tg_chat" ] && tg_chat=$(sed -n 's/^CONTROLLER_TELEGRAM_ALLOW=//p' "$ctl" \
+      | tr -d '"' | tr ', ' '\n' | grep -E '^-?[0-9]+$' | head -1)
+  fi
+  if [ -n "$tg_token" ] && [ -n "$tg_chat" ]; then
+    curl -fsS -m 15 "https://api.telegram.org/bot${tg_token}/sendMessage" \
+      --data-urlencode "chat_id=${tg_chat}" \
+      --data-urlencode "text=⚠️ denarai agent (zkllmapi): ${msg}" >/dev/null 2>&1 \
+      || note "telegram post failed"
+  fi
+
   if [ -n "${ALERT_WEBHOOK:-}" ]; then
     curl -fsS -m 15 -X POST "$ALERT_WEBHOOK" -H 'Content-Type: application/json' \
       --data "$(printf '{"text":"denarai bridge: %s"}' "$msg")" >/dev/null 2>&1 \

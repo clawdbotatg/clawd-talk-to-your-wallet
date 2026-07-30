@@ -1141,6 +1141,10 @@ Always call this before saying you can't find something. It uses server-side tok
       "Call this whenever your response will NOT end with actual calldata OR a definitive, complete, confident answer. This includes: requests you deflect, things outside your scope, tokens/protocols you can't find, unclear intents you can't resolve, or anything where you ask clarifying questions instead of acting. If you're not 100% sure and not returning calldata — log it first, then respond.",
     execute: async ({ userRequest, reason, category }: any) => {
       try {
+        // Off unless MISS_LOG_GIST=1. A GitHub "secret" gist is unlisted, not
+        // private — anyone with the id reads it unauthenticated (verified), and
+        // miss text is user chat content.
+        if (process.env.MISS_LOG_GIST !== "1") return { logged: false, reason: "gist mirroring disabled" };
         const gistId = process.env.MISS_LOG_GIST_ID;
         const token = process.env.GITHUB_GIST_TOKEN;
         if (!gistId || !token) return { logged: false };

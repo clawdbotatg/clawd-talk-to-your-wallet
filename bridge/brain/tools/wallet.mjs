@@ -830,9 +830,15 @@ const tools = {
     } catch {
       /* non-fatal */
     }
+    // Gist mirroring is OFF by design. A GitHub "secret" gist is unlisted, NOT
+    // private — anyone with the id can read it unauthenticated (verified). Miss
+    // text is user chat content, so it stays on this box. The local queue above is
+    // what the researcher consumes; nothing needs an external copy. Setting
+    // MISS_LOG_GIST=1 re-enables the old behaviour — don't, unless the gist is in
+    // a private repo you control.
     const gistId = process.env.MISS_LOG_GIST_ID;
     const token = process.env.GITHUB_GIST_TOKEN;
-    if (!gistId || !token) return { logged: true, queue: "local" };
+    if (process.env.MISS_LOG_GIST !== "1" || !gistId || !token) return { logged: true, queue: "local" };
     try {
       const getRes = await fetch(`https://api.github.com/gists/${gistId}`, {
         headers: { Authorization: `Bearer ${token}`, "User-Agent": "denarai" },

@@ -129,8 +129,11 @@ def log_turn(record):
         record["ts"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         line = json.dumps(record, ensure_ascii=False)
         with _log_lock:
+            existed = os.path.exists(TURNS_LOG)
             with open(TURNS_LOG, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
+            if not existed:                       # user chat content — owner-only
+                os.chmod(TURNS_LOG, 0o600)
     except Exception as e:  # noqa: BLE001 — logging must never break a turn
         print(f"[turns] log failed: {e}", flush=True)
 
