@@ -84,6 +84,31 @@ const PayPage = () => {
       try {
         await ensureChain();
 
+        // Pre-flight the payer's USDC balance. Without this the facilitator
+        // rejects the signed authorization and the only thing we can report is a
+        // bare "402" — after asking the user to sign something that can't settle.
+        const amountMicro = BigInt(config.tiers.find(t => t.tier === tier)?.amountMicro ?? 0);
+        const usdcBalance = (await publicClient.readContract({
+          address: config.usdcAddress,
+          abi: [
+            {
+              type: "function",
+              name: "balanceOf",
+              stateMutability: "view",
+              inputs: [{ type: "address" }],
+              outputs: [{ type: "uint256" }],
+            },
+          ],
+          functionName: "balanceOf",
+          args: [walletClient.account.address],
+        })) as bigint;
+        if (usdcBalance < amountMicro) {
+          const have = (Number(usdcBalance) / 1e6).toFixed(2);
+          throw new Error(
+            `You have $${have} USDC on Base — ${price} top-up needs more. Bridge or swap into USDC on Base first, then try again.`,
+          );
+        }
+
         const [{ x402Client, wrapFetchWithPayment }, { registerExactEvmScheme }, { toClientEvmSigner }] =
           await Promise.all([import("@x402/fetch"), import("@x402/evm/exact/client"), import("@x402/evm")]);
 
@@ -108,7 +133,16 @@ const PayPage = () => {
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || `payment failed (${res.status})`);
+          // x402 v2 carries the reason in a base64 `payment-required` header; the
+          // JSON body is empty, so body.error alone leaves the user with "(402)".
+          let headerError: string | undefined;
+          try {
+            const raw = res.headers.get("payment-required");
+            if (raw) headerError = JSON.parse(atob(raw))?.error;
+          } catch {
+            /* header absent or unparseable — fall through */
+          }
+          throw new Error(body.error || headerError || `payment failed (${res.status})`);
         }
         setTopupStatus({ kind: "ok", text: `${price} credited — no gas needed.` });
         setTimeout(refresh, 1500);
