@@ -44,6 +44,9 @@ AGENT_HOME = os.path.abspath(os.environ.get("CLAUDE_P_AGENT_HOME", os.path.join(
 sys.path.insert(0, AGENT_HOME)
 from agent import run_turn  # noqa: E402
 
+# Autonomous by default: researcher-written code ships itself once the regression
+# suite passes (RESEARCH_AUTOAPPLY=0 falls back to patch-for-review).
+AUTOAPPLY = os.environ.get("RESEARCH_AUTOAPPLY", "1") != "0"
 MODEL = os.environ.get("RESEARCH_MODEL", "opus")
 TIMEOUT = float(os.environ.get("RESEARCH_TIMEOUT", "1800"))
 AUTOPUSH_DOCS = os.environ.get("RESEARCH_AUTOPUSH_DOCS", "1") != "0"
@@ -86,6 +89,25 @@ def git_dirty():
 def slug(text, n=40):
     s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return (s[:n].rstrip("-")) or "gap"
+
+
+def notify(msg):
+    """Tell a human what the autonomous loop just did (same Telegram path as ops)."""
+    try:
+        subprocess.run(
+            ["bash", "-c",
+             'ctl="$HOME/clawd-harness/.env.controller"; [ -f "$ctl" ] || exit 0; '
+             'tok=$(sed -n "s/^CONTROLLER_TELEGRAM_TOKEN=//p" "$ctl" | tr -d \'"\' | head -1); '
+             'chat=$(sed -n "s/^CONTROLLER_TELEGRAM_ALLOW=//p" "$ctl" | tr -d \'"\' | tr ", " "\\n" '
+             '| grep -E "^-?[0-9]+$" | head -1); '
+             '[ -n "$tok" ] && [ -n "$chat" ] && curl -fsS -m 15 '
+             '"https://api.telegram.org/bot${tok}/sendMessage" '
+             '--data-urlencode "chat_id=${chat}" --data-urlencode "text=🤖 $1" >/dev/null 2>&1 || true',
+             "_", msg],
+            capture_output=True, timeout=30,
+        )
+    except Exception:
+        pass
 
 
 def log_event(rec):
@@ -248,9 +270,38 @@ def ship(gap_text):
         diff = sh("git", "diff", "--", *code).stdout
         with open(patch, "w", encoding="utf-8") as f:
             f.write(f"# researcher patch for gap: {gap_text}\n# files: {', '.join(code)}\n{diff}")
-        sh("git", "checkout", "--", *code)          # tree clean again → deploys keep working
         result["patch"] = patch
         result["code_files"] = code
+
+        if AUTOAPPLY:
+            # No human in the loop — the regression suite is the gate. It proves the
+            # tools users depend on still behave (exact calldata, simulation
+            # directions, a revoke that moves no funds, a V4 swap that simulates).
+            # Pass → commit locally and restart the service. Fail → roll back, keep
+            # the patch, and shout, because this code builds signable transactions.
+            v = subprocess.run(
+                ["node", os.path.join(BRIDGE, "ops", "verify-tools.mjs")],
+                cwd=REPO, capture_output=True, text=True, timeout=900,
+            )
+            tail = (v.stdout or "")[-1500:] + (v.stderr or "")[-500:]
+            result["verify_passed"] = v.returncode == 0
+            result["verify_output"] = tail
+            if v.returncode == 0:
+                sh("git", "add", *code)
+                c = sh("git", "commit", "-m",
+                       f"research(auto): {gap_text[:70]}\n\nVerified by bridge/ops/verify-tools.mjs before going live.\n"
+                       f"Files: {', '.join(code)}\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>")
+                r = subprocess.run(["sudo", "systemctl", "restart", "denarai-bridge"], capture_output=True, text=True)
+                result["shipped_code"] = "live" if r.returncode == 0 else "committed-restart-failed"
+                result["commit_ok"] = c.returncode == 0
+                notify(f"researcher shipped code LIVE: {gap_text[:90]} ({', '.join(code)})")
+            else:
+                sh("git", "checkout", "--", *code)
+                result["shipped_code"] = "rejected-verify-failed"
+                notify(f"researcher code REJECTED by verify suite: {gap_text[:90]}. Patch kept at {os.path.basename(patch)}")
+        else:
+            sh("git", "checkout", "--", *code)      # tree clean → deploys keep working
+            result["shipped_code"] = "patch-only"
 
     result["shipped"] = (
         "skills-live+patch" if skills and code else "skills-live" if skills else "patch" if code else "nothing"
