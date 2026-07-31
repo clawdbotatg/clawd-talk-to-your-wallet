@@ -197,8 +197,9 @@ def _refresh_headroom():
         last = getattr(_agent_module, "_usage_last", None) or {}
         # A fresh interpreter has recovered where a stale in-process one
         # couldn't (2026-07-30) — but against a rate limit it only doubles
-        # the hammering, so skip it on 429.
-        if best is None and last.get("status") != 429:
+        # the hammering, and an expired token reads the same store, so skip
+        # it for both.
+        if best is None and last.get("status") not in (429, "expired"):
             best = _probe_subprocess()
             if best is not None:
                 print("[headroom] in-process probe failed, subprocess probe read "
