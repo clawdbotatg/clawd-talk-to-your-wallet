@@ -150,7 +150,10 @@ _active_lock = threading.Lock()
 # once froze /health long enough to false-page "down"), honor Retry-After
 # before touching the endpoint again, and keep serving the last good reading
 # while rate-limited so the exhaustion gate isn't blind during the back-off.
-HEADROOM_TTL = 60.0
+# The limiter is per-ORG, and this org's other logins are polled by the whole
+# harness fleet — don't be the greediest consumer; the gate only needs to see
+# a slow climb toward BRIDGE_SUB_MAX_PCT.
+HEADROOM_TTL = float(os.environ.get("BRIDGE_HEADROOM_TTL", "300"))
 HEADROOM_BACKOFF = float(os.environ.get("BRIDGE_HEADROOM_BACKOFF", "900"))
 HEADROOM_STALE_OK = float(os.environ.get("BRIDGE_HEADROOM_STALE_OK", "2700"))
 _headroom = {"pct": None, "good_ts": 0.0, "next_probe": 0.0, "refreshing": False}
