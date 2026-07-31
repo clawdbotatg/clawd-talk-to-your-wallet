@@ -59,6 +59,9 @@ const PayPage = () => {
   // Wallet's spendable USDC on Base — what top-ups are actually paid from. Shown
   // because a $0 balance is the most common reason a top-up can't settle.
   const [walletUsdcMicro, setWalletUsdcMicro] = useState<number | null>(null);
+  // Auto top-up needs a server-side operator wallet to pull funds; without one
+  // the API returns 503, so don't present it as usable.
+  const autoAvailable = !!config?.operator;
 
   useEffect(() => {
     fetch("/api/credits/config")
@@ -458,9 +461,14 @@ const PayPage = () => {
               </>,
             )}
 
-            {/* Auto top-up */}
+            {/* Auto top-up — unavailable until an operator wallet is configured
+                server-side, so the whole section greys out rather than offering
+                a flow that can only fail. */}
             {card(
-              <>
+              <div
+                className={`space-y-4${autoAvailable ? "" : " opacity-40 pointer-events-none select-none"}`}
+                aria-disabled={!autoAvailable}
+              >
                 <div className="flex items-center justify-between">
                   <h2
                     className="font-[family-name:var(--font-cinzel)] text-sm tracking-[0.15em]"
@@ -468,10 +476,16 @@ const PayPage = () => {
                   >
                     AUTO TOP-UP
                   </h2>
-                  {autoTopup?.enabled && (
-                    <span className="text-xs font-[family-name:var(--font-jetbrains)]" style={{ color: GOLD }}>
-                      ON · {formatUsdc(autoTopup.amountMicro)}
+                  {!autoAvailable ? (
+                    <span className="text-xs font-[family-name:var(--font-jetbrains)]" style={{ color: MUTED }}>
+                      COMING SOON
                     </span>
+                  ) : (
+                    autoTopup?.enabled && (
+                      <span className="text-xs font-[family-name:var(--font-jetbrains)]" style={{ color: GOLD }}>
+                        ON · {formatUsdc(autoTopup.amountMicro)}
+                      </span>
+                    )
                   )}
                 </div>
                 <p className="text-xs" style={{ color: MUTED }}>
@@ -510,7 +524,7 @@ const PayPage = () => {
                   </div>
                 )}
                 {statusLine(autoStatus)}
-              </>,
+              </div>,
             )}
 
             <p className="text-xs text-center" style={{ color: MUTED }}>
