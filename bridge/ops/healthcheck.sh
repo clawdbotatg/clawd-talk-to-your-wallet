@@ -11,7 +11,6 @@ set -uo pipefail
 BRIDGE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG="$BRIDGE/ops-alerts.log"
 STATE="$BRIDGE/.ops-alert-state"
-COOLDOWN="${ALERT_COOLDOWN:-3600}"
 
 # shellcheck disable=SC1090
 [ -f "$BRIDGE/.env" ] && set -a && . "$BRIDGE/.env" && set +a
@@ -23,9 +22,12 @@ mkdir -p "$(dirname "$STATE")"; touch "$STATE"
 note() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$1" >> "$LOG"; }
 
 alert() {                       # alert <key> <message>
-  local key="$1" msg="$2" last
+  # Cooldown read at CALL time so a per-call override (ALERT_COOLDOWN=86400
+  # alert …) and a .env-set value both actually apply — a top-of-script capture
+  # ran before .env loaded and froze overrides out, paging noauth hourly.
+  local key="$1" msg="$2" last cool="${ALERT_COOLDOWN:-3600}"
   last=$(grep "^$key " "$STATE" 2>/dev/null | tail -1 | awk '{print $2}')
-  if [ -n "${last:-}" ] && [ $((now - last)) -lt "$COOLDOWN" ]; then
+  if [ -n "${last:-}" ] && [ $((now - last)) -lt "$cool" ]; then
     note "SUPPRESSED($key): $msg"; return
   fi
   grep -v "^$key " "$STATE" > "$STATE.tmp" 2>/dev/null || true

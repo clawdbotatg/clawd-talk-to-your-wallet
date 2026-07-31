@@ -66,6 +66,7 @@ AGENT_HOME = os.path.abspath(os.environ.get(
 sys.path.insert(0, AGENT_HOME)
 os.environ["CLAUDE_P_AGENT_HOME"] = AGENT_HOME
 from agent import run_turn, current_session, _usage_pct, ACCOUNTS_DIR  # noqa: E402
+import agent as _agent_module  # noqa: E402 — for _usage_last (getattr: may be absent)
 
 PORT = int(os.environ.get("BRIDGE_PORT", "8790"))
 MODEL = os.environ.get("BRIDGE_MODEL", "opus")
@@ -143,7 +144,16 @@ _active = {"n": 0}
 _active_lock = threading.Lock()
 
 # ── subscription headroom ────────────────────────────────────────────────────
-_headroom_cache = {"pct": None, "ts": 0.0}
+# The usage endpoint is undocumented and rate-limits hard (429 + Retry-After
+# ~20min observed 2026-07-31; a 60s re-poll turns that into a permanent
+# blackout). So: refresh in a background thread (a slow probe holding the lock
+# once froze /health long enough to false-page "down"), honor Retry-After
+# before touching the endpoint again, and keep serving the last good reading
+# while rate-limited so the exhaustion gate isn't blind during the back-off.
+HEADROOM_TTL = 60.0
+HEADROOM_BACKOFF = float(os.environ.get("BRIDGE_HEADROOM_BACKOFF", "900"))
+HEADROOM_STALE_OK = float(os.environ.get("BRIDGE_HEADROOM_STALE_OK", "2700"))
+_headroom = {"pct": None, "good_ts": 0.0, "next_probe": 0.0, "refreshing": False}
 _headroom_lock = threading.Lock()
 
 
@@ -166,32 +176,59 @@ def _probe_subprocess():
         return None
 
 
-def best_headroom_pct():
-    """% used of the LEAST-used signed-in plan (the one the router will pick),
-    or None if usage is unknowable (endpoint down) — in which case we serve
-    and let a hard failure fall back to Bankr."""
-    with _headroom_lock:
-        now = time.time()
-        if now - _headroom_cache["ts"] < 60:
-            return _headroom_cache["pct"]
+def _refresh_headroom():
+    """Probe every signed-in plan; runs in a daemon thread, one in flight."""
+    best = None
+    last = {}
+    try:
         candidates = [""]
         try:
             candidates += [os.path.join(ACCOUNTS_DIR, d.name)
                            for d in os.scandir(ACCOUNTS_DIR) if d.is_dir()]
         except OSError:
             pass
-        best = None
         for cfg in candidates:
             pct = _usage_pct(cfg)
             if pct is not None and (best is None or pct < best):
                 best = pct
-        if best is None:
+        last = getattr(_agent_module, "_usage_last", None) or {}
+        # A fresh interpreter has recovered where a stale in-process one
+        # couldn't (2026-07-30) — but against a rate limit it only doubles
+        # the hammering, so skip it on 429.
+        if best is None and last.get("status") != 429:
             best = _probe_subprocess()
             if best is not None:
                 print("[headroom] in-process probe failed, subprocess probe read "
                       f"{best:.0f}% — investigate stale state", flush=True)
-        _headroom_cache.update(pct=best, ts=now)
-        return best
+    finally:
+        now = time.time()
+        with _headroom_lock:
+            _headroom["refreshing"] = False
+            if best is not None:
+                _headroom.update(pct=best, good_ts=now,
+                                 next_probe=now + HEADROOM_TTL)
+            else:
+                wait = max(HEADROOM_BACKOFF, float(last.get("retry_after") or 0))
+                _headroom["next_probe"] = now + wait
+                if last.get("status") == 429:
+                    print(f"[headroom] usage endpoint 429 — backing off {wait:.0f}s,"
+                          " serving last good reading meanwhile", flush=True)
+
+
+def best_headroom_pct():
+    """% used of the LEAST-used signed-in plan (the one the router will pick),
+    or None if usage is unknowable — in which case we serve and let a hard
+    failure fall back to Bankr. Never blocks on the network: returns the
+    cached reading (stale up to HEADROOM_STALE_OK during endpoint outages)
+    and refreshes in the background."""
+    now = time.time()
+    with _headroom_lock:
+        if now >= _headroom["next_probe"] and not _headroom["refreshing"]:
+            _headroom["refreshing"] = True
+            threading.Thread(target=_refresh_headroom, daemon=True).start()
+        if _headroom["good_ts"] and now - _headroom["good_ts"] <= HEADROOM_STALE_OK:
+            return _headroom["pct"]
+        return None
 
 
 def would_serve():
@@ -336,7 +373,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    ok, pct = would_serve()
+    ok, pct = would_serve()          # kicks the first background probe
+    for _ in range(24):              # give it a moment so the boot log is useful
+        if pct is not None:
+            break
+        time.sleep(0.5)
+        ok, pct = would_serve()
     print(f"denarai bridge on http://127.0.0.1:{PORT}", flush=True)
     print(f"  brain={BRAIN}", flush=True)
     print(f"  agent_home={AGENT_HOME}", flush=True)
