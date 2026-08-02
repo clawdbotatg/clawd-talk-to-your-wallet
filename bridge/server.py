@@ -256,6 +256,108 @@ def extract_contract_json(text):
     return d if isinstance(d, dict) else None
 
 
+# Human labels for the tool calls a user sees while waiting. A swap runs ~2
+# minutes of silent tool calls otherwise, which is indistinguishable from a hang.
+STEP_LABELS = {
+    "getPortfolio": "Reading your portfolio",
+    "getOnChainBalance": "Checking your live on-chain balance",
+    "searchTransactions": "Searching your transaction history",
+    "getTransactionDetails": "Looking up that transaction",
+    "getTokenPrice": "Checking the price",
+    "getWalletActivity": "Reviewing your recent activity",
+    "buildRoute": "Finding the best route",
+    "getRouteStatus": "Checking the bridge status",
+    "buildTransfer": "Building the transfer",
+    "resolveENS": "Resolving the ENS name",
+    "getTokenAddress": "Looking up the token address",
+    "wrapEth": "Building the wrap",
+    "unwrapWeth": "Building the unwrap",
+    "validateENSName": "Validating the ENS name",
+    "checkENSAvailability": "Checking if that name is available",
+    "getENSRentPrice": "Checking the registration price",
+    "buildENSRegistration": "Building the registration",
+    "simulateAssetChanges": "Simulating the transaction",
+    "traceCall": "Tracing the transaction",
+    "getTokenLiquidity": "Checking liquidity",
+    "buildUniV4Swap": "Building a Uniswap V4 swap",
+    "getTokenApprovals": "Auditing token approvals",
+    "buildRevoke": "Building the revoke",
+    "getContractSource": "Reading the contract source",
+    "ethCall": "Reading contract state",
+    "getLogs": "Reading on-chain history",
+    "getCode": "Inspecting the contract",
+    "listSkills": "Checking what I've learned before",
+    "readSkill": "Checking what I've learned before",
+}
+_TOOL_RE = re.compile(r"wallet\.mjs\s+([A-Za-z0-9_]+)")
+
+
+def step_from_event(event):
+    """stream-json event → {tool,label} for a tool call the user should see, or None."""
+    if event.get("type") != "assistant":
+        return None
+    for block in ((event.get("message") or {}).get("content") or []):
+        if not isinstance(block, dict) or block.get("type") != "tool_use":
+            continue
+        cmd = (block.get("input") or {}).get("command") or ""
+        m = _TOOL_RE.search(cmd)
+        if not m:
+            continue
+        tool = m.group(1)
+        if tool == "logMiss":                 # internal bookkeeping, not progress
+            continue
+        return {"tool": tool, "label": STEP_LABELS.get(tool, f"Running {tool}")}
+    return None
+
+
+def build_prompt(body):
+    """Shared by the blocking and streaming paths."""
+    message = (body.get("message") or "").strip()
+    address = (body.get("address") or "").strip()
+    context = body.get("context") or ""
+    recent = body.get("recentMessages") or []
+    if not message or not address:
+        return None, None, None
+    key = f"wallet:{address.lower()}"
+    parts = [context.strip()] if context.strip() else []
+    if recent and not current_session(key):
+        hist = "\n".join(
+            f"{'User' if m.get('role') == 'user' else 'Denarai'}: {m.get('content', '')}"
+            for m in recent[-10:])
+        parts.append(f"Recent conversation:\n{hist}")
+    parts.append(f"User message: {message}")
+    return "\n\n".join(parts), key, address
+
+
+def turn_args():
+    return [
+        "--model", MODEL,
+        "--max-turns", "40",
+        "--settings", SETTINGS_PATH,
+        "--allowedTools", "Bash(node tools/wallet.mjs:*)",
+        "--disallowedTools", "Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,TodoWrite,Read,Glob,Grep",
+    ]
+
+
+def finish_turn(text, address, message, context, dt):
+    """Parse the agent's reply into the response contract and log the turn."""
+    parsed = extract_contract_json(text)
+    if parsed and parsed.get("type") in VALID_TYPES:
+        parsed["engine"] = "claude-p"
+        response = parsed
+    elif text:
+        response = {"type": "chat", "message": text, "engine": "claude-p"}
+    else:
+        response = None
+    log_turn({
+        "wallet": address, "message": message, "context": context,
+        "raw_reply": text, "response": response,
+        "contract": bool(parsed and parsed.get("type") in VALID_TYPES),
+        "duration_s": round(dt, 1), "engine": "claude-p",
+    })
+    return response
+
+
 def handle_intent(body):
     message = (body.get("message") or "").strip()
     address = (body.get("address") or "").strip()
@@ -345,8 +447,69 @@ class Handler(BaseHTTPRequestHandler):
             })
         self._json(404, {"error": "not found"})
 
+    def _sse(self, obj):
+        self.wfile.write(f"data: {json.dumps(obj)}\n\n".encode())
+        self.wfile.flush()
+
+    def _stream_intent(self, body):
+        """SSE: emit each tool call as it happens, then the final contract object.
+
+        A swap is ~2 minutes of silent tool calls; without this the UI can't tell
+        work from a hang. Same turn as /intent — only the reporting differs."""
+        prompt, key, address = build_prompt(body)
+        if not prompt:
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"type": "chat", "message": "message and address are required"}).encode())
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache, no-transform")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")     # nginx must not buffer SSE
+        self.end_headers()
+
+        seen = []
+        broken = {"pipe": False}
+
+        def on_event(event):
+            if broken["pipe"]:
+                return
+            step = step_from_event(event)
+            if not step:
+                return
+            seen.append(step["tool"])
+            try:
+                self._sse({"type": "step", **step, "n": len(seen)})
+            except (BrokenPipeError, ConnectionResetError):
+                broken["pipe"] = True   # client navigated away; let the turn finish
+
+        t0 = time.time()
+        try:
+            text = run_turn(
+                prompt, remember=key, auto_memory=False, input_via="stdin",
+                on_event=on_event, extra_args=turn_args(),
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"[stream] turn failed: {e}", flush=True)
+            if not broken["pipe"]:
+                self._sse({"type": "error", "error": str(e)[:300]})
+            return
+
+        dt = time.time() - t0
+        response = finish_turn(text, address, (body.get("message") or "").strip(),
+                               body.get("context") or "", dt)
+        print(f"[stream] {address[:10]}… {len(seen)} steps, "
+              f"{response.get('type') if response else 'empty'} in {dt:.1f}s", flush=True)
+        if not broken["pipe"]:
+            self._sse({"type": "done", "result": response} if response
+                      else {"type": "error", "error": "empty reply from agent"})
+
     def do_POST(self):
-        if self.path.rstrip("/") != "/intent":
+        path = self.path.rstrip("/")
+        if path not in ("/intent", "/intent/stream"):
             return self._json(404, {"error": "not found"})
         if not secrets.compare_digest(
                 self.headers.get("X-Bridge-Secret", ""), SECRET):
@@ -362,8 +525,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(length) or b"{}")
-            code, obj = handle_intent(body)
-            self._json(code, obj)
+            if path == "/intent/stream":
+                self._stream_intent(body)
+            else:
+                code, obj = handle_intent(body)
+                self._json(code, obj)
         except Exception as e:  # noqa: BLE001 — a failed turn must 500, route falls back
             print(f"[intent] error: {e}", flush=True)
             try:
