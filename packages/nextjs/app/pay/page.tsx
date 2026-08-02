@@ -394,6 +394,16 @@ const PayPage = () => {
                     top-up covers ~{Math.floor(5_000_000 / config.costs.chatMicro).toLocaleString()} requests.
                   </p>
                 )}
+                {/* Funded — send them to the thing they paid for. */}
+                {!!usdcMicro && usdcMicro > 0 && (
+                  <Link
+                    href="/"
+                    className="block w-full py-4 text-center font-[family-name:var(--font-cinzel)] text-base font-bold tracking-[0.15em] no-underline transition-opacity hover:opacity-90"
+                    style={{ backgroundColor: GOLD, color: "#0a0a0a" }}
+                  >
+                    GO TALK TO YOUR COINS →
+                  </Link>
+                )}
               </>,
             )}
 
