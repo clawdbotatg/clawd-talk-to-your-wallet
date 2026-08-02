@@ -1463,6 +1463,7 @@ export async function POST(req: NextRequest) {
       recentActivity,
       cvSignature,
       cvWallet,
+      stream,
     } = await req.json();
 
     // cvWallet is the address that signed the CV message (may differ from operating wallet `address`)
@@ -1610,6 +1611,38 @@ export async function POST(req: NextRequest) {
     // saturated; any non-OK/timeout falls through to Bankr so users never
     // see an engine outage.
     const bridgeUrl = process.env.DENARAI_BRIDGE_URL;
+
+    // Streaming path: the client asks for progress, and we pipe the bridge's SSE
+    // straight through. A swap is ~2 minutes of tool calls; without this the UI
+    // shows nothing until the very end. Only the bridge can stream — if it's
+    // unavailable we fall through to the normal JSON path (incl. Bankr).
+    if (bridgeUrl && stream) {
+      try {
+        const sse = await fetch(`${bridgeUrl.replace(/\/$/, "")}/intent/stream`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Bridge-Secret": process.env.DENARAI_BRIDGE_SECRET || "",
+          },
+          body: JSON.stringify({ message, address, chainId: userChainId, context: contextBlock, recentMessages }),
+          signal: AbortSignal.timeout(Number(process.env.DENARAI_BRIDGE_TIMEOUT_MS) || 240_000),
+        });
+        if (sse.ok && sse.body) {
+          return new NextResponse(sse.body, {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache, no-transform",
+              Connection: "keep-alive",
+              "X-Accel-Buffering": "no",
+            },
+          });
+        }
+        console.warn(`[bridge] stream ${sse.status} — falling back to non-streaming`);
+      } catch (e) {
+        console.warn(`[bridge] stream unreachable (${e instanceof Error ? e.message : String(e)})`);
+      }
+    }
+
     if (bridgeUrl) {
       try {
         const bridgeRes = await fetch(`${bridgeUrl.replace(/\/$/, "")}/intent`, {

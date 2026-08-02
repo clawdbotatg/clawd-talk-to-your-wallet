@@ -126,6 +126,53 @@ const formatUsdValue = (value: string | number): string => {
 };
 
 const MAX_DISPLAY_ASSETS = 8;
+// Post-confirmation refetch schedule (ms). Zerion indexes a tx well after it
+// confirms, so we re-poll with backoff rather than guessing one delay.
+const TX_REFRESH_DELAYS = [8_000, 18_000, 35_000, 60_000, 90_000];
+
+type IntentResponse = {
+  type?: string;
+  message?: string;
+  transaction?: ChatMessage["transaction"];
+  steps?: NonNullable<ChatMessage["multistepTransaction"]>["steps"];
+  delay?: number;
+  priceEth?: string;
+  priceWei?: string;
+  error?: string;
+};
+
+/** Read the agent's SSE progress stream, reporting each tool call as it lands and
+ * resolving with the final result object. */
+async function consumeIntentStream(
+  body: ReadableStream<Uint8Array>,
+  onStep: (label: string) => void,
+): Promise<IntentResponse> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: IntentResponse | null = null;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? ""; // keep the trailing partial frame
+    for (const frame of frames) {
+      const line = frame.split("\n").find(l => l.startsWith("data: "));
+      if (!line) continue;
+      try {
+        const evt = JSON.parse(line.slice(6));
+        if (evt.type === "step" && evt.label) onStep(evt.label as string);
+        else if (evt.type === "done") result = evt.result as IntentResponse;
+        else if (evt.type === "error") result = { type: "chat", message: `Something went wrong: ${evt.error}` };
+      } catch {
+        /* ignore a malformed frame rather than losing the whole turn */
+      }
+    }
+  }
+  return result ?? { type: "chat", message: "The agent stopped before finishing. Please try again." };
+}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -150,6 +197,8 @@ const Home: NextPage = () => {
   const { openModal } = useDetailModal();
   const [message, setMessage] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+  // Tool calls reported by the agent while a turn runs (SSE), newest last.
+  const [progressSteps, setProgressSteps] = useState<string[]>([]);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -183,6 +232,9 @@ const Home: NextPage = () => {
 
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [pendingActivities, setPendingActivities] = useState<PendingActivity[]>([]);
+  // Tx hashes that have shown up in activity — used to cancel the remaining
+  // post-confirmation refetches.
+  const resolvedTxRef = useRef<Set<string>>(new Set());
   const [highlightedTokens, setHighlightedTokens] = useState<Set<string>>(new Set());
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -363,10 +415,16 @@ const Home: NextPage = () => {
       setHighlightedTokens(affected);
       setTimeout(() => setHighlightedTokens(new Set()), 180_000);
 
-      // Wait 15s then refetch
-      setTimeout(async () => {
-        await Promise.all([fetchPortfolio(), fetchActivity()]);
-      }, 15_000);
+      // Zerion's indexer routinely lags a confirmed tx by more than 15s, so one
+      // refetch left the swap stuck as "in progress". Poll with backoff instead,
+      // and stop as soon as the tx shows up in activity.
+      TX_REFRESH_DELAYS.forEach(delay => {
+        setTimeout(() => {
+          if (resolvedTxRef.current.has(info.txHash.toLowerCase())) return;
+          fetchPortfolio();
+          fetchActivity();
+        }, delay);
+      });
 
       // Auto-drop pending after 2 minutes
       setTimeout(() => {
@@ -378,6 +436,7 @@ const Home: NextPage = () => {
   );
 
   const handlePendingMatched = useCallback((txHash: string) => {
+    resolvedTxRef.current.add(txHash.toLowerCase()); // stops the backoff refetches
     setPendingActivities(prev => prev.filter(p => p.txHash.toLowerCase() !== txHash.toLowerCase()));
   }, []);
 
@@ -391,6 +450,7 @@ const Home: NextPage = () => {
     setMessage("");
     setIsProcessing(true);
 
+    setProgressSteps([]);
     try {
       const res = await fetch("/api/intent", {
         method: "POST",
@@ -404,18 +464,27 @@ const Home: NextPage = () => {
           cvWallet, // the address larv.ai should charge (may differ from operating wallet)
           recentMessages: messages.slice(-6).map(m => ({ role: m.role, content: m.content })),
           recentActivity: activity.slice(0, 50),
+          stream: true, // ask for SSE progress; server falls back to JSON if it can't
         }),
       });
-      const data = await res.json();
+
+      // The server answers with SSE when the agent can report progress, and with
+      // plain JSON otherwise (Bankr fallback, bridge down) — handle both.
+      let data: IntentResponse;
+      if (res.headers.get("content-type")?.includes("text/event-stream") && res.body) {
+        data = await consumeIntentStream(res.body, step => setProgressSteps(prev => [...prev, step]));
+      } else {
+        data = await res.json();
+      }
 
       const assistantMsg: ChatMessage = {
         role: "assistant",
         content: data.message || "Something went wrong",
         transaction: data.type === "transaction" ? data.transaction : undefined,
         multistepTransaction:
-          data.type === "multistep_transaction"
+          data.type === "multistep_transaction" && data.steps
             ? {
-                message: data.message,
+                message: data.message || "Transaction ready",
                 steps: data.steps,
                 delay: data.delay || 65000,
                 priceEth: data.priceEth,
@@ -961,12 +1030,23 @@ const Home: NextPage = () => {
                   {isProcessing && (
                     <div className="flex justify-start">
                       <div
-                        className="px-3 py-1.5"
+                        className="px-3 py-1.5 space-y-1"
                         style={{
                           backgroundColor: "#111111",
                           border: "1px solid rgba(201, 168, 76, 0.08)",
                         }}
                       >
+                        {/* What it's actually doing — a swap is ~2min of tool calls */}
+                        {progressSteps.map((step, i) => (
+                          <div
+                            key={i}
+                            className="flex items-center gap-2 text-xs font-[family-name:var(--font-jetbrains)]"
+                            style={{ color: i === progressSteps.length - 1 ? "#C9A84C" : "rgba(232,224,208,0.35)" }}
+                          >
+                            <span>{i === progressSteps.length - 1 ? "▸" : "✓"}</span>
+                            <span>{step}</span>
+                          </div>
+                        ))}
                         <span className="loading loading-dots loading-sm" style={{ color: "#C9A84C" }}></span>
                       </div>
                     </div>
