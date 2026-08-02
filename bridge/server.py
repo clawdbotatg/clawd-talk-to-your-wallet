@@ -143,6 +143,57 @@ _turns = threading.Semaphore(MAX_CONCURRENT)
 _active = {"n": 0}
 _active_lock = threading.Lock()
 
+# ── in-flight turn registry (survives a browser reload) ──────────────────────
+# The turn keeps running when a client disconnects, so the answer exists —
+# it just had nowhere to go. Keep the live steps and the finished result per
+# wallet so a reloaded page can reattach and collect both.
+INFLIGHT_KEEP = float(os.environ.get("BRIDGE_INFLIGHT_KEEP", "900"))   # keep results 15 min
+_inflight = {}
+_inflight_lock = threading.Lock()
+
+
+def _turn_start(wallet, message):
+    turn_id = f"{int(time.time() * 1000)}"
+    with _inflight_lock:
+        for w, t in list(_inflight.items()):        # prune finished + expired
+            if t.get("done_ts") and time.time() - t["done_ts"] > INFLIGHT_KEEP:
+                _inflight.pop(w, None)
+        _inflight[wallet.lower()] = {
+            "turnId": turn_id, "message": message, "started": time.time(),
+            "steps": [], "result": None, "done_ts": None,
+        }
+    return turn_id
+
+
+def _turn_step(wallet, label):
+    with _inflight_lock:
+        t = _inflight.get(wallet.lower())
+        if t:
+            t["steps"].append(label)
+
+
+def _turn_done(wallet, result):
+    with _inflight_lock:
+        t = _inflight.get(wallet.lower())
+        if t:
+            t["result"] = result
+            t["done_ts"] = time.time()
+
+
+def turn_status(wallet):
+    with _inflight_lock:
+        t = _inflight.get((wallet or "").lower())
+        if not t:
+            return {"turnId": None, "running": False}
+        return {
+            "turnId": t["turnId"],
+            "running": t["done_ts"] is None,
+            "message": t["message"],
+            "steps": list(t["steps"]),
+            "result": t["result"],
+            "ageS": round(time.time() - t["started"], 1),
+        }
+
 # ── subscription headroom ────────────────────────────────────────────────────
 # The usage endpoint is undocumented and rate-limits hard (429 + Retry-After
 # ~20min observed 2026-07-31; a 60s re-poll turns that into a permanent
@@ -437,6 +488,16 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        # Reattach point for a reloaded page: what is (or was just) running for
+        # this wallet, including the finished result.
+        if self.path.split("?")[0].rstrip("/") == "/intent/status":
+            if not secrets.compare_digest(self.headers.get("X-Bridge-Secret", ""), SECRET):
+                return self._json(401, {"error": "unauthorized"})
+            from urllib.parse import parse_qs, urlparse
+            wallet = (parse_qs(urlparse(self.path).query).get("wallet") or [""])[0]
+            if not wallet:
+                return self._json(400, {"error": "wallet required"})
+            return self._json(200, turn_status(wallet))
         if self.path.rstrip("/") == "/health":
             ok, pct = would_serve()
             with _active_lock:
@@ -473,14 +534,21 @@ class Handler(BaseHTTPRequestHandler):
 
         seen = []
         broken = {"pipe": False}
+        user_message = (body.get("message") or "").strip()
+        turn_id = _turn_start(address, user_message)
+        try:
+            self._sse({"type": "start", "turnId": turn_id})
+        except (BrokenPipeError, ConnectionResetError):
+            broken["pipe"] = True
 
         def on_event(event):
-            if broken["pipe"]:
-                return
             step = step_from_event(event)
             if not step:
                 return
             seen.append(step["tool"])
+            _turn_step(address, step["label"])      # recorded even if nobody's listening
+            if broken["pipe"]:
+                return
             try:
                 self._sse({"type": "step", **step, "n": len(seen)})
             except (BrokenPipeError, ConnectionResetError):
@@ -494,17 +562,20 @@ class Handler(BaseHTTPRequestHandler):
             )
         except Exception as e:  # noqa: BLE001
             print(f"[stream] turn failed: {e}", flush=True)
+            _turn_done(address, {"type": "chat", "message": f"Something went wrong: {str(e)[:200]}",
+                                 "engine": "claude-p"})
             if not broken["pipe"]:
                 self._sse({"type": "error", "error": str(e)[:300]})
             return
 
         dt = time.time() - t0
-        response = finish_turn(text, address, (body.get("message") or "").strip(),
-                               body.get("context") or "", dt)
+        response = finish_turn(text, address, user_message, body.get("context") or "", dt)
+        _turn_done(address, response)               # collectable after a reload
         print(f"[stream] {address[:10]}… {len(seen)} steps, "
-              f"{response.get('type') if response else 'empty'} in {dt:.1f}s", flush=True)
+              f"{response.get('type') if response else 'empty'} in {dt:.1f}s"
+              f"{' (client gone)' if broken['pipe'] else ''}", flush=True)
         if not broken["pipe"]:
-            self._sse({"type": "done", "result": response} if response
+            self._sse({"type": "done", "turnId": turn_id, "result": response} if response
                       else {"type": "error", "error": "empty reply from agent"})
 
     def do_POST(self):
