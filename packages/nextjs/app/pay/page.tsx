@@ -22,7 +22,8 @@ type Status =
   | { kind: "idle" }
   | { kind: "busy"; text: string }
   | { kind: "ok"; text: string }
-  | { kind: "error"; text: string };
+  | { kind: "error"; text: string }
+  | { kind: "needFunds"; text: string };
 
 const GOLD = "#C9A84C";
 const CREAM = "#E8E4DC";
@@ -31,7 +32,6 @@ const MUTED = "#8A8578";
 const PayPage = () => {
   const { address, isConnected, chainId: connectedChainId } = useAccount();
   const { data: walletClient } = useWalletClient();
-  const publicClient = usePublicClient();
   const { switchChainAsync } = useSwitchChain();
   const { cvSignature, cvWallet, hasCvSig, isCvSigning, signCv } = useCvAuth();
 
@@ -52,6 +52,10 @@ const PayPage = () => {
   );
 
   const [config, setConfig] = useState<PayConfig | null>(null);
+  // Pin reads to the payment chain (Base). The default client follows whatever
+  // chain the wallet is on — on mainnet the Base USDC address isn't a contract,
+  // so balanceOf "returns no data (0x)" and every pre-flight check explodes.
+  const publicClient = usePublicClient({ chainId: config?.chainId });
   const [topupStatus, setTopupStatus] = useState<Status>({ kind: "idle" });
   const [customAmount, setCustomAmount] = useState("");
   const [autoStatus, setAutoStatus] = useState<Status>({ kind: "idle" });
@@ -75,15 +79,7 @@ const PayPage = () => {
     try {
       const bal = (await publicClient.readContract({
         address: config.usdcAddress,
-        abi: [
-          {
-            type: "function",
-            name: "balanceOf",
-            stateMutability: "view",
-            inputs: [{ type: "address" }],
-            outputs: [{ type: "uint256" }],
-          },
-        ],
+        abi: erc20Abi,
         functionName: "balanceOf",
         args: [address],
       })) as bigint;
@@ -120,26 +116,27 @@ const PayPage = () => {
         // Pre-flight the payer's USDC balance. Without this the facilitator
         // rejects the signed authorization and the only thing we can report is a
         // bare "402" — after asking the user to sign something that can't settle.
+        // If the RPC read itself fails, skip the pre-flight rather than surface
+        // raw viem internals; the 402 path below still catches a real shortfall.
         const amountMicro = BigInt(config.tiers.find(t => t.tier === tier)?.amountMicro ?? 0);
-        const usdcBalance = (await publicClient.readContract({
-          address: config.usdcAddress,
-          abi: [
-            {
-              type: "function",
-              name: "balanceOf",
-              stateMutability: "view",
-              inputs: [{ type: "address" }],
-              outputs: [{ type: "uint256" }],
-            },
-          ],
-          functionName: "balanceOf",
-          args: [walletClient.account.address],
-        })) as bigint;
-        if (usdcBalance < amountMicro) {
+        let usdcBalance: bigint | null = null;
+        try {
+          usdcBalance = (await publicClient.readContract({
+            address: config.usdcAddress,
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [walletClient.account.address],
+          })) as bigint;
+        } catch {
+          /* balance unknown — proceed and let the facilitator decide */
+        }
+        if (usdcBalance !== null && usdcBalance < amountMicro) {
           const have = (Number(usdcBalance) / 1e6).toFixed(2);
-          throw new Error(
-            `You have $${have} USDC on Base — ${price} top-up needs more. Bridge or swap into USDC on Base first, then try again.`,
-          );
+          setTopupStatus({
+            kind: "needFunds",
+            text: `You have $${have} USDC on Base — a ${price} top-up needs more.`,
+          });
+          return;
         }
 
         const [{ x402Client, wrapFetchWithPayment }, { registerExactEvmScheme }, { toClientEvmSigner }] =
@@ -181,7 +178,13 @@ const PayPage = () => {
         setTimeout(refresh, 1500);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "payment failed";
-        setTopupStatus({ kind: "error", text: msg });
+        // The facilitator's own shortfall rejection deserves the same friendly
+        // path as our pre-flight, not a raw error string.
+        if (/insufficient|not enough/i.test(msg)) {
+          setTopupStatus({ kind: "needFunds", text: "Not enough USDC on Base for this top-up." });
+        } else {
+          setTopupStatus({ kind: "error", text: msg });
+        }
       }
     },
     [walletClient, publicClient, config, ensureChain, creditWallet, refresh],
@@ -322,12 +325,40 @@ const PayPage = () => {
     s.kind === "idle" ? null : (
       <p
         className="text-xs font-[family-name:var(--font-jetbrains)]"
-        style={{ color: s.kind === "error" ? "#c96b4c" : s.kind === "ok" ? GOLD : MUTED }}
+        style={{
+          color: s.kind === "error" ? "#c96b4c" : s.kind === "ok" ? GOLD : s.kind === "needFunds" ? CREAM : MUTED,
+        }}
       >
-        {s.kind === "busy" ? "⏳ " : s.kind === "ok" ? "✓ " : "⚠️ "}
+        {s.kind === "busy" ? "⏳ " : s.kind === "ok" ? "✓ " : s.kind === "needFunds" ? "💸 " : "⚠️ "}
         {s.text}
       </p>
     );
+
+  // One-click paths to actually getting USDC on Base — shown wherever we'd
+  // otherwise just tell the user their wallet is empty.
+  const uniswapUrl = `https://app.uniswap.org/swap?chain=base&inputCurrency=NATIVE&outputCurrency=${
+    config?.usdcAddress ?? "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+  }`;
+  const getUsdcCta = (
+    <div className="flex flex-col gap-2">
+      <a
+        href={uniswapUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block w-full py-3 text-center font-[family-name:var(--font-cinzel)] text-sm font-bold tracking-[0.1em] no-underline transition-opacity hover:opacity-90"
+        style={{ backgroundColor: GOLD, color: "#0a0a0a" }}
+      >
+        GET USDC ON UNISWAP ↗
+      </a>
+      <Link
+        href={`/?ask=${encodeURIComponent("Swap some of my ETH into USDC on Base so I can top up my Denarai balance")}`}
+        className="block w-full py-3 text-center font-[family-name:var(--font-cinzel)] text-sm tracking-[0.1em] no-underline transition-opacity hover:opacity-90"
+        style={{ color: GOLD, border: `1px solid ${GOLD}` }}
+      >
+        OR ASK DENARAI TO SWAP FOR YOU
+      </Link>
+    </div>
+  );
 
   const card = (children: React.ReactNode) => (
     <div className="p-6 space-y-4" style={{ backgroundColor: "#111111", border: "1px solid rgba(201, 168, 76, 0.15)" }}>
@@ -382,10 +413,12 @@ const PayPage = () => {
                   </span>
                 </div>
                 {walletUsdcMicro === 0 && (
-                  <p className="text-xs" style={{ color: MUTED }}>
-                    Top-ups are paid from this. You&apos;ll need USDC on Base before one can go through — bridge some
-                    over, or ask Denarai to swap a little ETH into USDC for you.
-                  </p>
+                  <>
+                    <p className="text-xs" style={{ color: MUTED }}>
+                      Top-ups are paid from this. You&apos;ll need USDC on Base before one can go through:
+                    </p>
+                    {getUsdcCta}
+                  </>
                 )}
                 {config && (
                   <p className="text-xs" style={{ color: MUTED }}>
@@ -433,6 +466,7 @@ const PayPage = () => {
                   ))}
                 </div>
                 {statusLine(topupStatus)}
+                {topupStatus.kind === "needFunds" && getUsdcCta}
               </>,
             )}
 

@@ -202,6 +202,17 @@ const Home: NextPage = () => {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  // /?ask=<text> prefills the chat box (used by /pay's "get USDC" button)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ask = params.get("ask");
+    if (!ask) return;
+    setMessage(ask);
+    params.delete("ask");
+    const qs = params.toString();
+    window.history.replaceState(null, "", window.location.pathname + (qs ? `?${qs}` : ""));
+  }, []);
+
   // Single auto-sign trigger — only here, not in the hook, so it fires exactly once ever
   useEffect(() => {
     if (isConnected && !cvSignature && !hasCvSig && !isCvSigning) {
