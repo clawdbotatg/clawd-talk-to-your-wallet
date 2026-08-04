@@ -45,10 +45,12 @@ Knobs (env): `BRIDGE_PORT` 8790 · `BRIDGE_MODEL` opus · `BRIDGE_SUB_MAX_PCT` 9
 (refuse above this % of the best plan's usage) · `BRIDGE_MAX_CONCURRENT` 4 ·
 `BRIDGE_TURN_TIMEOUT` 240s.
 
-Subscription routing: claude-p-agent's built-in router picks the plan with the
-most headroom per turn (all `~/.clawd-accounts/*` logins + default `~/.claude`);
-the bridge's headroom gate uses the same probe, so "would the router find a
-usable plan?" and "do we accept the request?" always agree.
+Subscription routing: claude-p-agent's **router module**
+(`modules/router/env` in `CLAUDE_P_AGENT_HOME`) picks the plan with the most
+headroom per turn (all `~/.clawd-accounts/*` logins + default `~/.claude`);
+the bridge's headroom gate reads the same module's query surface
+(`env --status` → `best.pct`, `endpoint.retry_after`), so "would the router
+find a usable plan?" and "do we accept the request?" always agree.
 
 ## Vercel side
 

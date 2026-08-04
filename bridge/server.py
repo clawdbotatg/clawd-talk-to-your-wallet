@@ -65,8 +65,7 @@ AGENT_HOME = os.path.abspath(os.environ.get(
     os.path.join(os.path.dirname(REPO), "claude-p-agent")))
 sys.path.insert(0, AGENT_HOME)
 os.environ["CLAUDE_P_AGENT_HOME"] = AGENT_HOME
-from agent import run_turn, current_session, _usage_pct, ACCOUNTS_DIR  # noqa: E402
-import agent as _agent_module  # noqa: E402 — for _usage_last (getattr: may be absent)
+from agent import run_turn, current_session  # noqa: E402
 
 PORT = int(os.environ.get("BRIDGE_PORT", "8790"))
 MODEL = os.environ.get("BRIDGE_MODEL", "opus")
@@ -195,66 +194,49 @@ def turn_status(wallet):
         }
 
 # ── subscription headroom ────────────────────────────────────────────────────
-# The usage endpoint is undocumented and rate-limits hard (429 + Retry-After
-# ~20min observed 2026-07-31; a 60s re-poll turns that into a permanent
-# blackout). So: refresh in a background thread (a slow probe holding the lock
-# once froze /health long enough to false-page "down"), honor Retry-After
-# before touching the endpoint again, and keep serving the last good reading
-# while rate-limited so the exhaustion gate isn't blind during the back-off.
-# The limiter is per-ORG, and this org's other logins are polled by the whole
-# harness fleet — don't be the greediest consumer; the gate only needs to see
-# a slow climb toward BRIDGE_SUB_MAX_PCT.
+# Headroom comes from the agent's router module: `modules/router/env --status`
+# prints one JSON object with the best plan's utilization (best.pct) and the
+# last usage-endpoint reply (endpoint.status / endpoint.retry_after). The
+# router owns all endpoint discipline — on-disk TTL cache, per-org pooling,
+# the expired-token guard — so the bridge never touches the (undocumented,
+# hard-rate-limited: 429 + Retry-After ~20min observed 2026-07-31) endpoint
+# itself, and each --status call is a fresh interpreter (which is what the
+# old in-process probe's subprocess fallback existed to get). We still
+# refresh in a background thread (a slow probe holding the lock once froze
+# /health long enough to false-page "down"), honor retry_after before asking
+# again, and keep serving the last good reading while rate-limited so the
+# exhaustion gate isn't blind during the back-off.
 HEADROOM_TTL = float(os.environ.get("BRIDGE_HEADROOM_TTL", "300"))
 HEADROOM_BACKOFF = float(os.environ.get("BRIDGE_HEADROOM_BACKOFF", "900"))
 HEADROOM_STALE_OK = float(os.environ.get("BRIDGE_HEADROOM_STALE_OK", "2700"))
+ROUTER_ENV = os.path.join(AGENT_HOME, "modules", "router", "env")
 _headroom = {"pct": None, "good_ts": 0.0, "next_probe": 0.0, "refreshing": False}
 _headroom_lock = threading.Lock()
 
 
-def _probe_subprocess():
-    """Same probe in a fresh interpreter. Observed 2026-07-30: a long-lived
-    process can start returning None while a fresh one reads the value fine
-    (the service had booted while the box's login was broken). Cause not yet
-    pinned down, so rather than require a restart we re-probe out-of-process
-    before declaring usage unknowable."""
-    code = (
-        "import sys;sys.path.insert(0,%r);"
-        "from agent import _usage_pct;"
-        "v=_usage_pct('');print('' if v is None else v)" % AGENT_HOME
-    )
+def _router_status():
+    """One `env --status` JSON object, or {} when the module is missing or
+    broken. Run through our interpreter so a lost exec bit can't blind us."""
     try:
-        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=40)
-        out = (r.stdout or "").strip()
-        return float(out) if out else None
+        r = subprocess.run([sys.executable, ROUTER_ENV, "--status"],
+                           capture_output=True, text=True, timeout=60)
+        data = json.loads((r.stdout or "").strip() or "{}")
+        return data if isinstance(data, dict) else {}
     except Exception:
-        return None
+        return {}
 
 
 def _refresh_headroom():
-    """Probe every signed-in plan; runs in a daemon thread, one in flight."""
+    """Ask the router for the best plan; runs in a daemon thread, one in flight."""
     best = None
-    last = {}
+    endpoint = {}
     try:
-        candidates = [""]
-        try:
-            candidates += [os.path.join(ACCOUNTS_DIR, d.name)
-                           for d in os.scandir(ACCOUNTS_DIR) if d.is_dir()]
-        except OSError:
-            pass
-        for cfg in candidates:
-            pct = _usage_pct(cfg)
-            if pct is not None and (best is None or pct < best):
-                best = pct
-        last = getattr(_agent_module, "_usage_last", None) or {}
-        # A fresh interpreter has recovered where a stale in-process one
-        # couldn't (2026-07-30) — but against a rate limit it only doubles
-        # the hammering, and an expired token reads the same store, so skip
-        # it for both.
-        if best is None and last.get("status") not in (429, "expired"):
-            best = _probe_subprocess()
-            if best is not None:
-                print("[headroom] in-process probe failed, subprocess probe read "
-                      f"{best:.0f}% — investigate stale state", flush=True)
+        st = _router_status()
+        b = st.get("best")
+        if isinstance(b, dict) and isinstance(b.get("pct"), (int, float)):
+            best = float(b["pct"])
+        if isinstance(st.get("endpoint"), dict):
+            endpoint = st["endpoint"]
     finally:
         now = time.time()
         with _headroom_lock:
@@ -263,9 +245,13 @@ def _refresh_headroom():
                 _headroom.update(pct=best, good_ts=now,
                                  next_probe=now + HEADROOM_TTL)
             else:
-                wait = max(HEADROOM_BACKOFF, float(last.get("retry_after") or 0))
+                try:
+                    retry_after = float(endpoint.get("retry_after") or 0)
+                except (TypeError, ValueError):
+                    retry_after = 0.0
+                wait = max(HEADROOM_BACKOFF, retry_after)
                 _headroom["next_probe"] = now + wait
-                if last.get("status") == 429:
+                if endpoint.get("status") == 429:
                     print(f"[headroom] usage endpoint 429 — backing off {wait:.0f}s,"
                           " serving last good reading meanwhile", flush=True)
 
