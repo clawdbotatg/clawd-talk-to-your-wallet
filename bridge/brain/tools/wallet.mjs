@@ -1008,7 +1008,12 @@ const tools = {
         : undefined;
     // Simulation-derived quotes get a wider default slippage floor — the sim
     // reflects one block's state, and hooked pools can move fees per-swap.
-    const slipBps = BigInt(Math.round((slippagePct ?? (quoteSource === "simulation" ? 2 : 1)) * 100));
+    // Hooked pools also get the wider floor even when the Quoter priced them:
+    // a thin hooked pool proved able to drift past 1% in the minutes between
+    // building and signing.
+    const slipBps = BigInt(
+      Math.round((slippagePct ?? (quoteSource === "simulation" || poolKey.hooks !== NATIVE ? 2 : 1)) * 100),
+    );
     const minOut = (amountOut * (10000n - slipBps)) / 10000n;
 
     // 3. Encode the swap via Uniswap's own SDKs (V4Planner + RoutePlanner)
@@ -1033,8 +1038,40 @@ const tools = {
       chainId: chain,
     };
 
-    // 4. Native input needs no approvals — single transaction.
-    if (inAddr === NATIVE) return { ...swapTx, quote };
+    // Deterministic re-build descriptor: pins the discovered pool so a requote
+    // skips discovery entirely (one quote + one sim, ~2s). The UI uses this to
+    // refresh a stale quote without another agent turn.
+    const requote = {
+      tool: "buildUniV4Swap",
+      args: {
+        tokenIn: inAddr,
+        tokenOut: outAddr,
+        amountIn: amount.toString(),
+        chainId: chain,
+        ...(fromAddress ? { fromAddress } : {}),
+        slippagePct: Number(slipBps) / 100,
+        fee: poolKey.fee,
+        tickSpacing: poolKey.tickSpacing,
+        hooks: poolKey.hooks,
+      },
+    };
+
+    // 4. Native input needs no approvals — single transaction. Simulate it here
+    //    too (when we know the sender): one tool call instead of two agent
+    //    round-trips, and a requote comes back pre-verified.
+    if (inAddr === NATIVE) {
+      let simulation;
+      if (fromAddress) {
+        try {
+          simulation = await tools.simulateAssetChanges({
+            from: fromAddress, to: swapTx.to, data: swapTx.data, value: swapTx.value, chainId: chain,
+          });
+        } catch (e) {
+          simulation = { success: false, error: e.message?.slice(0, 200), changes: [] };
+        }
+      }
+      return { ...swapTx, quote, requote, ...(simulation ? { simulation } : {}) };
+    }
 
     // ERC-20 input: Universal Router pulls through Permit2, so check both hops
     if (!fromAddress) return { error: "fromAddress required for ERC-20 input (approval checks)" };
@@ -1074,13 +1111,14 @@ const tools = {
       return { error: `Allowance check failed: ${e.message}` };
     }
 
-    if (steps.length === 0) return { ...swapTx, quote };
+    if (steps.length === 0) return { ...swapTx, quote, requote };
     steps.push({ ...swapTx, description: "Swap via Uniswap V4", label: "Swap" });
     return {
       type: "multistep_transaction",
       steps,
       delay: 3000,
       quote,
+      requote,
       note: `${steps.length - 1} approval step(s) needed before the swap (token → Permit2 → Universal Router).`,
     };
   },

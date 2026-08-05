@@ -328,6 +328,10 @@ STEP_LABELS = {
 }
 _TOOL_RE = re.compile(r"wallet\.mjs\s+([A-Za-z0-9_]+)")
 
+# Tools the /requote endpoint may run directly (deterministic re-builds only —
+# they read chain state and emit calldata, never spend or sign anything).
+REQUOTE_TOOLS = {"buildUniV4Swap"}
+
 
 def step_from_event(event):
     """stream-json event → {tool,label} for a tool call the user should see, or None."""
@@ -345,6 +349,16 @@ def step_from_event(event):
             continue
         return {"tool": tool, "label": STEP_LABELS.get(tool, f"Running {tool}")}
     return None
+
+
+def _looks_like_writeup(event):
+    """True when an assistant event starts emitting the final contract JSON."""
+    if event.get("type") != "assistant":
+        return False
+    return any(
+        isinstance(b, dict) and b.get("type") == "text" and (b.get("text") or "").lstrip().startswith("{")
+        for b in ((event.get("message") or {}).get("content") or [])
+    )
 
 
 def build_prompt(body):
@@ -514,9 +528,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache, no-transform")
-        self.send_header("Connection", "keep-alive")
         self.send_header("X-Accel-Buffering", "no")     # nginx must not buffer SSE
         self.end_headers()
+        # No Content-Length: EOF is the only end-of-body marker. Keeping the
+        # socket alive after the final event left downstream readers waiting
+        # until a 240s timeout — the "result shows up 4 minutes late" bug.
+        self.close_connection = True
 
         seen = []
         broken = {"pipe": False}
@@ -530,6 +547,18 @@ class Handler(BaseHTTPRequestHandler):
         def on_event(event):
             step = step_from_event(event)
             if not step:
+                # The final answer is a JSON object the model writes after its
+                # last tool call — 10-20s of otherwise-invisible work. Surface it
+                # once so the step list never looks hung at the end.
+                if seen and "__writeup" not in seen and _looks_like_writeup(event):
+                    seen.append("__writeup")
+                    label = "Putting the answer together"
+                    _turn_step(address, label)
+                    if not broken["pipe"]:
+                        try:
+                            self._sse({"type": "step", "tool": "__writeup", "label": label, "n": len(seen)})
+                        except (BrokenPipeError, ConnectionResetError):
+                            broken["pipe"] = True
                 return
             seen.append(step["tool"])
             _turn_step(address, step["label"])      # recorded even if nobody's listening
@@ -566,11 +595,37 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.rstrip("/")
-        if path not in ("/intent", "/intent/stream"):
+        if path not in ("/intent", "/intent/stream", "/requote"):
             return self._json(404, {"error": "not found"})
         if not secrets.compare_digest(
                 self.headers.get("X-Bridge-Secret", ""), SECRET):
             return self._json(401, {"error": "unauthorized"})
+
+        # /requote runs one whitelisted wallet.mjs tool directly — no agent
+        # turn, so no headroom gate or turn slot. This is how a transaction
+        # card refreshes its price in ~2s instead of another full agent turn.
+        if path == "/requote":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(min(length, 65536)) or b"{}")
+            except Exception:
+                return self._json(400, {"error": "bad json"})
+            tool = body.get("tool")
+            args = body.get("args")
+            if tool not in REQUOTE_TOOLS or not isinstance(args, dict):
+                return self._json(400, {"error": "unsupported requote"})
+            try:
+                proc = subprocess.run(
+                    ["node", os.path.join("tools", "wallet.mjs"), tool, json.dumps(args)],
+                    cwd=BRAIN, capture_output=True, text=True, timeout=45,
+                )
+                result = json.loads(proc.stdout)
+            except subprocess.TimeoutExpired:
+                return self._json(504, {"error": "requote timed out"})
+            except Exception as e:  # noqa: BLE001
+                print(f"[requote] failed: {e}", flush=True)
+                return self._json(502, {"error": "requote failed"})
+            return self._json(200, result)
 
         ok, pct = would_serve()
         if not ok:

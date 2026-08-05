@@ -69,6 +69,10 @@ interface ChatMessage {
       verified: boolean;
       changes: { direction: "in" | "out"; symbol: string; amount: string }[];
     };
+    // Deterministic re-build descriptor from the swap tool — lets the card
+    // refresh price/calldata via /api/requote without another agent turn.
+    requote?: { tool: string; args: Record<string, unknown> };
+    quote?: { amountOut?: string; amountOutMinimum?: string; slippagePct?: number };
     txHash?: `0x${string}`;
   };
   multistepTransaction?: MultiStepTransactionData;
@@ -169,6 +173,12 @@ async function consumeIntentStream(
       } catch {
         /* ignore a malformed frame rather than losing the whole turn */
       }
+    }
+    // The final event IS the result — render it now rather than waiting for the
+    // socket to close (a proxy holding the connection open once cost 4 minutes).
+    if (result) {
+      reader.cancel().catch(() => undefined);
+      return result;
     }
   }
   return result ?? { type: "chat", message: "The agent stopped before finishing. Please try again." };

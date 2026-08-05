@@ -24,8 +24,24 @@ interface TransactionData {
     verified: boolean;
     changes: SimulationChange[];
   };
+  // Deterministic re-build descriptor from the swap tool. When present the
+  // card can re-price itself via /api/requote — fresh calldata + simulation
+  // in ~2s, no agent turn.
+  requote?: { tool: string; args: Record<string, unknown> };
+  quote?: { amountOut?: string; amountOutMinimum?: string; slippagePct?: number };
   txHash?: `0x${string}`;
 }
+
+// Raw tool output shape returned by /api/requote (bridge runs the build tool directly)
+type RequoteResult = {
+  to?: string;
+  data?: string;
+  value?: string;
+  quote?: TransactionData["quote"];
+  requote?: TransactionData["requote"];
+  simulation?: { success?: boolean; changes?: (SimulationChange & { direction: string })[] };
+  error?: string;
+};
 
 interface ConfirmedTxInfo {
   txHash: string;
@@ -76,6 +92,15 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>(tx.txHash);
   const [execError, setExecError] = useState("");
 
+  // The mutable half of the transaction: a requote replaces calldata, amounts
+  // and simulation while the card keeps its identity (description, chain).
+  const [live, setLive] = useState<TransactionData>(tx);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [quotedAt, setQuotedAt] = useState(() => Date.now());
+  const [quoteAge, setQuoteAge] = useState(0);
+  const [refreshError, setRefreshError] = useState("");
+  const mountedAtRef = useRef(Date.now());
+
   const { sendTransactionAsync } = useSendTransaction();
   const { switchChainAsync } = useSwitchChain();
   const { data: walletClient } = useWalletClient();
@@ -90,8 +115,8 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
   useEffect(() => {
     if (isTxConfirmed && txHash && onConfirmed && !confirmedFiredRef.current) {
       confirmedFiredRef.current = true;
-      const outChanges = tx.simulation?.changes?.filter(c => c.direction === "out") || [];
-      const inChanges = tx.simulation?.changes?.filter(c => c.direction === "in") || [];
+      const outChanges = live.simulation?.changes?.filter(c => c.direction === "out") || [];
+      const inChanges = live.simulation?.changes?.filter(c => c.direction === "in") || [];
       // Derive type from simulation
       let txType: "swap" | "bridge" | "send" | "wrap" | "other" = "other";
       if (outChanges.length > 0 && inChanges.length > 0) txType = "swap";
@@ -104,7 +129,7 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
         inToken: inChanges[0] ? { symbol: inChanges[0].symbol, amount: inChanges[0].amount } : undefined,
       });
     }
-  }, [isTxConfirmed, txHash, onConfirmed, tx.simulation, tx.chainId]);
+  }, [isTxConfirmed, txHash, onConfirmed, live.simulation, tx.chainId]);
 
   const openWallet = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -145,9 +170,9 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
       }
 
       const promise = sendTransactionAsync({
-        to: tx.to as `0x${string}`,
-        data: (tx.data && tx.data !== "0x" ? tx.data : undefined) as `0x${string}` | undefined,
-        value: BigInt(tx.value || "0"),
+        to: live.to as `0x${string}`,
+        data: (live.data && live.data !== "0x" ? live.data : undefined) as `0x${string}` | undefined,
+        value: BigInt(live.value || "0"),
         chainId: tx.chainId,
       });
       setTimeout(openWallet, 2000);
@@ -162,8 +187,70 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
     }
   };
 
-  const outChanges = tx.simulation?.changes?.filter(c => c.direction === "out") || [];
-  const inChanges = tx.simulation?.changes?.filter(c => c.direction === "in") || [];
+  const refreshQuote = useCallback(async () => {
+    if (!live.requote || isRefreshing || isExecuting || txHash) return;
+    setIsRefreshing(true);
+    setRefreshError("");
+    try {
+      const res = await fetch("/api/requote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requote: live.requote }),
+      });
+      const fresh: RequoteResult = await res.json();
+      if (!res.ok || fresh.error || !fresh.data) throw new Error(fresh.error || "requote failed");
+      setLive(prev => ({
+        ...prev,
+        to: fresh.to ?? prev.to,
+        data: fresh.data!,
+        value: fresh.value ?? prev.value,
+        quote: fresh.quote ?? prev.quote,
+        requote: fresh.requote ?? prev.requote,
+        simulation: fresh.simulation
+          ? {
+              verified: !!fresh.simulation.success,
+              changes: (fresh.simulation.changes || []).filter(
+                (c): c is SimulationChange => c.direction === "in" || c.direction === "out",
+              ),
+            }
+          : prev.simulation,
+      }));
+      setQuotedAt(Date.now());
+      setQuoteAge(0);
+    } catch (e) {
+      setRefreshError(e instanceof Error ? e.message : "Could not refresh the price");
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [live.requote, isRefreshing, isExecuting, txHash]);
+
+  const canRequote = !!live.requote && !txHash;
+
+  // Tick the quote's age every second; auto-requote every 30s so the price
+  // moves with the market while the card sits unsigned. Auto stops when the
+  // tab is hidden, a tx is in flight, or the card is >15 min old (the manual
+  // ↻ button keeps working).
+  useEffect(() => {
+    if (!canRequote) return;
+    const t = setInterval(() => {
+      const age = Math.round((Date.now() - quotedAt) / 1000);
+      setQuoteAge(age);
+      if (
+        age >= 30 &&
+        !isRefreshing &&
+        !isExecuting &&
+        !refreshError &&
+        document.visibilityState === "visible" &&
+        Date.now() - mountedAtRef.current < 15 * 60_000
+      ) {
+        refreshQuote();
+      }
+    }, 1000);
+    return () => clearInterval(t);
+  }, [canRequote, quotedAt, isRefreshing, isExecuting, refreshError, refreshQuote]);
+
+  const outChanges = live.simulation?.changes?.filter(c => c.direction === "out") || [];
+  const inChanges = live.simulation?.changes?.filter(c => c.direction === "in") || [];
 
   return (
     <>
@@ -176,7 +263,7 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
         }}
       >
         {/* Simulation preview */}
-        {tx.simulation && tx.simulation.changes.length > 0 && (
+        {live.simulation && live.simulation.changes.length > 0 && (
           <div className="space-y-2 text-sm">
             {outChanges.map((c, i) => (
               <div key={`out-${i}`} className="flex justify-between items-center">
@@ -230,6 +317,29 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
           </div>
         )}
 
+        {/* Live-quote freshness + manual refresh */}
+        {canRequote && (
+          <div className="flex items-center justify-between text-xs" style={{ color: "#8A8578" }}>
+            <span className="font-[family-name:var(--font-jetbrains)]">
+              {isRefreshing
+                ? "Refreshing price…"
+                : refreshError
+                  ? "Price refresh failed — tap ↻ to retry"
+                  : `Live quote · updated ${quoteAge < 3 ? "just now" : `${quoteAge}s ago`}`}
+            </span>
+            <button
+              className="btn btn-ghost btn-xs px-2"
+              style={{ color: "#C9A84C" }}
+              onClick={refreshQuote}
+              disabled={isRefreshing}
+              title="Refresh price"
+              aria-label="Refresh price"
+            >
+              {isRefreshing ? <span className="loading loading-spinner loading-xs"></span> : "↻"}
+            </button>
+          </div>
+        )}
+
         {/* Execute button */}
         {!txHash && (
           <button className="btn btn-sm w-full gold-btn" style={{}} onClick={() => setShowModal(true)}>
@@ -257,7 +367,7 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
             </h3>
 
             {/* Full simulation details */}
-            {tx.simulation && tx.simulation.changes.length > 0 && (
+            {live.simulation && live.simulation.changes.length > 0 && (
               <div
                 className="p-4 space-y-3 mb-4"
                 style={{
@@ -284,7 +394,7 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
                     <AssetChip symbol={c.symbol} amount={c.amount} chain={c.chain || chainName} />
                   </div>
                 ))}
-                {tx.simulation.verified && (
+                {live.simulation.verified && (
                   <div className="text-xs text-center mt-1" style={{ color: "rgba(201, 168, 76, 0.6)" }}>
                     ✓ Simulation verified onchain
                   </div>
