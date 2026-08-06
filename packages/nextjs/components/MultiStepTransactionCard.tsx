@@ -40,6 +40,11 @@ interface MultiStepTransactionCardProps {
   address?: string;
   onComplete?: (hashes: (`0x${string}` | undefined)[]) => void;
   onConfirmed?: (info: ConfirmedTxInfo) => void;
+  // Saved-actions wiring (only meaningful when tx.requote exists): star the
+  // flow into the saved rail / rebuild it fresh.
+  onSave?: () => void;
+  saved?: boolean;
+  onRerun?: () => void;
 }
 
 type MultiStepState =
@@ -107,7 +112,14 @@ function clearPersistedState(key: string) {
   } catch {}
 }
 
-const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTransactionCardProps) => {
+const MultiStepTransactionCard = ({
+  tx,
+  onComplete,
+  onConfirmed,
+  onSave,
+  saved,
+  onRerun,
+}: MultiStepTransactionCardProps) => {
   const storageKey = deriveStorageKey(tx);
 
   // Restore from localStorage on mount
@@ -438,6 +450,20 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
           </div>
         )}
 
+        {state === "idle" && onSave && tx.requote && (
+          <div className="flex justify-end -mt-1">
+            <button
+              className="text-xs cursor-pointer"
+              style={{ color: saved ? "#C9A84C" : "rgba(138, 133, 120, 0.8)" }}
+              onClick={onSave}
+              disabled={saved}
+              title={saved ? "Saved" : "Save to your actions rail"}
+            >
+              {saved ? "★ saved" : "☆ save"}
+            </button>
+          </div>
+        )}
+
         {(state === "step1_pending" || state === "step1_confirming") && (
           <div className="text-sm flex items-center gap-2" style={{ color: "#8A8578" }}>
             <span className="loading loading-spinner loading-xs"></span>
@@ -531,6 +557,31 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
                 >
                   View transaction
                 </a>
+              </div>
+            )}
+            {tx.requote && (onRerun || onSave) && (
+              <div className="flex items-center gap-3 text-xs">
+                {onRerun && (
+                  <button
+                    className="btn btn-ghost btn-xs px-2"
+                    style={{ color: "#C9A84C" }}
+                    onClick={onRerun}
+                    title="Rebuild this transaction at the current market price"
+                  >
+                    ↻ Do this again
+                  </button>
+                )}
+                {onSave && (
+                  <button
+                    className="btn btn-ghost btn-xs px-2"
+                    style={{ color: saved ? "#C9A84C" : "#8A8578" }}
+                    onClick={onSave}
+                    disabled={saved}
+                    title={saved ? "Saved" : "Save to your actions rail"}
+                  >
+                    {saved ? "★ Saved" : "☆ Save"}
+                  </button>
+                )}
               </div>
             )}
           </div>

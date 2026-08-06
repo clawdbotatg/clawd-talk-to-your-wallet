@@ -58,6 +58,11 @@ interface TransactionCardProps {
   address: string;
   onTxHash?: (hash: `0x${string}`) => void;
   onConfirmed?: (info: ConfirmedTxInfo) => void;
+  // Saved-actions wiring (only meaningful when the tx carries a requote
+  // descriptor): star the card into the saved rail / rebuild it fresh.
+  onSave?: () => void;
+  saved?: boolean;
+  onRerun?: () => void;
 }
 
 const EXPLORER_URLS: Record<number, string> = {
@@ -86,7 +91,7 @@ const CHAIN_NAMES: Record<number, string> = {
   5000: "mantle",
 };
 
-const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCardProps) => {
+const TransactionCard = ({ tx, address, onTxHash, onConfirmed, onSave, saved, onRerun }: TransactionCardProps) => {
   const [showModal, setShowModal] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>(tx.txHash);
@@ -344,6 +349,34 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
           </div>
         )}
 
+        {/* A confirmed card with a requote descriptor is a reusable mini
+            frontend — rebuild it fresh or pin it to the saved rail. */}
+        {txHash && isTxConfirmed && tx.requote && (onRerun || onSave) && (
+          <div className="flex items-center gap-3 text-xs">
+            {onRerun && (
+              <button
+                className="btn btn-ghost btn-xs px-2"
+                style={{ color: "#C9A84C" }}
+                onClick={onRerun}
+                title="Rebuild this transaction at the current market price"
+              >
+                ↻ Do this again
+              </button>
+            )}
+            {onSave && (
+              <button
+                className="btn btn-ghost btn-xs px-2"
+                style={{ color: saved ? "#C9A84C" : "#8A8578" }}
+                onClick={onSave}
+                disabled={saved}
+                title={saved ? "Saved" : "Save to your actions rail"}
+              >
+                {saved ? "★ Saved" : "☆ Save"}
+              </button>
+            )}
+          </div>
+        )}
+
         {txHash && isTxConfirming && !isTxConfirmed && (
           <div className="text-sm flex items-center gap-2" style={{ color: "#8A8578" }}>
             <span className="loading loading-spinner loading-xs"></span>
@@ -367,16 +400,30 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
                 </span>
               )}
             </span>
-            <button
-              className="btn btn-ghost btn-xs px-2"
-              style={{ color: "#C9A84C" }}
-              onClick={refreshQuote}
-              disabled={isRefreshing}
-              title="Refresh price"
-              aria-label="Refresh price"
-            >
-              {isRefreshing ? <span className="loading loading-spinner loading-xs"></span> : "↻"}
-            </button>
+            <span className="flex items-center">
+              {onSave && (
+                <button
+                  className="btn btn-ghost btn-xs px-2"
+                  style={{ color: saved ? "#C9A84C" : "#8A8578" }}
+                  onClick={onSave}
+                  disabled={saved}
+                  title={saved ? "Saved" : "Save to your actions rail"}
+                  aria-label={saved ? "Saved" : "Save action"}
+                >
+                  {saved ? "★" : "☆"}
+                </button>
+              )}
+              <button
+                className="btn btn-ghost btn-xs px-2"
+                style={{ color: "#C9A84C" }}
+                onClick={refreshQuote}
+                disabled={isRefreshing}
+                title="Refresh price"
+                aria-label="Refresh price"
+              >
+                {isRefreshing ? <span className="loading loading-spinner loading-xs"></span> : "↻"}
+              </button>
+            </span>
           </div>
         )}
 

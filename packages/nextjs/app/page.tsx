@@ -12,6 +12,7 @@ import MultiStepTransactionCard from "~~/components/MultiStepTransactionCard";
 import TransactionCard from "~~/components/TransactionCard";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useCvAuth } from "~~/hooks/useCvAuth";
+import { type SavedAction, useSavedActions } from "~~/hooks/useSavedActions";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -463,6 +464,115 @@ const Home: NextPage = () => {
     resolvedTxRef.current.add(txHash.toLowerCase()); // stops the backoff refetches
     setPendingActivities(prev => prev.filter(p => p.txHash.toLowerCase() !== txHash.toLowerCase()));
   }, []);
+
+  // ─── Saved actions (re-runnable mini frontends) ──────────────────────────
+
+  const { savedActions, saveAction, removeAction, isSaved } = useSavedActions(address);
+
+  // The best human label for a card is what the user asked for — the last user
+  // message before it in the chat.
+  const labelForCard = useCallback(
+    (cardIndex: number): string => {
+      for (let j = cardIndex - 1; j >= 0; j--) {
+        if (messages[j].role === "user") {
+          const text = messages[j].content.replace(/^↻\s*/, "").replace(/\s+/g, " ").trim();
+          return text.length > 48 ? `${text.slice(0, 45)}…` : text || "Saved action";
+        }
+      }
+      return "Saved action";
+    },
+    [messages],
+  );
+
+  // Raw build-tool output from /api/requote: either a single transaction or a
+  // multistep {steps} flow (an ERC-20 swap whose approvals were spent rebuilds
+  // as a single tx — the tool sees the allowances and skips the approve steps).
+  type RebuildResult = {
+    to?: string;
+    data?: string;
+    value?: string;
+    chainId?: number;
+    steps?: MultiStepTransactionData["steps"];
+    delay?: number;
+    note?: string;
+    quote?: NonNullable<ChatMessage["transaction"]>["quote"];
+    requote?: { tool: string; args: Record<string, unknown> };
+    simulation?: { success?: boolean; changes?: { direction: string; symbol: string; amount: string }[] };
+    error?: string;
+  };
+
+  const runAction = useCallback(
+    async (label: string, requote: SavedAction["requote"], description?: string) => {
+      if (isProcessing) return;
+      setMessages(prev => [...prev, { role: "user", content: `↻ ${label}`, timestamp: Date.now() }]);
+      setIsProcessing(true);
+      setProgressSteps(["Rebuilding at the current market price"]);
+      try {
+        const res = await fetch("/api/requote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requote }),
+        });
+        const fresh: RebuildResult = await res.json();
+        if (!res.ok || fresh.error) throw new Error(fresh.error || "rebuild failed");
+
+        let assistantMsg: ChatMessage;
+        if (Array.isArray(fresh.steps) && fresh.steps.length > 0) {
+          assistantMsg = {
+            role: "assistant",
+            content: fresh.note || "Ready — approvals first, then the swap.",
+            multistepTransaction: {
+              message: "",
+              steps: fresh.steps,
+              delay: fresh.delay || 3000,
+              requote: fresh.requote ?? requote,
+            },
+            timestamp: Date.now(),
+          };
+        } else if (fresh.to && fresh.data) {
+          assistantMsg = {
+            role: "assistant",
+            content: "Rebuilt at the current market price.",
+            transaction: {
+              to: fresh.to,
+              data: fresh.data,
+              value: fresh.value ?? "0",
+              chainId: fresh.chainId ?? 1,
+              description: description || label,
+              simulation: fresh.simulation?.success
+                ? {
+                    verified: true,
+                    changes: (fresh.simulation.changes || []).filter(
+                      (c): c is { direction: "in" | "out"; symbol: string; amount: string } =>
+                        c.direction === "in" || c.direction === "out",
+                    ),
+                  }
+                : undefined,
+              requote: fresh.requote ?? requote,
+              quote: fresh.quote,
+            },
+            timestamp: Date.now(),
+          };
+        } else {
+          throw new Error("the build tool returned no transaction");
+        }
+        setMessages(prev => [...prev, assistantMsg]);
+      } catch (e) {
+        setMessages(prev => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `Couldn't rebuild "${label}" — ${e instanceof Error ? e.message : "unknown error"}. Ask me in chat and I'll build it fresh.`,
+            timestamp: Date.now(),
+          },
+        ]);
+      } finally {
+        setIsProcessing(false);
+        setProgressSteps([]);
+      }
+    },
+    [isProcessing],
+  );
 
   // ─── handleSubmit ────────────────────────────────────────────────────────
 
@@ -1030,6 +1140,28 @@ const Home: NextPage = () => {
                             tx={msg.multistepTransaction}
                             address={address!}
                             onConfirmed={handleTxConfirmed}
+                            onSave={
+                              msg.multistepTransaction.requote
+                                ? () =>
+                                    saveAction({
+                                      label: labelForCard(i),
+                                      requote: msg.multistepTransaction!.requote!,
+                                      chainId: msg.multistepTransaction!.steps[0]?.chainId,
+                                      description: msg.multistepTransaction!.steps.at(-1)?.description,
+                                    })
+                                : undefined
+                            }
+                            saved={msg.multistepTransaction.requote ? isSaved(msg.multistepTransaction.requote) : false}
+                            onRerun={
+                              msg.multistepTransaction.requote
+                                ? () =>
+                                    runAction(
+                                      labelForCard(i),
+                                      msg.multistepTransaction!.requote!,
+                                      msg.multistepTransaction!.steps.at(-1)?.description,
+                                    )
+                                : undefined
+                            }
                           />
                         )}
 
@@ -1038,6 +1170,24 @@ const Home: NextPage = () => {
                             tx={msg.transaction}
                             address={address!}
                             onConfirmed={handleTxConfirmed}
+                            onSave={
+                              msg.transaction.requote
+                                ? () =>
+                                    saveAction({
+                                      label: labelForCard(i),
+                                      requote: msg.transaction!.requote!,
+                                      chainId: msg.transaction!.chainId,
+                                      description: msg.transaction!.description,
+                                    })
+                                : undefined
+                            }
+                            saved={msg.transaction.requote ? isSaved(msg.transaction.requote) : false}
+                            onRerun={
+                              msg.transaction.requote
+                                ? () =>
+                                    runAction(labelForCard(i), msg.transaction!.requote!, msg.transaction!.description)
+                                : undefined
+                            }
                             onTxHash={(hash: `0x${string}`) => {
                               setMessages(prev =>
                                 prev.map((m, idx) =>
@@ -1080,6 +1230,41 @@ const Home: NextPage = () => {
 
                 {/* Input — sticky bottom */}
                 <div className="sticky bottom-0 pb-4 pt-2" style={{ backgroundColor: "#0a0a0a" }}>
+                  {/* Saved actions rail — each chip rebuilds its transaction at
+                      the current market price (no agent turn, no charge) */}
+                  {savedActions.length > 0 && (
+                    <div className="flex gap-2 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
+                      {savedActions.map(a => (
+                        <div
+                          key={a.id}
+                          className="flex items-center shrink-0"
+                          style={{
+                            border: "1px solid rgba(201, 168, 76, 0.25)",
+                            backgroundColor: "#111111",
+                          }}
+                        >
+                          <button
+                            className="text-xs pl-3 pr-1.5 py-1.5 cursor-pointer disabled:opacity-40"
+                            style={{ color: "#C9A84C", fontFamily: "var(--font-jetbrains)" }}
+                            onClick={() => runAction(a.label, a.requote, a.description)}
+                            disabled={isProcessing}
+                            title={a.description || "Rebuild at the current market price"}
+                          >
+                            ▶ {a.label}
+                          </button>
+                          <button
+                            className="text-xs px-2 py-1.5 cursor-pointer"
+                            style={{ color: "rgba(138, 133, 120, 0.6)" }}
+                            onClick={() => removeAction(a.id)}
+                            title="Remove from saved actions"
+                            aria-label={`Remove ${a.label}`}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex gap-2">
                     <input
                       type="text"
