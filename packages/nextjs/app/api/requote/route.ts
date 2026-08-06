@@ -5,6 +5,8 @@ import { NextResponse } from "next/server";
 // tool deterministically (pool pinned — no discovery, no agent turn) and
 // returns fresh {data, value, quote, simulation} in ~2s. No CV charge: this
 // re-prices a transaction the user already paid a chat turn to build.
+const REQUOTE_TOOLS = new Set(["buildUniV4Swap", "buildRoute"]);
+
 export async function POST(req: Request) {
   const bridgeUrl = process.env.DENARAI_BRIDGE_URL;
   if (!bridgeUrl) {
@@ -17,7 +19,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
-  if (requote?.tool !== "buildUniV4Swap" || typeof requote.args !== "object" || requote.args === null) {
+  if (!requote?.tool || !REQUOTE_TOOLS.has(requote.tool) || typeof requote.args !== "object" || requote.args === null) {
     return NextResponse.json({ error: "unsupported requote" }, { status: 400 });
   }
 

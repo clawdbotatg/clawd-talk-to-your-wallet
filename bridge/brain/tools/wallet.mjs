@@ -605,17 +605,33 @@ const tools = {
     };
   },
 
-  async buildRoute({ fromToken, toToken, amountIn, fromChainId, toChainId, fromAddress }) {
+  async buildRoute({ fromToken, toToken, amountIn, fromChainId, toChainId, fromAddress, simulate }) {
     const url = `https://li.quest/v1/quote?fromChain=${fromChainId}&toChain=${toChainId}&fromToken=${fromToken}&toToken=${toToken}&fromAmount=${amountIn}&fromAddress=${fromAddress}&slippage=0.005`;
     const res = await fetch(url, { headers: { "x-lifi-api-key": LIFI_KEY } });
     if (!res.ok) return { error: `LI.FI API error (${res.status}): ${await res.text()}` };
     const data = await res.json();
     if (data.transactionRequest) {
-      return {
+      const routeTx = {
         to: data.transactionRequest.to,
         data: data.transactionRequest.data,
         value: data.transactionRequest.value || "0x0",
         chainId: fromChainId,
+      };
+      // `simulate` is set inside the emitted requote descriptor (not by the
+      // agent, which simulates as a separate workflow step) so UI re-runs come
+      // back pre-verified like buildUniV4Swap's do.
+      let simulation;
+      if (simulate && fromAddress) {
+        try {
+          simulation = await tools.simulateAssetChanges({
+            from: fromAddress, to: routeTx.to, data: routeTx.data, value: routeTx.value, chainId: fromChainId,
+          });
+        } catch (e) {
+          simulation = { success: false, error: e.message?.slice(0, 200), changes: [] };
+        }
+      }
+      return {
+        ...routeTx,
         estimate: data.estimate
           ? {
               fromAmount: data.estimate.fromAmount,
@@ -625,6 +641,12 @@ const tools = {
               gasCosts: data.estimate.gasCosts,
             }
           : undefined,
+        ...(data.estimate ? { quote: { amountOut: data.estimate.toAmount, amountOutMinimum: data.estimate.toAmountMin } } : {}),
+        requote: {
+          tool: "buildRoute",
+          args: { fromToken, toToken, amountIn, fromChainId, toChainId, fromAddress, simulate: true },
+        },
+        ...(simulation ? { simulation } : {}),
       };
     }
     return { error: "No transactionRequest in LI.FI response", rawResponse: JSON.stringify(data).slice(0, 500) };

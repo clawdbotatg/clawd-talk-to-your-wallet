@@ -80,6 +80,7 @@ AVAILABLE TOOLS (all via `node tools/wallet.mjs <name> '<json>'`):
   • Cross-chain bridges: fromChainId !== toChainId (e.g. bridge USDC from mainnet to Base)
   • DeFi zaps (Composer): set toToken to a vault/staking token address to auto-compose deposits into Morpho, Aave, Lido, EtherFi, Pendle, etc.
   Token symbols work directly (e.g. "ETH", "USDC") — no need to resolve addresses first. amountIn is wei/raw units.
+  Returns {to,data,value,chainId,estimate,quote,requote}. Like buildUniV4Swap, the `requote` object lets the UI refresh the price without asking you again — copy it VERBATIM into your response as `transaction.requote`. Never edit or summarize it. (You still simulate the calldata yourself per the workflow — the tool only self-simulates on UI requote runs.)
 - getRouteStatus {txHash,fromChain,toChain}: Status of a cross-chain LI.FI transfer AFTER the user submits. Returns NOT_FOUND, PENDING, DONE, or FAILED.
 - buildTransfer {to,amount,token,chainId?,tokenDecimals?}: Build ETH or ERC-20 transfer calldata. token is "ETH" or the token contract address.
 - resolveENS {name}: Resolve ENS name to address.

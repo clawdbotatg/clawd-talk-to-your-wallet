@@ -19,6 +19,10 @@ interface MultiStepTransactionData {
   delay: number; // ms between steps
   priceEth?: string;
   priceWei?: string;
+  // Deterministic re-build descriptor from the swap tool. The final step's
+  // quote is minutes stale by the time the approvals confirm, so we re-run the
+  // build right before signing it.
+  requote?: { tool: string; args: Record<string, unknown> };
 }
 
 interface ConfirmedTxInfo {
@@ -140,6 +144,7 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
     persisted?.step2Hash as `0x${string}` | undefined,
   );
   const [execError, setExecError] = useState("");
+  const [isRepricing, setIsRepricing] = useState(false);
   const [countdown, setCountdown] = useState(() => getInitialCountdown(persisted));
   const [showModal, setShowModal] = useState(false);
   const [commitTimestamp, setCommitTimestamp] = useState<number | undefined>(persisted?.commitTimestamp);
@@ -290,6 +295,33 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
     }
   };
 
+  // Re-price the final (swap) step right before it's signed: after the
+  // approvals confirm the build tool now sees sufficient allowances and
+  // returns a single fresh transaction at current market. Falls back to the
+  // original calldata if the requote fails — stale beats stranding the user
+  // with approvals already spent.
+  const requoteFinalStep = async (step: StepData): Promise<StepData> => {
+    if (!tx.requote) return step;
+    setIsRepricing(true);
+    try {
+      const res = await fetch("/api/requote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requote: tx.requote }),
+      });
+      const fresh = await res.json();
+      const swap = Array.isArray(fresh?.steps) ? fresh.steps[fresh.steps.length - 1] : fresh;
+      if (res.ok && !fresh?.error && swap?.data) {
+        return { ...step, to: swap.to ?? step.to, data: swap.data, value: swap.value ?? step.value };
+      }
+    } catch {
+      // fall through to the original step
+    } finally {
+      setIsRepricing(false);
+    }
+    return step;
+  };
+
   const handleExecuteStep = async (step: StepData, stepNum: 1 | 2) => {
     setExecError("");
     setState(stepNum === 1 ? "step1_confirming" : "step2_confirming");
@@ -305,11 +337,13 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
         }
       }
 
+      const liveStep = stepNum === 2 ? await requoteFinalStep(step) : step;
+
       const promise = sendTransactionAsync({
-        to: step.to as `0x${string}`,
-        data: (step.data && step.data !== "0x" ? step.data : undefined) as `0x${string}` | undefined,
-        value: BigInt(step.value || "0"),
-        chainId: step.chainId,
+        to: liveStep.to as `0x${string}`,
+        data: (liveStep.data && liveStep.data !== "0x" ? liveStep.data : undefined) as `0x${string}` | undefined,
+        value: BigInt(liveStep.value || "0"),
+        chainId: liveStep.chainId,
       });
       setTimeout(openWallet, 2000);
       const hash = await promise;
@@ -549,10 +583,24 @@ const MultiStepTransactionCard = ({ tx, onComplete, onConfirmed }: MultiStepTran
         )}
 
         {state === "step2_confirming" && !needsSwitch && (
-          <button className="btn btn-sm w-full gold-btn" style={{}} onClick={() => handleExecuteStep(step2, 2)}>
-            <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">
-              {step2?.label || "Execute Step 2"}
-            </span>
+          <button
+            className="btn btn-sm w-full gold-btn"
+            style={{}}
+            onClick={() => handleExecuteStep(step2, 2)}
+            disabled={isRepricing}
+          >
+            {isRepricing ? (
+              <>
+                <span className="loading loading-spinner loading-xs"></span>
+                <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase ml-2">
+                  Refreshing price...
+                </span>
+              </>
+            ) : (
+              <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">
+                {step2?.label || "Execute Step 2"}
+              </span>
+            )}
           </button>
         )}
 

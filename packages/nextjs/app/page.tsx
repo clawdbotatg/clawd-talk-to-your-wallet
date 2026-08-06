@@ -54,6 +54,8 @@ interface MultiStepTransactionData {
   delay: number;
   priceEth?: string;
   priceWei?: string;
+  // Descriptor for re-pricing the final (swap) step after approvals confirm.
+  requote?: { tool: string; args: Record<string, unknown> };
 }
 
 interface ChatMessage {
@@ -142,6 +144,7 @@ type IntentResponse = {
   delay?: number;
   priceEth?: string;
   priceWei?: string;
+  requote?: { tool: string; args: Record<string, unknown> };
   error?: string;
 };
 
@@ -510,6 +513,7 @@ const Home: NextPage = () => {
                 delay: data.delay || 65000,
                 priceEth: data.priceEth,
                 priceWei: data.priceWei,
+                requote: data.requote,
               }
             : undefined,
         timestamp: Date.now(),

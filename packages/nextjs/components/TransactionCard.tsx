@@ -98,8 +98,14 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [quotedAt, setQuotedAt] = useState(() => Date.now());
   const [quoteAge, setQuoteAge] = useState(0);
+  // Output-amount movement (%) since the previous quote — shows the market
+  // moving between refreshes. Units cancel, so raw-unit strings compare fine.
+  const [quoteDelta, setQuoteDelta] = useState<number | null>(null);
   const [refreshError, setRefreshError] = useState("");
   const mountedAtRef = useRef(Date.now());
+  // Set after a failed pre-sign refresh so a second Confirm click sends with
+  // the last quote instead of blocking on a down bridge forever.
+  const skipRequoteRef = useRef(false);
 
   const { sendTransactionAsync } = useSendTransaction();
   const { switchChainAsync } = useSwitchChain();
@@ -169,10 +175,26 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
         }
       }
 
+      // Requote-at-sign: never sign a quote older than ~15s — a stale minOut on
+      // a volatile pool reverts and burns gas. On refresh failure the user can
+      // click Confirm again to send with the last quote anyway.
+      let sendTx = live;
+      if (live.requote && !skipRequoteRef.current && Date.now() - quotedAt > 15_000) {
+        const fresh = await refreshQuote();
+        if (!fresh) {
+          skipRequoteRef.current = true;
+          setExecError("Couldn't refresh the price — tap Confirm & Send again to sign with the last quote.");
+          setIsExecuting(false);
+          return;
+        }
+        sendTx = fresh;
+      }
+      skipRequoteRef.current = false;
+
       const promise = sendTransactionAsync({
-        to: live.to as `0x${string}`,
-        data: (live.data && live.data !== "0x" ? live.data : undefined) as `0x${string}` | undefined,
-        value: BigInt(live.value || "0"),
+        to: sendTx.to as `0x${string}`,
+        data: (sendTx.data && sendTx.data !== "0x" ? sendTx.data : undefined) as `0x${string}` | undefined,
+        value: BigInt(sendTx.value || "0"),
         chainId: tx.chainId,
       });
       setTimeout(openWallet, 2000);
@@ -187,8 +209,12 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
     }
   };
 
-  const refreshQuote = useCallback(async () => {
-    if (!live.requote || isRefreshing || isExecuting || txHash) return;
+  // Re-runs the build tool via /api/requote and swaps the fresh calldata into
+  // the card. Returns the merged transaction (or null on failure) so the
+  // pre-sign path can send exactly what it just fetched — React state wouldn't
+  // be visible to the caller in the same tick.
+  const refreshQuote = useCallback(async (): Promise<TransactionData | null> => {
+    if (!live.requote || isRefreshing || txHash) return null;
     setIsRefreshing(true);
     setRefreshError("");
     try {
@@ -199,30 +225,38 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
       });
       const fresh: RequoteResult = await res.json();
       if (!res.ok || fresh.error || !fresh.data) throw new Error(fresh.error || "requote failed");
-      setLive(prev => ({
-        ...prev,
-        to: fresh.to ?? prev.to,
-        data: fresh.data!,
-        value: fresh.value ?? prev.value,
-        quote: fresh.quote ?? prev.quote,
-        requote: fresh.requote ?? prev.requote,
-        simulation: fresh.simulation
+      const prevOut = Number(live.quote?.amountOut);
+      const nextOut = Number(fresh.quote?.amountOut);
+      setQuoteDelta(prevOut > 0 && nextOut > 0 ? ((nextOut - prevOut) / prevOut) * 100 : null);
+      const merged: TransactionData = {
+        ...live,
+        to: fresh.to ?? live.to,
+        data: fresh.data,
+        value: fresh.value ?? live.value,
+        quote: fresh.quote ?? live.quote,
+        requote: fresh.requote ?? live.requote,
+        // A failed fresh sim (e.g. the simulator isn't available on this
+        // chain) must not wipe the original send/receive display — keep it.
+        simulation: fresh.simulation?.success
           ? {
-              verified: !!fresh.simulation.success,
+              verified: true,
               changes: (fresh.simulation.changes || []).filter(
                 (c): c is SimulationChange => c.direction === "in" || c.direction === "out",
               ),
             }
-          : prev.simulation,
-      }));
+          : live.simulation,
+      };
+      setLive(merged);
       setQuotedAt(Date.now());
       setQuoteAge(0);
+      return merged;
     } catch (e) {
       setRefreshError(e instanceof Error ? e.message : "Could not refresh the price");
+      return null;
     } finally {
       setIsRefreshing(false);
     }
-  }, [live.requote, isRefreshing, isExecuting, txHash]);
+  }, [live, isRefreshing, txHash]);
 
   const canRequote = !!live.requote && !txHash;
 
@@ -326,6 +360,12 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
                 : refreshError
                   ? "Price refresh failed — tap ↻ to retry"
                   : `Live quote · updated ${quoteAge < 3 ? "just now" : `${quoteAge}s ago`}`}
+              {!isRefreshing && !refreshError && quoteDelta !== null && Math.abs(quoteDelta) >= 0.05 && (
+                <span className="ml-2" style={{ color: quoteDelta > 0 ? "#5FA97B" : "#9B3D3D" }}>
+                  {quoteDelta > 0 ? "▲" : "▼"}
+                  {Math.abs(quoteDelta).toFixed(quoteDelta >= 10 ? 0 : 1)}%
+                </span>
+              )}
             </span>
             <button
               className="btn btn-ghost btn-xs px-2"
@@ -342,7 +382,14 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
 
         {/* Execute button */}
         {!txHash && (
-          <button className="btn btn-sm w-full gold-btn" style={{}} onClick={() => setShowModal(true)}>
+          <button
+            className="btn btn-sm w-full gold-btn"
+            style={{}}
+            onClick={() => {
+              skipRequoteRef.current = false;
+              setShowModal(true);
+            }}
+          >
             <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">Execute</span>
           </button>
         )}
@@ -533,7 +580,7 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed }: TransactionCard
                   {isExecuting ? (
                     <>
                       <span className="loading loading-spinner loading-sm"></span>
-                      Sending...
+                      {isRefreshing ? "Updating price..." : "Sending..."}
                     </>
                   ) : (
                     <span className="font-[family-name:var(--font-cinzel)] text-xs tracking-[0.1em] uppercase">
