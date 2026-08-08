@@ -3,6 +3,7 @@ import TOKEN_ADDRESS_FILE from "../../../data/token-addresses.json";
 import { requireAuth } from "../_lib/auth";
 import { CV_COST_CHAT, LARV_AI_BASE_URL, USDC_COST_CHAT_MICRO } from "../_lib/chainConfig";
 import { chargeCredits } from "../_lib/credits";
+import { READ_ONLY_REFUSAL, WRITE_TOOLS, isTransactionPayload, sanitizeReadOnlyStream } from "../_lib/readOnly";
 import OpenAI from "openai";
 import { namehash } from "viem/ens";
 
@@ -1464,11 +1465,20 @@ export async function POST(req: NextRequest) {
       cvSignature,
       cvWallet,
       stream,
+      viewOnly: rawViewOnly,
     } = await req.json();
 
     // cvWallet is the address that signed the CV message (may differ from operating wallet `address`)
     // larv.ai recovers the signer from the signature — we must use cvWallet for spend calls
     const cvSpendWallet: string = cvWallet || address;
+
+    // ─── Read-only fence ──────────────────────────────────────────────────────
+    // On /<ens-or-address> the visitor is inspecting a wallet they don't own, so
+    // `address` is the SUBJECT, not the signer. Calldata is meaningless there —
+    // they can't sign for it — and a signable card would be a lie. The prompt
+    // tells the agent not to build any; the checks below are what guarantee none
+    // reaches the client.
+    const viewOnly = rawViewOnly === true;
 
     // Engines: claude-p bridge (DENARAI_BRIDGE_URL) first, Bankr as fallback
     if (!process.env.BANKR_API_KEY && !process.env.DENARAI_BRIDGE_URL) {
@@ -1591,10 +1601,11 @@ export async function POST(req: NextRequest) {
 
     // recentMessages is passed as proper OpenAI message objects below — not embedded in the prompt
 
-    // Fetch CV balance server-side so the AI always knows it
+    // Fetch CV balance server-side so the AI always knows it. In a read-only view
+    // the CV belongs to the VIEWER, not to the wallet being inspected.
     let cvBalanceSummary = "";
     try {
-      const cvBalRes = await fetch(`${LARV_AI_BASE_URL}/api/cv/balance?address=${address}`);
+      const cvBalRes = await fetch(`${LARV_AI_BASE_URL}/api/cv/balance?address=${viewOnly ? cvSpendWallet : address}`);
       const cvBalData = await cvBalRes.json();
       if (cvBalData.success && typeof cvBalData.balance === "number") {
         cvBalanceSummary = `\n\nCV (ClawdViction) Balance: ${cvBalData.balance.toLocaleString("en-US")} CV (off-chain governance score earned by staking $CLAWD at larv.ai)`;
@@ -1604,7 +1615,20 @@ export async function POST(req: NextRequest) {
     }
 
     // Shared wallet-context block — used verbatim by both engines
-    const contextBlock = `User's wallet address: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${defiSummary}${cvBalanceSummary}${activitySummary}`;
+    const readOnlyDirective = viewOnly
+      ? `\n\n[READ-ONLY VIEW] The wallet above is NOT the user's — they are inspecting ${address} from a public view page and cannot sign for it. Answer as an analyst: holdings, positions, history, behaviour, risk, prices, on-chain research. Refer to it as "this wallet", never "your wallet" or "you". NEVER build, quote, or simulate a transaction, and never call a build* tool; if asked to swap/send/bridge/stake/revoke, explain that this view is read-only and they'd need to open their own wallet. The CV balance above is the VIEWER's, not this wallet's.`
+      : "";
+    const contextBlock = `${viewOnly ? "Wallet under inspection" : "User's wallet address"}: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${defiSummary}${cvBalanceSummary}${activitySummary}${readOnlyDirective}`;
+
+    /** Last gate before the wire: a read-only turn never returns calldata, no
+     * matter which engine produced it or how the agent framed it. */
+    const reply = (payload: Record<string, unknown>, init?: ResponseInit) => {
+      if (viewOnly && isTransactionPayload(payload)) {
+        console.warn("[viewOnly] dropped built calldata for subject", address);
+        return NextResponse.json({ type: "chat", message: READ_ONLY_REFUSAL, engine: payload.engine }, init);
+      }
+      return NextResponse.json(payload, init);
+    };
 
     // ─── Engine 1: claude-p bridge (subscription-billed Opus) ────────────────
     // The bridge answers 503 when the subscription lacks headroom or it's
@@ -1628,7 +1652,7 @@ export async function POST(req: NextRequest) {
           signal: AbortSignal.timeout(Number(process.env.DENARAI_BRIDGE_TIMEOUT_MS) || 240_000),
         });
         if (sse.ok && sse.body) {
-          return new NextResponse(sse.body, {
+          return new NextResponse(viewOnly ? sanitizeReadOnlyStream(sse.body, READ_ONLY_REFUSAL) : sse.body, {
             headers: {
               "Content-Type": "text/event-stream",
               "Cache-Control": "no-cache, no-transform",
@@ -1663,7 +1687,7 @@ export async function POST(req: NextRequest) {
         if (bridgeRes.ok) {
           const bridgeData = await bridgeRes.json();
           if (["chat", "transaction", "multistep_transaction"].includes(bridgeData?.type)) {
-            return NextResponse.json(bridgeData);
+            return reply(bridgeData);
           }
           console.warn("[bridge] unexpected payload — falling back to Bankr");
         } else {
@@ -2011,8 +2035,14 @@ export async function POST(req: NextRequest) {
       },
     ];
 
+    // A read-only turn doesn't get the tools that mint calldata.
+    const activeTools = viewOnly ? openAiTools.filter(t => !WRITE_TOOLS.has(t.function.name)) : openAiTools;
+
     // Execute tool by name
     async function executeTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+      if (viewOnly && WRITE_TOOLS.has(name)) {
+        return { error: "Read-only view: transaction building is disabled for a wallet the user doesn't own." };
+      }
       const t = intentTools[name as keyof typeof intentTools];
       if (!t) return { error: `Unknown tool: ${name}` };
       return t.execute(args as never);
@@ -2049,7 +2079,7 @@ export async function POST(req: NextRequest) {
       const completion = await bankrChatCompletion({
         model: "claude-opus-4.7",
         messages: loopMessages,
-        tools: openAiTools,
+        tools: activeTools,
         tool_choice: "auto",
         max_tokens: 4096,
       });
@@ -2110,7 +2140,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (parsed.type === "transaction" && parsed.transaction) {
-        return NextResponse.json({
+        return reply({
           type: "transaction",
           message: parsed.message as string,
           transaction: parsed.transaction,
@@ -2119,7 +2149,7 @@ export async function POST(req: NextRequest) {
       }
 
       if (parsed.type === "multistep_transaction" && parsed.steps) {
-        return NextResponse.json({
+        return reply({
           type: "multistep_transaction",
           message: parsed.message as string,
           steps: parsed.steps,
@@ -2136,7 +2166,7 @@ export async function POST(req: NextRequest) {
         const sim = parsed.simulation as
           | { verified: boolean; changes: { direction: string; symbol: string; amount: string }[] }
           | undefined;
-        return NextResponse.json({
+        return reply({
           type: "transaction",
           message: (parsed.description as string) || finalText || "Transaction ready",
           transaction: {
@@ -2187,7 +2217,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (lastMultistep) {
-      return NextResponse.json({
+      return reply({
         type: "multistep_transaction",
         message: finalText || lastMultistep.message || "Multi-step transaction ready",
         steps: lastMultistep.steps,
@@ -2200,7 +2230,7 @@ export async function POST(req: NextRequest) {
 
     if (lastTx) {
       const simChanges = lastSim?.changes || [];
-      return NextResponse.json({
+      return reply({
         type: "transaction",
         message: finalText || "Transaction ready",
         transaction: {

@@ -20,6 +20,23 @@ gateway if it's unavailable.
   primitives (`ethCall`, `getLogs`, `getCode`, `getContractSource`) and direct
   Uniswap V4 swaps.
 
+### Read-only wallet views (`denar.ai/<ens-or-address>`)
+
+`app/[wallet]/page.tsx` resolves an ENS name or address server-side
+(`services/ens.ts`, mainnet) and renders the same UI as the home page — both are
+thin wrappers over **`app/_components/WalletWorkspace.tsx`**. Inside it, `address`
+is always the VIEWER (connects, pays, signs) and `subject` is the wallet on
+screen; they're the same thing only in the owner view. Anything that reads
+(portfolio, activity, modals, the agent's context) keys off `subject`; anything
+that writes or pays keys off `address`.
+
+The view is **read-only**, and that's enforced server-side rather than trusted to
+the prompt — see **`app/api/_lib/readOnly.ts`**. A request with `viewOnly: true`
+loses the calldata-building tools, gets a `[READ-ONLY VIEW]` directive in its
+context block, and has any transaction payload downgraded to a chat refusal on
+both the JSON and SSE paths. If you add a new engine or response path to
+`/api/intent`, route it through `reply()` or the payload escapes the fence.
+
 ## Project Overview
 
 Scaffold-ETH 2 (SE-2) is a starter kit for building dApps on Ethereum. It comes in **two flavors** based on the Solidity framework:
