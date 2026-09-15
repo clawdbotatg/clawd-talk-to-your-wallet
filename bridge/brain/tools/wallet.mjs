@@ -53,6 +53,29 @@ const RPC_URLS = {
   scroll: () => "https://rpc.scroll.io",
   linea: () => "https://rpc.linea.build",
   mantle: () => "https://rpc.mantle.xyz",
+  robinhood: () => "https://rpc.mainnet.chain.robinhood.com",
+  "robinhood-chain": () => "https://rpc.mainnet.chain.robinhood.com",
+};
+
+// Arbitrum Orbit rollups reachable through their CANONICAL bridge: a plain
+// `depositEth()` on the L1 Delayed Inbox credits msg.sender's address on L2
+// (a retryable ticket, ~10-15 min). No aggregator needed — LI.FI has no route
+// to these chains (Robinhood Chain rejected as toChain, 2026-09-15). Addresses
+// from docs.robinhood.com/chain/cross-chain-messaging; verified on-chain:
+// inbox.bridge() == bridge (see buildOrbitDeposit, which re-checks every call).
+const ORBIT_CHAINS = {
+  robinhood: {
+    name: "Robinhood Chain", chainId: 4663, parentChainId: 1, parentName: "ethereum",
+    inbox: "0x1A07cc4BD17E0118BdB54D70990D2158AbAD7a2D",
+    bridge: "0xDf8755334ce7A73cCF6b581C02eA649AE3E864b3",
+    explorer: "https://robinhoodchain.blockscout.com",
+  },
+};
+const orbitChain = ref => {
+  if (ref == null) return undefined;
+  const key = String(ref).toLowerCase().replace(/[\s_]+chain$/, "").replace(/[\s_-]+/g, "");
+  return Object.values(ORBIT_CHAINS).find(c => String(c.chainId) === key || c.name.toLowerCase().replace(/\s+/g, "") === key)
+    || ORBIT_CHAINS[key];
 };
 
 const zerionHeaders = () => ({
@@ -652,6 +675,116 @@ const tools = {
     return { error: "No transactionRequest in LI.FI response", rawResponse: JSON.stringify(data).slice(0, 500) };
   },
 
+  async buildOrbitDeposit({ toChain, toChainId, amountEth, amount, fromAddress, recipient, simulate }) {
+    const chain = orbitChain(toChainId ?? toChain);
+    if (!chain) {
+      return {
+        error: `No canonical Orbit bridge configured for '${toChainId ?? toChain}'. Known: ${Object.values(ORBIT_CHAINS).map(c => `${c.name} (${c.chainId})`).join(", ")}`,
+      };
+    }
+    if (!fromAddress) return { error: "fromAddress is required (the wallet that will sign on L1)" };
+    // amountEth is HUMAN ETH ("1", "0.25"); amount is wei, like every other tool.
+    // safeBigInt treats a bare integer as raw units (amountEth "1" → 1 wei — the
+    // simulation caught exactly that), so the human form is scaled here.
+    let l2CallValue;
+    if (amountEth != null) {
+      const a = String(amountEth).trim();
+      if (!/^\d+(\.\d+)?$/.test(a)) return { error: `amountEth must be a decimal ETH amount like "1" or "0.25", got ${JSON.stringify(amountEth)}` };
+      l2CallValue = a.includes(".") ? safeBigInt(a, 18) : BigInt(a) * 10n ** 18n;
+    } else if (amount != null) {
+      l2CallValue = safeBigInt(amount, 0);      // wei / raw
+    } else {
+      return { error: "amountEth (human ETH, e.g. \"1\") or amount (wei) is required" };
+    }
+    if (l2CallValue <= 0n) return { error: "amount must be positive" };
+    const amountHuman = (Number(l2CallValue) / 1e18).toString();
+    const l1 = alchemyUrl(chain.parentChainId);
+    const l2 = RPC_URLS[Object.keys(ORBIT_CHAINS).find(k => ORBIT_CHAINS[k] === chain)]();
+
+    // Guard 1: the Inbox must still point at the Bridge we expect — a proxy
+    // swap or a stale address list must fail loudly, not send ETH into the void.
+    const bridgeRes = await rpc(l1, "eth_call", [{ to: chain.inbox, data: "0xe78cea92" }, "latest"]); // bridge()
+    const bridgeGot = "0x" + String(bridgeRes.result || "").slice(-40);
+    if (bridgeGot.toLowerCase() !== chain.bridge.toLowerCase()) {
+      return { error: `Inbox ${chain.inbox} reports bridge ${bridgeGot}, expected ${chain.bridge} — refusing to build. Verify the contract list at docs.robinhood.com/chain/protocol-contracts.` };
+    }
+
+    // Guard 2 — who receives on L2. Inbox.depositEth() credits msg.sender's
+    // address, BUT aliases it (+0x1111...1111) whenever the sender has code
+    // (verified in the Inbox source: `isContract(msg.sender) || tx.origin !=
+    // msg.sender`). An EIP-7702-delegated EOA (code 0xef0100‖delegate) HAS
+    // code, so a plain deposit from a MetaMask smart account would land at an
+    // address nobody controls. For those we use createRetryableTicket with an
+    // explicit `to` — never aliased — and pay the tiny L2 execution fee up front.
+    const code = (await rpc(l1, "eth_getCode", [fromAddress, "latest"])).result || "0x";
+    const is7702 = code.toLowerCase().startsWith("0xef0100");
+    const isPlainEoa = code === "0x";
+    if (!isPlainEoa && !is7702 && !recipient) {
+      return {
+        error: `${fromAddress} is a contract on ${chain.parentName} (not an EIP-7702 delegation). A canonical deposit would credit its ALIASED address on ${chain.name}, and the same address may not exist there. Pass \`recipient\` = an address the user controls on ${chain.name} to bridge via a retryable ticket instead.`,
+        rejectedBy: "sender-is-contract",
+      };
+    }
+    const to = recipient || fromAddress;
+    const l2Code = (await rpc(l2, "eth_getCode", [to, "latest"])).result || "0x";
+    if (l2Code !== "0x") {
+      return {
+        error: `${to} already has code on ${chain.name} (${l2Code.slice(0, 12)}…) — a plain ETH credit to a contract may be refused or unreachable. Pick a recipient without code there.`,
+        rejectedBy: "recipient-has-code-on-l2",
+      };
+    }
+
+    let tx, fees;
+    if (isPlainEoa && !recipient) {
+      tx = { to: chain.inbox, data: "0x439370b1", value: toHex(l2CallValue), chainId: chain.parentChainId }; // depositEth()
+      fees = { path: "depositEth", l2FeesPrepaidWei: "0" };
+    } else {
+      // createRetryableTicket(to,l2CallValue,maxSubmissionCost,excessFeeRefundAddress,callValueRefundAddress,gasLimit,maxFeePerGas,data)
+      // msg.value must cover l2CallValue + maxSubmissionCost + gasLimit*maxFeePerGas
+      // (InsufficientValue otherwise); submission cost is checked against the
+      // L1 basefee AT INCLUSION, so both fee legs carry a wide buffer — the
+      // unused part is refunded on L2 (to the aliased refund address for a
+      // 7702 sender: dust, and it is dust by construction).
+      const baseFee = BigInt((await rpc(l1, "eth_gasPrice", [])).result || "0x0");
+      const subRes = await rpc(l1, "eth_call", [{ to: chain.inbox, data: "0xa66b327d" + padUint256(0n) + padUint256(baseFee) }, "latest"]); // calculateRetryableSubmissionFee(0, baseFee)
+      const maxSubmissionCost = BigInt(subRes.result || "0x0") * 4n;
+      const l2GasPrice = BigInt((await rpc(l2, "eth_gasPrice", [])).result || "0x0");
+      const maxFeePerGas = l2GasPrice * 5n;
+      const gasLimit = 100000n;               // a value transfer redeems in ~21k; headroom is cheap here
+      if (maxSubmissionCost === 0n || maxFeePerGas === 0n) return { error: "Could not read L1 submission fee / L2 gas price — not building blind." };
+      const prepaid = maxSubmissionCost + gasLimit * maxFeePerGas;
+      const value = l2CallValue + prepaid;
+      const data =
+        "0x679b6ded" + padAddress(to) + padUint256(l2CallValue) + padUint256(maxSubmissionCost) + padAddress(to) + padAddress(to)
+        + padUint256(gasLimit) + padUint256(maxFeePerGas) + padUint256(0x100n) + padUint256(0n);   // bytes data = ""
+      tx = { to: chain.inbox, data, value: toHex(value), chainId: chain.parentChainId };
+      fees = {
+        path: "createRetryableTicket", reason: is7702 ? "sender is an EIP-7702 delegated account (has code) — depositEth would alias it" : "explicit recipient",
+        maxSubmissionCostWei: maxSubmissionCost.toString(), gasLimit: gasLimit.toString(), maxFeePerGasWei: maxFeePerGas.toString(),
+        l2FeesPrepaidWei: prepaid.toString(), l2FeesPrepaidEth: (Number(prepaid) / 1e18).toFixed(8),
+      };
+    }
+    let simulation;
+    if (simulate) {
+      try {
+        simulation = await tools.simulateAssetChanges({ from: fromAddress, ...tx });
+      } catch (e) {
+        simulation = { success: false, error: e.message?.slice(0, 200), changes: [] };
+      }
+    }
+    return {
+      ...tx,
+      description: `Bridge ${amountHuman} ETH from ${chain.parentName} to ${chain.name} via the canonical Arbitrum bridge (Inbox.${fees.path})`,
+      fees,
+      destination: {
+        chain: chain.name, chainId: chain.chainId, recipient: to, explorer: chain.explorer,
+        note: `${amountHuman} ETH arrives at ${to} on ${chain.name}, usually within 10-15 minutes. Canonical bridge: no third-party liquidity, no slippage${fees.path === "createRetryableTicket" ? `; ~${fees.l2FeesPrepaidEth} ETH of L2 execution fee is prepaid on top (mostly refunded on L2)` : ""}. Bridging BACK through the canonical bridge takes ~7 days (challenge period).`,
+      },
+      requote: { tool: "buildOrbitDeposit", args: { toChainId: chain.chainId, amount: l2CallValue.toString(), fromAddress, ...(recipient ? { recipient } : {}), simulate: true } },
+      ...(simulation ? { simulation } : {}),
+    };
+  },
+
   async getRouteStatus({ txHash, fromChain, toChain }) {
     const res = await fetch(`https://li.quest/v1/status?txHash=${txHash}&fromChain=${fromChain}&toChain=${toChain}`, {
       headers: { "x-lifi-api-key": LIFI_KEY },
@@ -1216,8 +1349,9 @@ const tools = {
       10: "optimism.blockscout.com",
       137: "polygon.blockscout.com",
       100: "gnosis.blockscout.com",
+      4663: "robinhoodchain.blockscout.com",
     };
-    const NAMED = { ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10, polygon: 137, gnosis: 100, xdai: 100 };
+    const NAMED = { ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10, polygon: 137, gnosis: 100, xdai: 100, robinhood: 4663 };
     const id = chainId ?? NAMED[chain] ?? 1;
     const host = CHAIN_HOSTS[id];
     if (!host) return { error: `No source explorer configured for chain ${chain ?? id}` };
@@ -1429,7 +1563,7 @@ const tools = {
 
   async buildRevoke({ tokenAddress, spender, chainId, chain, tokenSymbol }) {
     if (!tokenAddress || !spender) return { error: "tokenAddress and spender are required" };
-    const NAMED = { ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10, polygon: 137, gnosis: 100, xdai: 100 };
+    const NAMED = { ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10, polygon: 137, gnosis: 100, xdai: 100, robinhood: 4663 };
     const id = chainId ?? NAMED[chain] ?? 1;
     // approve(spender, 0) — the standard revoke. The wallet is msg.sender = owner,
     // so no owner arg is needed. Simulate it before returning: Alchemy reports this

@@ -396,6 +396,7 @@ STEP_LABELS = {
     "buildRoute": "Finding the best route",
     "getRouteStatus": "Checking the bridge status",
     "buildTransfer": "Building the transfer",
+    "buildOrbitDeposit": "Building the canonical bridge deposit",
     "resolveENS": "Resolving the ENS name",
     "getTokenAddress": "Looking up the token address",
     "wrapEth": "Building the wrap",
@@ -421,7 +422,7 @@ _TOOL_RE = re.compile(r"wallet\.mjs\s+([A-Za-z0-9_]+)")
 
 # Tools the /requote endpoint may run directly (deterministic re-builds only —
 # they read chain state and emit calldata, never spend or sign anything).
-REQUOTE_TOOLS = {"buildUniV4Swap", "buildRoute"}
+REQUOTE_TOOLS = {"buildUniV4Swap", "buildRoute", "buildOrbitDeposit"}
 
 
 def step_from_event(event):
