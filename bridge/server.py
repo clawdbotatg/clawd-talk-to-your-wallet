@@ -286,16 +286,39 @@ _auth = {"ok": None, "ts": 0.0, "next_probe": 0.0, "refreshing": False}
 _auth_lock = threading.Lock()
 
 
-def _claude_logged_in():
-    """One `claude auth status`: True/False, or None when the CLI is unreadable."""
+def _slot_logged_in(config_dir=None):
+    """One `claude auth status` for a login slot: True/False, or None when unreadable."""
+    env = dict(os.environ)
+    if config_dir:
+        env["CLAUDE_CONFIG_DIR"] = config_dir
     try:
-        r = subprocess.run(["claude", "auth", "status"],
+        r = subprocess.run(["claude", "auth", "status"], env=env,
                            capture_output=True, text=True, timeout=30)
         d = json.loads((r.stdout or "").strip() or "{}")
         v = d.get("loggedIn") if isinstance(d, dict) else None
         return v if isinstance(v, bool) else None
     except Exception:
         return None
+
+
+def _claude_logged_in():
+    """True if ANY login the router can pick is alive: the default ~/.claude
+    plus every ~/.clawd-accounts/<name> slot (dead creds fall through to a
+    sibling in the router). False only when every readable slot is dead."""
+    dirs = [None]
+    root = os.path.expanduser(os.environ.get("CLAWD_ACCOUNTS_DIR", "~/.clawd-accounts"))
+    try:
+        dirs += [os.path.join(root, n) for n in sorted(os.listdir(root))
+                 if os.path.isdir(os.path.join(root, n))]
+    except OSError:
+        pass
+    seen = False
+    for d in dirs:
+        v = _slot_logged_in(d)
+        if v:
+            return True
+        seen = seen or v is False
+    return False if seen else None
 
 
 def _refresh_auth():

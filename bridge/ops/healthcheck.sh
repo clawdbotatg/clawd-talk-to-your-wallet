@@ -76,24 +76,54 @@ if h.get('loggedIn') is False: print('NOLOGIN'); raise SystemExit
 print('NOSERVE' if not h.get('wouldServe') else 'NOAUTH' if pct is None else f'OK {pct}')
 " "$health")
 
-# 2b. how old is the login? They die ~30 days after each sign-in, so warn a
-# human while there is still time to re-sign calmly. `login_since` is the first
-# tick that saw loggedIn:true after it was not — i.e. the sign-in ceremony.
-logged_in=$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('loggedIn'))" "$health" 2>/dev/null)
-since=$(grep "^login_since " "$STATE" 2>/dev/null | tail -1 | awk '{print $2}')
-if [ "$logged_in" = "True" ]; then
-  if [ -z "${since:-}" ]; then
-    printf 'login_since %s\n' "$now" >> "$STATE"; since=$now
-    note "login observed alive — aging clock starts"
+# 2b. how old is each login? They die ~30 days after each sign-in, so warn a
+# human while there is still time to re-sign calmly. One clock per slot: the
+# default ~/.claude login plus every ~/.clawd-accounts/<name> the router can
+# pick. `login_since_<slot>` is the first tick that saw the slot logged in
+# after it was not — i.e. the sign-in ceremony; it resets when the slot dies.
+slot_status() {          # slot_status <name> <config_dir|"">  → True/False/None
+  if [ -n "$2" ]; then CLAUDE_CONFIG_DIR="$2" claude auth status 2>/dev/null
+  else claude auth status 2>/dev/null; fi | python3 -c "import sys,json
+try: print(json.load(sys.stdin).get('loggedIn'))
+except Exception: print('None')"
+}
+slots="default|"
+for d in "$HOME"/.clawd-accounts/*/; do
+  [ -d "$d" ] && slots="$slots
+$(basename "$d")|$d"
+done
+alive=0; dead=""
+while IFS='|' read -r name dir; do
+  [ -n "$name" ] || continue
+  st=$(slot_status "$name" "$dir")
+  since=$(grep "^login_since_$name " "$STATE" 2>/dev/null | tail -1 | awk '{print $2}')
+  if [ "$st" = "True" ]; then
+    alive=$((alive + 1))
+    if [ -z "${since:-}" ]; then
+      printf 'login_since_%s %s\n' "$name" "$now" >> "$STATE"; since=$now
+      note "login $name observed alive — aging clock starts"
+    fi
+    age_d=$(( (now - since) / 86400 ))
+    if [ "$age_d" -ge "${LOGIN_WARN_DAYS:-25}" ]; then
+      relogin="claude auth login"; [ -n "$dir" ] && relogin="CLAUDE_CONFIG_DIR=~/.clawd-accounts/$name claude auth login"
+      ALERT_COOLDOWN=86400 alert "loginaging_$name" \
+        "login '$name' is ${age_d} days old — they die at ~30. Re-sign before it takes denar.ai down: ssh -t zkllmapi   then   $relogin"
+    fi
+  elif [ "$st" = "False" ]; then
+    dead="$dead $name"
+    if [ -n "${since:-}" ]; then
+      grep -v "^login_since_$name " "$STATE" > "$STATE.tmp" 2>/dev/null || true; mv "$STATE.tmp" "$STATE"
+    fi
   fi
-  age_d=$(( (now - since) / 86400 ))
-  if [ "$age_d" -ge "${LOGIN_WARN_DAYS:-25}" ]; then
-    ALERT_COOLDOWN=86400 alert loginaging \
-      "claude login is ${age_d} days old — they die at ~30. Re-sign now, before it takes denar.ai down: ssh -t zkllmapi claude auth login"
-  fi
-elif [ "$logged_in" = "False" ] && [ -n "${since:-}" ]; then
-  grep -v "^login_since " "$STATE" > "$STATE.tmp" 2>/dev/null || true; mv "$STATE.tmp" "$STATE"
-fi
+done <<< "$slots"
+# A dead slot while others still serve: the router falls through to a sibling,
+# so this is a warning, not the outage above — one page a day per slot.
+for name in $dead; do
+  [ "$alive" -gt 0 ] || break
+  relogin="claude auth login"; [ "$name" != default ] && relogin="CLAUDE_CONFIG_DIR=~/.clawd-accounts/$name claude auth login"
+  ALERT_COOLDOWN=86400 alert "slotdead_$name" \
+    "login '$name' is DEAD ($alive other(s) still serving). Re-sign: ssh -t zkllmapi   then   $relogin"
+done
 
 case "$verdict" in
   # The claude login on this box is dead (they die ~30 d after each sign-in).
