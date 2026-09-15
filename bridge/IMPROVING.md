@@ -191,7 +191,9 @@ ssh -t zkllmapi claude auth login      # opens a URL, paste the code back
 curl -s https://agent.denar.ai/health  # loggedIn:true, wouldServe:true
 ```
 
-No restart needed — each turn is a fresh `claude -p`. Before 2026-09-15 this failure
+No restart needed — each turn is a fresh `claude -p`. The healthcheck also starts an aging
+clock at each sign-in and pages `loginaging` daily from day 25 (`LOGIN_WARN_DAYS`), so the
+re-sign can happen before the death, not after. Before 2026-09-15 this failure
 mode was filed under "usage unreadable, not an outage" and hid for three weeks
 (2026-08-26 → 09-15) while users saw `Something went wrong: claude exited 1:`.
 | `bridge/ops/rotate-turns.sh` | 04:17 daily | daily compressed snapshot + size rotation of `turns.jsonl` into `bridge/turns-archive/` (the corpus exists only on this box) |

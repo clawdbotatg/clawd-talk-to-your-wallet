@@ -76,6 +76,25 @@ if h.get('loggedIn') is False: print('NOLOGIN'); raise SystemExit
 print('NOSERVE' if not h.get('wouldServe') else 'NOAUTH' if pct is None else f'OK {pct}')
 " "$health")
 
+# 2b. how old is the login? They die ~30 days after each sign-in, so warn a
+# human while there is still time to re-sign calmly. `login_since` is the first
+# tick that saw loggedIn:true after it was not — i.e. the sign-in ceremony.
+logged_in=$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('loggedIn'))" "$health" 2>/dev/null)
+since=$(grep "^login_since " "$STATE" 2>/dev/null | tail -1 | awk '{print $2}')
+if [ "$logged_in" = "True" ]; then
+  if [ -z "${since:-}" ]; then
+    printf 'login_since %s\n' "$now" >> "$STATE"; since=$now
+    note "login observed alive — aging clock starts"
+  fi
+  age_d=$(( (now - since) / 86400 ))
+  if [ "$age_d" -ge "${LOGIN_WARN_DAYS:-25}" ]; then
+    ALERT_COOLDOWN=86400 alert loginaging \
+      "claude login is ${age_d} days old — they die at ~30. Re-sign now, before it takes denar.ai down: ssh -t zkllmapi claude auth login"
+  fi
+elif [ "$logged_in" = "False" ] && [ -n "${since:-}" ]; then
+  grep -v "^login_since " "$STATE" > "$STATE.tmp" 2>/dev/null || true; mv "$STATE.tmp" "$STATE"
+fi
+
 case "$verdict" in
   # The claude login on this box is dead (they die ~30 d after each sign-in).
   # Every turn fails; the bridge 503s and denar.ai runs on Bankr until a human
