@@ -272,8 +272,76 @@ def best_headroom_pct():
         return None
 
 
+# ── login liveness ───────────────────────────────────────────────────────────
+# The box's claude login dies server-side ~30 days after each sign-in. When it
+# does, every turn fails with an is_error result ("OAuth session expired and
+# could not be refreshed") on stdout, stderr empty. From 2026-08-26 to
+# 2026-09-15 the bridge kept accepting turns and every user saw "Something
+# went wrong: claude exited 1:" — wouldServe only knew about headroom, and
+# the healthcheck filed the symptom under "usage unreadable, not an outage".
+# A dead login is a hard 503 now, so the Vercel route falls back to Bankr and
+# users get an answer. Re-arm the box with: ssh -t zkllmapi claude auth login
+AUTH_TTL = float(os.environ.get("BRIDGE_AUTH_TTL", "120"))
+_auth = {"ok": None, "ts": 0.0, "next_probe": 0.0, "refreshing": False}
+_auth_lock = threading.Lock()
+
+
+def _claude_logged_in():
+    """One `claude auth status`: True/False, or None when the CLI is unreadable."""
+    try:
+        r = subprocess.run(["claude", "auth", "status"],
+                           capture_output=True, text=True, timeout=30)
+        d = json.loads((r.stdout or "").strip() or "{}")
+        v = d.get("loggedIn") if isinstance(d, dict) else None
+        return v if isinstance(v, bool) else None
+    except Exception:
+        return None
+
+
+def _refresh_auth():
+    ok = _claude_logged_in()
+    now = time.time()
+    with _auth_lock:
+        _auth["refreshing"] = False
+        _auth["next_probe"] = now + AUTH_TTL
+        if ok is None:
+            return
+        if ok is False and _auth["ok"] is not False:
+            print("[auth] claude login is DEAD — refusing turns (503) so denar.ai "
+                  "falls back to Bankr. Fix: claude auth login", flush=True)
+        elif ok and _auth["ok"] is False:
+            print("[auth] claude login restored — serving again", flush=True)
+        _auth.update(ok=ok, ts=now)
+
+
+def logged_in(block=False):
+    """Cached login liveness (True/False/None=unknown). Refreshes in the
+    background every AUTH_TTL; `block=True` (boot) waits for one reading."""
+    if block:
+        _refresh_auth()
+        return _auth["ok"]
+    now = time.time()
+    with _auth_lock:
+        if now >= _auth["next_probe"] and not _auth["refreshing"]:
+            _auth["refreshing"] = True
+            threading.Thread(target=_refresh_auth, daemon=True).start()
+        return _auth["ok"]
+
+
+def note_turn_error(err):
+    """A turn that died on authentication closes the gate at once — the next
+    request 503s instead of burning another failed turn until the TTL."""
+    s = str(err).lower()
+    if any(m in s for m in ("authenticate", "oauth", "not logged in", "/login")):
+        with _auth_lock:
+            _auth.update(ok=False, ts=time.time(), next_probe=time.time() + AUTH_TTL)
+        print("[auth] turn failed on authentication — gate closed", flush=True)
+
+
 def would_serve():
     pct = best_headroom_pct()
+    if logged_in() is False:
+        return False, pct
     return pct is None or pct <= SUB_MAX_PCT, pct
 
 
@@ -503,7 +571,7 @@ class Handler(BaseHTTPRequestHandler):
             with _active_lock:
                 n = _active["n"]
             return self._json(200, {
-                "ok": True, "wouldServe": ok, "headroomPct": pct,
+                "ok": True, "wouldServe": ok, "headroomPct": pct, "loggedIn": logged_in(),
                 "activeTurns": n, "model": MODEL, "brain": BRAIN,
             })
         self._json(404, {"error": "not found"})
@@ -577,6 +645,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         except Exception as e:  # noqa: BLE001
             print(f"[stream] turn failed: {e}", flush=True)
+            note_turn_error(e)
             _turn_done(address, {"type": "chat", "message": f"Something went wrong: {str(e)[:200]}",
                                  "engine": "claude-p"})
             if not broken["pipe"]:
@@ -629,7 +698,9 @@ class Handler(BaseHTTPRequestHandler):
 
         ok, pct = would_serve()
         if not ok:
-            return self._json(503, {"error": "no-headroom", "headroomPct": pct})
+            li = logged_in()
+            return self._json(503, {"error": "no-auth" if li is False else "no-headroom",
+                                    "headroomPct": pct, "loggedIn": li})
         if not _turns.acquire(blocking=False):
             return self._json(503, {"error": "busy"})
         with _active_lock:
@@ -644,6 +715,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(code, obj)
         except Exception as e:  # noqa: BLE001 — a failed turn must 500, route falls back
             print(f"[intent] error: {e}", flush=True)
+            note_turn_error(e)
             try:
                 self._json(500, {"error": str(e)})
             except Exception:
@@ -655,6 +727,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    li = logged_in(block=True)       # one synchronous reading so the gate is right from request #1
     ok, pct = would_serve()          # kicks the first background probe
     for _ in range(24):              # give it a moment so the boot log is useful
         if pct is not None:
@@ -666,6 +739,7 @@ def main():
     print(f"  agent_home={AGENT_HOME}", flush=True)
     print(f"  model={MODEL} max_concurrent={MAX_CONCURRENT} sub_max_pct={SUB_MAX_PCT}", flush=True)
     print(f"  headroom: best plan at {pct if pct is not None else 'unknown'}% used → wouldServe={ok}", flush=True)
+    print(f"  login: {'ok' if li else 'DEAD — every request 503s until `claude auth login`' if li is False else 'unknown'}", flush=True)
     print(f"  secret in {SECRET_FILE}" if not os.environ.get("BRIDGE_SECRET") else "  secret from env", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 

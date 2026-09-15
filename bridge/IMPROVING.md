@@ -177,7 +177,23 @@ Installed on the box via cron:
 
 | Job | Schedule | What |
 |---|---|---|
-| `bridge/ops/healthcheck.sh` | every 10 min | alerts if the bridge is down, refusing for lack of subscription headroom, or the box's `claude` login died. Set `ALERT_WEBHOOK` in `bridge/.env` for push alerts; always appends to `bridge/ops-alerts.log`. |
+| `bridge/ops/healthcheck.sh` | every 10 min | alerts if the bridge is down, refusing for lack of subscription headroom, or the box's `claude` login died (`loggedIn:false` in `/health` → `nologin`, paged 4×/day via the controller's Telegram bot). Set `ALERT_WEBHOOK` in `bridge/.env` for push alerts; always appends to `bridge/ops-alerts.log`. |
+
+**The login dies.** The box's Claude subscription sign-in expires server-side ~30 days
+after each sign-in; rotation doesn't help. When it does, every turn fails with an
+`is_error` result (`OAuth session expired and could not be refreshed`), the bridge
+refuses turns with `503 {"error":"no-auth"}` (checked via `claude auth status`, cached
+`BRIDGE_AUTH_TTL`=120 s, and closed at once by any turn that dies on auth), and denar.ai
+runs on the Bankr fallback until a human re-arms it:
+
+```bash
+ssh -t zkllmapi claude auth login      # opens a URL, paste the code back
+curl -s https://agent.denar.ai/health  # loggedIn:true, wouldServe:true
+```
+
+No restart needed — each turn is a fresh `claude -p`. Before 2026-09-15 this failure
+mode was filed under "usage unreadable, not an outage" and hid for three weeks
+(2026-08-26 → 09-15) while users saw `Something went wrong: claude exited 1:`.
 | `bridge/ops/rotate-turns.sh` | 04:17 daily | daily compressed snapshot + size rotation of `turns.jsonl` into `bridge/turns-archive/` (the corpus exists only on this box) |
 | `bridge/researcher/run.py` | 05:37 daily | processes queued misses (see above) |
 

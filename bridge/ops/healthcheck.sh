@@ -72,10 +72,17 @@ import json,sys
 try: h=json.loads(sys.argv[1])
 except Exception: print('BADJSON'); raise SystemExit
 pct=h.get('headroomPct')
+if h.get('loggedIn') is False: print('NOLOGIN'); raise SystemExit
 print('NOSERVE' if not h.get('wouldServe') else 'NOAUTH' if pct is None else f'OK {pct}')
 " "$health")
 
 case "$verdict" in
+  # The claude login on this box is dead (they die ~30 d after each sign-in).
+  # Every turn fails; the bridge 503s and denar.ai runs on Bankr until a human
+  # signs in again. This is the outage that hid for three weeks (2026-08-26 →
+  # 09-15) behind the softer noauth note below — page it, 4×/day.
+  NOLOGIN) ALERT_COOLDOWN=21600 alert nologin \
+             "claude login DEAD — agent refusing every turn, denar.ai is on Bankr fallback. Fix: ssh -t zkllmapi claude auth login   (then /health shows loggedIn:true)" ;;
   NOSERVE) alert noserve "refusing requests — subscription headroom exhausted (${health}). Users are on Bankr." ;;
   # Usage-unknown is NOT an outage: the agent still serves (wouldServe stays true)
   # and turns work — only the pre-emptive headroom gate is blind, so exhaustion
