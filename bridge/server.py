@@ -65,7 +65,7 @@ AGENT_HOME = os.path.abspath(os.environ.get(
     os.path.join(os.path.dirname(REPO), "claude-p-agent")))
 sys.path.insert(0, AGENT_HOME)
 os.environ["CLAUDE_P_AGENT_HOME"] = AGENT_HOME
-from agent import run_turn, current_session  # noqa: E402
+from agent import run_turn, current_session, forget  # noqa: E402
 
 PORT = int(os.environ.get("BRIDGE_PORT", "8790"))
 MODEL = os.environ.get("BRIDGE_MODEL", "opus")
@@ -308,8 +308,10 @@ def _claude_logged_in():
     dirs = [None]
     root = os.path.expanduser(os.environ.get("CLAWD_ACCOUNTS_DIR", "~/.clawd-accounts"))
     try:
+        # `<name>.lock` siblings are lock artifacts, not logins — counting them
+        # paged "login DEAD" daily per slot (2026-09-16 → 09-22).
         dirs += [os.path.join(root, n) for n in sorted(os.listdir(root))
-                 if os.path.isdir(os.path.join(root, n))]
+                 if os.path.isdir(os.path.join(root, n)) and not n.endswith(".lock")]
     except OSError:
         pass
     seen = False
@@ -472,6 +474,30 @@ def build_prompt(body):
     return "\n\n".join(parts), key, address
 
 
+STALE_SESSION = "no conversation found"
+
+
+def run_wallet_turn(body, **kw):
+    """One remembered turn for a wallet, surviving a purged transcript.
+
+    claude deletes transcripts after ~30 days (cleanupPeriodDays), but the
+    wallet's `.session` file still names the old id, so `--resume` dies with
+    "No conversation found with session ID" — every returning wallet, including
+    the demo wallet on the home page, hard-failed for as long as the id stayed
+    on disk. Forget the stale id and run the turn fresh (the frontend's rolling
+    history then rides along, as for any new conversation)."""
+    prompt, key, _address = build_prompt(body)
+    try:
+        return run_turn(prompt, remember=key, **kw)
+    except RuntimeError as e:
+        if STALE_SESSION not in str(e).lower():
+            raise
+        print(f"[session] {key} names a purged transcript — forgetting and retrying fresh", flush=True)
+        forget(key)
+        prompt, key, _address = build_prompt(body)
+        return run_turn(prompt, remember=key, **kw)
+
+
 def turn_args():
     return [
         "--model", MODEL,
@@ -505,37 +531,16 @@ def handle_intent(body):
     message = (body.get("message") or "").strip()
     address = (body.get("address") or "").strip()
     context = body.get("context") or ""
-    recent = body.get("recentMessages") or []
     if not message or not address:
         return 400, {"type": "chat", "message": "message and address are required"}
 
-    key = f"wallet:{address.lower()}"
-
-    prompt_parts = [context.strip()] if context.strip() else []
-    # A fresh conversation key gets the frontend's rolling history once; after
-    # that the resumed session remembers on its own.
-    if recent and not current_session(key):
-        hist = "\n".join(
-            f"{'User' if m.get('role') == 'user' else 'Denarai'}: {m.get('content', '')}"
-            for m in recent[-10:])
-        prompt_parts.append(f"Recent conversation:\n{hist}")
-    prompt_parts.append(f"User message: {message}")
-    prompt = "\n\n".join(prompt_parts)
-
     t0 = time.time()
-    text = run_turn(
-        prompt,
-        remember=key,
+    text = run_wallet_turn(
+        body,
         auto_memory=False,          # per-wallet keys must not share facts
         input_via="stdin",          # context blocks can be large
         timeout=TURN_TIMEOUT,
-        extra_args=[
-            "--model", MODEL,
-            "--max-turns", "40",
-            "--settings", SETTINGS_PATH,          # PreToolUse guard — the real boundary
-            "--allowedTools", "Bash(node tools/wallet.mjs:*)",
-            "--disallowedTools", "Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,TodoWrite,Read,Glob,Grep",
-        ],
+        extra_args=turn_args(),
     )
     dt = time.time() - t0
 
@@ -663,8 +668,8 @@ class Handler(BaseHTTPRequestHandler):
 
         t0 = time.time()
         try:
-            text = run_turn(
-                prompt, remember=key, auto_memory=False, input_via="stdin",
+            text = run_wallet_turn(
+                body, auto_memory=False, input_via="stdin",
                 on_event=on_event, extra_args=turn_args(),
             )
         except Exception as e:  # noqa: BLE001

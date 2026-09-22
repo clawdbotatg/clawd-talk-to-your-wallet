@@ -89,6 +89,7 @@ except Exception: print('None')"
 }
 slots="default|"
 for d in "$HOME"/.clawd-accounts/*/; do
+  case "${d%/}" in *.lock) continue ;; esac   # lock artifacts, not logins
   [ -d "$d" ] && slots="$slots
 $(basename "$d")|$d"
 done
