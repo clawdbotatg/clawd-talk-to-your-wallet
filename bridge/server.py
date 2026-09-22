@@ -155,6 +155,22 @@ _inflight = {}
 _inflight_lock = threading.Lock()
 
 
+def log_failed_turn(body, err, dt, engine="claude-p"):
+    """A turn that died still goes in the corpus — 'what did people ask and did
+    they get it' can't be answered from successes alone (owner, 2026-09-22)."""
+    log_turn({
+        "wallet": (body.get("address") or "").strip(),
+        "message": (body.get("message") or "").strip(),
+        "context": body.get("context") or "",
+        "raw_reply": None,
+        "response": None,
+        "contract": False,
+        "error": str(err)[:2000],
+        "duration_s": round(dt, 1),
+        "engine": engine,
+    })
+
+
 def _turn_start(wallet, message):
     turn_id = f"{int(time.time() * 1000)}"
     with _inflight_lock:
@@ -679,6 +695,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             print(f"[stream] turn failed: {e}", flush=True)
             note_turn_error(e)
+            log_failed_turn(body, e, time.time() - t0)
             _turn_done(address, {"type": "chat", "message": f"Something went wrong: {str(e)[:200]}",
                                  "engine": "claude-p"})
             if not broken["pipe"]:
@@ -738,17 +755,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(503, {"error": "busy"})
         with _active_lock:
             _active["n"] += 1
+        body, t_req = {}, time.time()
         try:
             length = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(length) or b"{}")
             if path == "/intent/stream":
-                self._stream_intent(body)
+                self._stream_intent(body)        # logs its own failures
             else:
                 code, obj = handle_intent(body)
                 self._json(code, obj)
         except Exception as e:  # noqa: BLE001 — a failed turn must 500, route falls back
             print(f"[intent] error: {e}", flush=True)
             note_turn_error(e)
+            if path != "/intent/stream":
+                log_failed_turn(body, e, time.time() - t_req)
             try:
                 self._json(500, {"error": str(e)})
             except Exception:
