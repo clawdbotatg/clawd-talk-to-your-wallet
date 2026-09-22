@@ -58,6 +58,23 @@ alert() {                       # alert <key> <message>
   fi
 }
 
+# 0. Sweep stale OAuth refresh locks. claude takes a lock DIRECTORY
+# (`<config-dir>.lock`, and `.oauth_refresh.lock` inside it) while rotating a
+# login's token; a turn killed mid-refresh (timeout, service restart) leaves it
+# behind and claude never reclaims it — every later turn on that login dies
+# with "Failed to refresh OAuth token: another Claude Code process is
+# refreshing it or exited mid-refresh", the bridge closes its auth gate and
+# denar.ai silently runs on Bankr. Found 2026-09-22 (three slots + the default
+# login, since 09-16). A refresh takes seconds; a lock older than 10 minutes is
+# a corpse. Never glob these as login slots either (see below).
+for lock in "$HOME/.claude.lock" "$HOME/.claude/.oauth_refresh.lock" \
+            "$HOME"/.clawd-accounts/*.lock "$HOME"/.clawd-accounts/*/.oauth_refresh.lock; do
+  [ -d "$lock" ] || continue
+  if [ -z "$(find "$lock" -maxdepth 0 -mmin -10 2>/dev/null)" ]; then
+    rm -rf "$lock" && note "removed stale refresh lock $lock"
+  fi
+done
+
 # 1. is the service up and answering?
 health=$(curl -fsS -m 10 "http://127.0.0.1:$PORT/health" 2>/dev/null)
 if [ -z "$health" ]; then
