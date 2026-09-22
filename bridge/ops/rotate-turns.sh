@@ -10,7 +10,7 @@ BRIDGE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$BRIDGE/turns.jsonl"
 ARCHIVE="$BRIDGE/turns-archive"
 MAX_MB="${TURNS_MAX_MB:-64}"
-KEEP_DAYS="${TURNS_KEEP_DAYS:-365}"
+KEEP_DAYS="${TURNS_KEEP_DAYS:-36500}"   # the corpus is kept forever
 
 [ -f "$SRC" ] || exit 0
 mkdir -p "$ARCHIVE"
@@ -30,3 +30,18 @@ if [ "$size_mb" -ge "$MAX_MB" ]; then
 fi
 
 find "$ARCHIVE" -name 'turns-*.jsonl.gz' -mtime +"$KEEP_DAYS" -delete 2>/dev/null || true
+
+# The session transcripts (every tool call and result, per wallet) are the
+# "how" behind turns.jsonl. They live in claude's own store, which purges them
+# after cleanupPeriodDays; the bridge sets that to 100 years, and this copy is
+# the belt to that brace — a fresh login dir or a CLI default change can't
+# take the history with it. Same file names, so a copy is idempotent.
+TRANSCRIPTS="$BRIDGE/transcripts-archive"
+mkdir -p "$TRANSCRIPTS"
+for store in "$HOME/.claude/projects" "$HOME"/.clawd-accounts/*/projects; do
+  [ -d "$store" ] || continue
+  for src in "$store"/*bridge-brain*/*.jsonl; do
+    [ -f "$src" ] || continue
+    cp -p -n "$src" "$TRANSCRIPTS/" 2>/dev/null || true
+  done
+done

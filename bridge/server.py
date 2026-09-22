@@ -99,6 +99,10 @@ SECRET = _secret()
 def _write_settings():
     """Hook config for the child: every Bash call is vetted by bash_guard.py."""
     settings = {
+        # Every wallet's transcript is the record of what the agent did — keep
+        # it forever. claude's default purges transcripts after 30 days
+        # (2026-09-22: the July/August tool-call history was already gone).
+        "cleanupPeriodDays": 36500,
         "hooks": {
             "PreToolUse": [
                 {
