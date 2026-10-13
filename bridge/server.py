@@ -631,6 +631,10 @@ def build_prompt(body):
     key = f"wallet:{address.lower()}"
     _rotate_if_big(key)
     parts = [context.strip()] if context.strip() else []
+    if address.lower() not in context.lower():
+        # A fresh session only knows the wallet from this prompt (2026-09-22: it
+        # told the user "your address didn't come through").
+        parts.append(f"Wallet address: {address}")
     if recent and not current_session(key):
         hist = "\n".join(
             f"{'User' if m.get('role') == 'user' else 'Denarai'}: {m.get('content', '')}"
