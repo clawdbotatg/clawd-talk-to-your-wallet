@@ -21,6 +21,7 @@ Env (bridge/.env, else packages/nextjs/.env.local is loaded for tool keys):
   BRIDGE_TURN_TIMEOUT     seconds per turn (default 240)
   CLAUDE_P_AGENT_HOME     default ../claude-p-agent (sibling project)
 """
+import glob
 import json
 import os
 import re
@@ -575,6 +576,50 @@ def _looks_like_writeup(event):
     )
 
 
+# Each wallet's conversation is resumed forever, and every model step re-reads
+# all of it: by 2026-10 the median turn carried ~200k tokens of history (max
+# 590k) and 96% of a turn's wall time was the model, not the tools — 1-3 min
+# replies vs ~10 s on a fresh session. Past CTX_MAX we forget the session and
+# start fresh; the frontend's last 10 messages ride along as the carry-over.
+# The old transcript stays on disk (and in transcripts-archive).
+CTX_MAX = int(os.environ.get("BRIDGE_CTX_MAX", "60000"))
+
+
+def _session_tokens(sid):
+    """Context size of the session's last model call, from its transcript."""
+    roots = [os.path.expanduser("~/.claude")] + glob.glob(
+        os.path.expanduser("~/.clawd-accounts/*"))
+    for root in roots:
+        for path in glob.glob(os.path.join(root, "projects", "*", f"{sid}.jsonl")):
+            try:
+                with open(path, "rb") as f:
+                    f.seek(0, 2)
+                    f.seek(max(0, f.tell() - 400_000))
+                    lines = f.read().decode("utf-8", "replace").splitlines()
+            except OSError:
+                continue
+            for line in reversed(lines):
+                if '"usage"' not in line:
+                    continue
+                try:
+                    u = json.loads(line)["message"]["usage"]
+                except (ValueError, KeyError, TypeError):
+                    continue
+                return (u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0)
+                        + u.get("cache_creation_input_tokens", 0))
+    return None
+
+
+def _rotate_if_big(key):
+    sid = current_session(key)
+    if not sid:
+        return
+    n = _session_tokens(sid)
+    if n and n > CTX_MAX:
+        print(f"[session] {key} carries {n} tokens of history — starting fresh", flush=True)
+        forget(key)
+
+
 def build_prompt(body):
     """Shared by the blocking and streaming paths."""
     message = (body.get("message") or "").strip()
@@ -584,6 +629,7 @@ def build_prompt(body):
     if not message or not address:
         return None, None, None
     key = f"wallet:{address.lower()}"
+    _rotate_if_big(key)
     parts = [context.strip()] if context.strip() else []
     if recent and not current_session(key):
         hist = "\n".join(
