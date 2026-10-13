@@ -996,11 +996,35 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.rstrip("/")
-        if path not in ("/intent", "/intent/stream", "/requote"):
+        if path not in ("/intent", "/intent/stream", "/requote", "/log"):
             return self._json(404, {"error": "not found"})
         if not secrets.compare_digest(
                 self.headers.get("X-Bridge-Secret", ""), SECRET):
             return self._json(401, {"error": "unauthorized"})
+
+        # /log: denar.ai records a turn another engine answered (the Bankr
+        # fallback) so the corpus covers every turn, not just ours — during
+        # the 2026-09-26 → 10-13 login outage every turn went to Bankr and
+        # none were recorded anywhere.
+        if path == "/log":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(min(length, 512 * 1024)) or b"{}")
+            except Exception:
+                return self._json(400, {"error": "bad json"})
+            if not isinstance(body, dict) or not body.get("message"):
+                return self._json(400, {"error": "message required"})
+            response = body.get("response") if isinstance(body.get("response"), dict) else None
+            log_turn({
+                "wallet": str(body.get("wallet") or ""), "message": str(body["message"]),
+                "context": str(body.get("context") or ""), "raw_reply": None,
+                "response": response,
+                "contract": bool(response and response.get("type") in VALID_TYPES),
+                "duration_s": body.get("duration_s"),
+                "engine": str(body.get("engine") or "unknown"),
+                "fallback_reason": str(body.get("fallback_reason") or ""),
+            })
+            return self._json(200, {"ok": True})
 
         # /requote runs one whitelisted wallet.mjs tool directly — no agent
         # turn, so no headroom gate or turn slot. This is how a transaction

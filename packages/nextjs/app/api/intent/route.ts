@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import TOKEN_ADDRESS_FILE from "../../../data/token-addresses.json";
 import { requireAuth } from "../_lib/auth";
 import { CV_COST_CHAT, LARV_AI_BASE_URL, USDC_COST_CHAT_MICRO } from "../_lib/chainConfig";
@@ -1627,9 +1627,35 @@ export async function POST(req: NextRequest) {
       : "";
     const contextBlock = `${viewOnly ? "Wallet under inspection" : "User's wallet address"}: ${address}\nConnected chain ID: ${userChainId}\nChains this app can sign transactions on (never build a transaction on any other): ${SIGNABLE_CHAIN_NAMES.join(", ")}${portfolioSummary}${defiSummary}${cvBalanceSummary}${activitySummary}${readOnlyDirective}`;
 
+    const turnStart = Date.now();
+    let fallbackReason = "no bridge configured";
+    const logFallbackTurn = (payload: Record<string, unknown>, status?: number) => {
+      const bridge = process.env.DENARAI_BRIDGE_URL;
+      if (!bridge) return;
+      after(() =>
+        fetch(`${bridge.replace(/\/$/, "")}/log`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Bridge-Secret": process.env.DENARAI_BRIDGE_SECRET || "" },
+          body: JSON.stringify({
+            wallet: address,
+            message,
+            context: contextBlock,
+            response: payload,
+            engine: payload.engine || (status && status >= 500 ? "none" : "unknown"),
+            fallback_reason: fallbackReason,
+            duration_s: Math.round((Date.now() - turnStart) / 100) / 10,
+          }),
+          signal: AbortSignal.timeout(5000),
+        }).catch(e => console.warn("[corpus] fallback turn not logged:", e instanceof Error ? e.message : e)),
+      );
+    };
+
     /** Last gate before the wire: a read-only turn never returns calldata, no
      * matter which engine produced it or how the agent framed it. */
     const reply = (payload: Record<string, unknown>, init?: ResponseInit) => {
+      // The bridge logs its own turns; everything else (the Bankr fallback,
+      // "engine unavailable") is sent to its corpus here, after the response.
+      if (payload.engine !== "claude-p") logFallbackTurn(payload, init?.status);
       if (viewOnly && isTransactionPayload(payload)) {
         console.warn("[viewOnly] dropped built calldata for subject", address);
         return NextResponse.json({ type: "chat", message: READ_ONLY_REFUSAL, engine: payload.engine }, init);
@@ -1708,19 +1734,26 @@ export async function POST(req: NextRequest) {
           if (["chat", "transaction", "multistep_transaction"].includes(bridgeData?.type)) {
             return reply(bridgeData);
           }
+          fallbackReason = "bridge returned an unexpected payload";
           console.warn("[bridge] unexpected payload — falling back to Bankr");
         } else {
+          fallbackReason = `bridge HTTP ${bridgeRes.status}`;
           console.warn(`[bridge] ${bridgeRes.status} — falling back to Bankr`);
         }
       } catch (e) {
+        fallbackReason = `bridge unreachable: ${e instanceof Error ? e.message : String(e)}`;
         console.warn(`[bridge] unreachable (${e instanceof Error ? e.message : String(e)}) — falling back to Bankr`);
       }
     }
 
     // ─── Engine 2: Bankr LLM Gateway — OpenAI-compatible format with X-API-Key auth
     if (!process.env.BANKR_API_KEY) {
-      return NextResponse.json(
-        { type: "chat", message: "The AI engine is temporarily unavailable. Please try again in a minute." },
+      return reply(
+        {
+          type: "chat",
+          message: "The AI engine is temporarily unavailable. Please try again in a minute.",
+          engine: "none",
+        },
         { status: 503 },
       );
     }
@@ -2151,7 +2184,7 @@ export async function POST(req: NextRequest) {
     // Handle parsed JSON response
     if (parsed) {
       if (parsed.type === "chat") {
-        return NextResponse.json({
+        return reply({
           type: "chat",
           message: parsed.message as string,
           engine: "bankr",
@@ -2270,7 +2303,7 @@ export async function POST(req: NextRequest) {
       // not JSON, use as-is
     }
 
-    return NextResponse.json({
+    return reply({
       type: "chat",
       message: chatMessage,
       engine: "bankr",
