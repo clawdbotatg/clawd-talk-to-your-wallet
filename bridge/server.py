@@ -545,7 +545,7 @@ _TOOL_RE = re.compile(r"wallet\.mjs\s+([A-Za-z0-9_]+)")
 
 # Tools the /requote endpoint may run directly (deterministic re-builds only —
 # they read chain state and emit calldata, never spend or sign anything).
-REQUOTE_TOOLS = {"buildUniV4Swap", "buildRoute", "buildOrbitDeposit"}
+REQUOTE_TOOLS = {"buildUniV4Swap", "buildRoute", "buildOrbitDeposit", "buildTransfer"}
 
 
 def step_from_event(event):

@@ -92,6 +92,23 @@ const RPC_URLS = {
 // to these chains (Robinhood Chain rejected as toChain, 2026-09-15). Addresses
 // from docs.robinhood.com/chain/cross-chain-messaging; verified on-chain:
 // inbox.bridge() == bridge (see buildOrbitDeposit, which re-checks every call).
+// `edit` on a requote descriptor tells the UI which arg is the amount, so a
+// saved action can be re-run at a different size without an agent turn.
+// decimals null = the arg is already in human units (buildTransfer).
+async function tokenMeta(chainId, token) {
+  if (!token || token === NATIVE || String(token).toUpperCase() === "ETH") return { decimals: 18, symbol: "ETH" };
+  const url = chainRpc(chainId);
+  const [d, sym] = await Promise.all([
+    rpc(url, "eth_call", [{ to: token, data: "0x313ce567" }, "latest"]),
+    rpc(url, "eth_call", [{ to: token, data: "0x95d89b41" }, "latest"]),
+  ]);
+  let symbol = "tokens";
+  try {
+    symbol = viem.decodeFunctionResult({ abi: viem.parseAbi(["function symbol() view returns (string)"]), functionName: "symbol", data: sym.result });
+  } catch {}
+  return { decimals: d.result && d.result !== "0x" ? Number(BigInt(d.result)) : 18, symbol };
+}
+
 const CHAIN_ID_BY_NAME = {
   ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10, polygon: 137,
   gnosis: 100, xdai: 100, bsc: 56, bnb: 56, "binance-smart-chain": 56,
@@ -724,6 +741,9 @@ const tools = {
         requote: {
           tool: "buildRoute",
           args: { fromToken, toToken, amountIn, fromChainId, toChainId, fromAddress, simulate: true },
+          ...(data.action?.fromToken
+            ? { edit: { arg: "amountIn", decimals: data.action.fromToken.decimals, symbol: data.action.fromToken.symbol } }
+            : {}),
         },
         ...(simulation ? { simulation } : {}),
       };
@@ -836,7 +856,7 @@ const tools = {
         chain: chain.name, chainId: chain.chainId, recipient: to, explorer: chain.explorer,
         note: `${amountHuman} ETH arrives at ${to} on ${chain.name}, usually within 10-15 minutes. Canonical bridge: no third-party liquidity, no slippage${fees.path === "createRetryableTicket" ? `; ~${fees.l2FeesPrepaidEth} ETH of L2 execution fee is prepaid on top (mostly refunded on L2)` : ""}. Bridging BACK through the canonical bridge takes ~7 days (challenge period).`,
       },
-      requote: { tool: "buildOrbitDeposit", args: { toChainId: chain.chainId, amount: l2CallValue.toString(), fromAddress, ...(recipient ? { recipient } : {}), simulate: true } },
+      requote: { tool: "buildOrbitDeposit", args: { toChainId: chain.chainId, amount: l2CallValue.toString(), fromAddress, ...(recipient ? { recipient } : {}), simulate: true }, edit: { arg: "amount", decimals: 18, symbol: "ETH" } },
       ...(simulation ? { simulation } : {}),
     };
   },
@@ -857,11 +877,29 @@ const tools = {
     };
   },
 
-  async buildTransfer({ to, amount, token, chainId, tokenDecimals }) {
+  async buildTransfer({ to, amount, token, chainId, tokenDecimals, fromAddress, simulate }) {
     const chain = chainId ?? 1;
-    const decimals = tokenDecimals ?? 18;
-    if (token.toUpperCase() === "ETH") return { to, data: "0x", value: toHex(safeBigInt(amount, 18)), chainId: chain };
-    return { to: token, data: "0xa9059cbb" + padAddress(to) + padUint256(safeBigInt(amount, decimals)), value: "0x0", chainId: chain };
+    const isEth = token.toUpperCase() === "ETH";
+    const meta = isEth ? { decimals: 18, symbol: "ETH" } : await tokenMeta(chain, token).catch(() => null);
+    const decimals = tokenDecimals ?? meta?.decimals ?? 18;
+    const tx = isEth
+      ? { to, data: "0x", value: toHex(safeBigInt(amount, 18)), chainId: chain }
+      : { to: token, data: "0xa9059cbb" + padAddress(to) + padUint256(safeBigInt(amount, decimals)), value: "0x0", chainId: chain };
+    // Sends are the most repeated action in the logs (payroll-style "send 100
+    // USDC to X" again) — make them re-runnable like swaps. amount stays human.
+    tx.requote = {
+      tool: "buildTransfer",
+      args: { to, amount: String(amount), token, chainId: chain, tokenDecimals: decimals, ...(fromAddress ? { fromAddress, simulate: true } : {}) },
+      edit: { arg: "amount", decimals: null, symbol: meta?.symbol || (isEth ? "ETH" : "tokens") },
+    };
+    if (simulate && fromAddress) {
+      try {
+        tx.simulation = await tools.simulateAssetChanges({ from: fromAddress, to: tx.to, data: tx.data, value: tx.value, chainId: chain });
+      } catch (e) {
+        tx.simulation = { success: false, error: e.message?.slice(0, 200), changes: [] };
+      }
+    }
+    return tx;
   },
 
   async resolveENS({ name }) {
@@ -1266,6 +1304,10 @@ const tools = {
         hooks: poolKey.hooks,
       },
     };
+    try {
+      const meta = await tokenMeta(chain, inAddr);
+      requote.edit = { arg: "amountIn", decimals: meta.decimals, symbol: meta.symbol };
+    } catch {}
 
     // 4. Native input needs no approvals — single transaction. Simulate it here
     //    too (when we know the sender): one tool call instead of two agent

@@ -1,14 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { formatUnits, parseUnits } from "viem";
 
 // A saved action is a named requote descriptor — the deterministic {tool, args}
 // a build tool emitted. Re-running it through /api/requote rebuilds the same
 // transaction at the current market price in ~2s, no agent turn, no charge.
+// `edit` names the amount arg so a chip can re-run at a different size:
+// decimals is the token's (args hold raw units), or null when the arg is
+// already human units (buildTransfer).
+export type ActionEdit = { arg: string; decimals: number | null; symbol: string };
+
 export type SavedAction = {
   id: string;
   label: string;
-  requote: { tool: string; args: Record<string, unknown> };
+  requote: { tool: string; args: Record<string, unknown>; edit?: ActionEdit };
   chainId?: number;
   description?: string;
   savedAt: number;
@@ -71,4 +77,30 @@ export const useSavedActions = (address?: string) => {
   );
 
   return { savedActions, saveAction, removeAction, isSaved };
+};
+
+/** The descriptor's amount in human units, or null when it isn't editable. */
+export const actionAmount = (requote: SavedAction["requote"]): string | null => {
+  const e = requote.edit;
+  const raw = e ? requote.args[e.arg] : undefined;
+  if (!e || raw == null) return null;
+  if (e.decimals == null) return String(raw);
+  try {
+    return formatUnits(BigInt(String(raw)), e.decimals);
+  } catch {
+    return null;
+  }
+};
+
+/** A copy of the descriptor at a new human amount, or null if it doesn't parse. */
+export const withAmount = (requote: SavedAction["requote"], human: string): SavedAction["requote"] | null => {
+  const e = requote.edit;
+  const v = human.trim();
+  if (!e || !/^\d*\.?\d+$/.test(v) || Number(v) <= 0) return null;
+  try {
+    const value = e.decimals == null ? v : parseUnits(v, e.decimals).toString();
+    return { ...requote, args: { ...requote.args, [e.arg]: value } };
+  } catch {
+    return null;
+  }
 };

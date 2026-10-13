@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 // tool deterministically (pool pinned — no discovery, no agent turn) and
 // returns fresh {data, value, quote, simulation} in ~2s. No CV charge: this
 // re-prices a transaction the user already paid a chat turn to build.
-const REQUOTE_TOOLS = new Set(["buildUniV4Swap", "buildRoute"]);
+const REQUOTE_TOOLS = new Set(["buildUniV4Swap", "buildRoute", "buildOrbitDeposit", "buildTransfer"]);
 
 export async function POST(req: Request) {
   const bridgeUrl = process.env.DENARAI_BRIDGE_URL;

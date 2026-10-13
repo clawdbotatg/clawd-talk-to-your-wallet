@@ -11,7 +11,7 @@ import MultiStepTransactionCard from "~~/components/MultiStepTransactionCard";
 import TransactionCard from "~~/components/TransactionCard";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useCvAuth } from "~~/hooks/useCvAuth";
-import { type SavedAction, useSavedActions } from "~~/hooks/useSavedActions";
+import { type SavedAction, actionAmount, useSavedActions, withAmount } from "~~/hooks/useSavedActions";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -503,6 +503,9 @@ const WalletWorkspace = ({ subjectAddress, subjectName, readOnly = false }: Wall
   // ─── Saved actions (re-runnable mini frontends) ──────────────────────────
 
   const { savedActions, saveAction, removeAction, isSaved } = useSavedActions(address);
+  // ✎ on a chip: re-run the saved action at a different amount, no agent turn.
+  const [editingAction, setEditingAction] = useState<string | null>(null);
+  const [editAmount, setEditAmount] = useState("");
 
   // The best human label for a card is what the user asked for — the last user
   // message before it in the chat.
@@ -1317,6 +1320,59 @@ const WalletWorkspace = ({ subjectAddress, subjectName, readOnly = false }: Wall
                           >
                             ▶ {a.label}
                           </button>
+                          {a.requote.edit &&
+                            (editingAction === a.id ? (
+                              <form
+                                className="flex items-center"
+                                onSubmit={e => {
+                                  e.preventDefault();
+                                  const next = withAmount(a.requote, editAmount);
+                                  if (!next) return;
+                                  setEditingAction(null);
+                                  runAction(
+                                    `${a.label} · ${editAmount} ${a.requote.edit!.symbol}`,
+                                    next,
+                                    a.description,
+                                  );
+                                }}
+                              >
+                                <input
+                                  id={`action-amount-${a.id}`}
+                                  autoFocus
+                                  inputMode="decimal"
+                                  value={editAmount}
+                                  onChange={e => setEditAmount(e.target.value)}
+                                  onKeyDown={e => e.key === "Escape" && setEditingAction(null)}
+                                  className="text-xs w-20 px-1.5 py-1 bg-transparent outline-none"
+                                  style={{ color: "#E8E4DC", borderLeft: "1px solid rgba(201, 168, 76, 0.25)" }}
+                                  aria-label={`Amount in ${a.requote.edit.symbol}`}
+                                />
+                                <span className="text-xs pr-1" style={{ color: "#8A8578" }}>
+                                  {a.requote.edit.symbol}
+                                </span>
+                                <button
+                                  type="submit"
+                                  className="text-xs px-2 py-1.5 cursor-pointer disabled:opacity-40"
+                                  style={{ color: "#C9A84C" }}
+                                  disabled={isProcessing || !withAmount(a.requote, editAmount)}
+                                >
+                                  Go
+                                </button>
+                              </form>
+                            ) : (
+                              <button
+                                className="text-xs px-1.5 py-1.5 cursor-pointer"
+                                style={{ color: "rgba(201, 168, 76, 0.7)" }}
+                                onClick={() => {
+                                  setEditAmount(actionAmount(a.requote) ?? "");
+                                  setEditingAction(a.id);
+                                }}
+                                title="Change the amount and rebuild"
+                                aria-label={`Change amount for ${a.label}`}
+                              >
+                                ✎
+                              </button>
+                            ))}
                           <button
                             className="text-xs px-2 py-1.5 cursor-pointer"
                             style={{ color: "rgba(138, 133, 120, 0.6)" }}
