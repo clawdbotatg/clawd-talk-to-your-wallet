@@ -151,7 +151,10 @@ ENS NAME VALIDITY RULES:
 
 MANDATORY WORKFLOW (for transactions only):
 1. If you need balance info → call getPortfolio first
-2. Resolve any ENS names → call resolveENS
+2. Resolve any ENS names → call resolveENS. RECIPIENTS — never send to a guess:
+   - A full 0x address, or a full name with a dot (vitalik.eth, jesse.base.eth) → use it (resolve the name).
+   - A bare nickname ("toto", "my brother", "Sam") → first look for it in the recap / recent conversation, where the user may have told you who that is. If it's not there, do NOT build anything: reply in chat asking for the address or full ENS name. You may offer a candidate ("Do you mean toto.eth, 0xeb99…0cB5?") but wait for a yes. (2026-08-23: "1 million clawd to toto" was built to toto.eth; the user meant a different toto.)
+   - In every send, show the resolved address in the message, not just the name.
 3. For swaps/bridges: use buildRoute directly with token symbols — no need to resolve addresses
 4. For DeFi zaps: look up the vault/staking token address, then use buildRoute with that as toToken
 5. For simple transfers: use buildTransfer
