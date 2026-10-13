@@ -104,8 +104,21 @@ slot_status() {          # slot_status <name> <config_dir|"">  → True/False/No
 try: print(json.load(sys.stdin).get('loggedIn'))
 except Exception: print('None')"
 }
+# Token accounts (CLAUDE_TOKEN_* in .env, 1-year setup-tokens) replace the
+# logins: the bridge probes them itself, so no slot clocks — just page a token
+# that 401s while its siblings carry the load.
 slots="default|"
-for d in "$HOME"/.clawd-accounts/*/; do
+if env | grep -q '^CLAUDE_TOKEN_'; then
+  slots=""
+  for name in $(python3 -c "
+import json,sys
+try: print(' '.join(json.loads(sys.argv[1]).get('tokens',{}).get('dead',[])))
+except Exception: pass" "$health"); do
+    ALERT_COOLDOWN=86400 alert "tokendead_$name" \
+      "Claude token '$name' is DEAD (401). Mint a new one with claude setup-token on that account, update CLAUDE_TOKEN_${name^^} in bridge/.env on zkllmapi, restart denarai-bridge"
+  done
+fi
+for d in $([ -n "$slots" ] && echo "$HOME"/.clawd-accounts/*/); do
   case "${d%/}" in *.lock) continue ;; esac   # lock artifacts, not logins
   [ -d "$d" ] && slots="$slots
 $(basename "$d")|$d"
@@ -149,7 +162,7 @@ case "$verdict" in
   # signs in again. This is the outage that hid for three weeks (2026-08-26 →
   # 09-15) behind the softer noauth note below — page it, 4×/day.
   NOLOGIN) ALERT_COOLDOWN=21600 alert nologin \
-             "claude login DEAD — agent refusing every turn, denar.ai is on Bankr fallback. Fix: ssh -t zkllmapi claude auth login   (then /health shows loggedIn:true)" ;;
+             "claude login DEAD — agent refusing every turn, denar.ai is on Bankr fallback. Fix: every CLAUDE_TOKEN_* in bridge/.env 401s → re-mint (claude setup-token); with no tokens: ssh -t zkllmapi claude auth login   (then /health shows loggedIn:true)" ;;
   NOSERVE) alert noserve "refusing requests — subscription headroom exhausted (${health}). Users are on Bankr." ;;
   # Usage-unknown is NOT an outage: the agent still serves (wouldServe stays true)
   # and turns work — only the pre-emptive headroom gate is blind, so exhaustion

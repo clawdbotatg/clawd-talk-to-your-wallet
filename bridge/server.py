@@ -246,11 +246,102 @@ def _router_status():
         return {}
 
 
+# ── token accounts ───────────────────────────────────────────────────────────
+# Logins die ~30 days after each sign-in (all four on this box were dead on
+# 2026-10-13). `claude setup-token` tokens last a year and need no config dir:
+# put them in bridge/.env as CLAUDE_TOKEN_<NAME>=sk-ant-oat01-… and the bridge
+# runs every turn on the least-used one via CLAUDE_CODE_OAUTH_TOKEN, which
+# beats whatever login the router's CLAUDE_CONFIG_DIR points at (the engine's
+# scrub keeps it since claude-p-agent 0f42ecd). The usage endpoint refuses
+# these tokens, so headroom comes from the rate-limit headers on a 1-token
+# haiku message. With tokens configured they ARE the login and headroom
+# gates; with none, the router/login code below runs as before.
+TOKENS = {k[len("CLAUDE_TOKEN_"):].lower(): v.strip()
+          for k, v in sorted(os.environ.items())
+          if k.startswith("CLAUDE_TOKEN_") and v.strip()}
+if TOKENS:
+    os.environ["CLAUDE_P_ROUTER"] = "0"     # don't route to a dead login's dir
+_tokens = {"state": {}, "ts": 0.0}          # name → {"status", "pct"}
+_tokens_lock = threading.Lock()
+
+
+def _probe_token(tok):
+    """(http status or None, % used = max of the 5h/7d windows or None)."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages", method="POST",
+        data=json.dumps({
+            "model": "claude-haiku-4-5-20251001", "max_tokens": 1,
+            "system": "You are Claude Code, Anthropic's official CLI for Claude.",
+            "messages": [{"role": "user", "content": "hi"}]}).encode(),
+        headers={"Authorization": f"Bearer {tok}",
+                 "anthropic-beta": "oauth-2025-04-20",
+                 "anthropic-version": "2023-06-01",
+                 "content-type": "application/json",
+                 "User-Agent": "claude-cli/2.1.296 (external, cli)"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            status, headers = r.status, r.headers
+    except urllib.error.HTTPError as e:
+        status, headers = e.code, e.headers
+    except Exception:
+        return None, None
+    pcts = []
+    for w in ("5h", "7d"):
+        try:
+            pcts.append(float(headers.get(f"anthropic-ratelimit-unified-{w}-utilization")) * 100)
+        except (TypeError, ValueError):
+            pass
+    if status == 429 and not pcts:
+        pcts = [100.0]
+    return status, (max(pcts) if pcts else None)
+
+
+def refresh_tokens(force=False):
+    """Probe every token (cached HEADROOM_TTL) and point CLAUDE_CODE_OAUTH_TOKEN
+    at the least-used live one. Returns name → {"status", "pct"}."""
+    with _tokens_lock:
+        if not force and time.time() - _tokens["ts"] < HEADROOM_TTL:
+            return dict(_tokens["state"])
+    state = {}
+    for name, tok in TOKENS.items():
+        status, pct = _probe_token(tok)
+        state[name] = {"status": status, "pct": pct}
+    live = [n for n, s in state.items() if s["status"] in (200, 429)]
+    best = min(live, key=lambda n: state[n]["pct"] if state[n]["pct"] is not None else 50.0,
+               default=None)
+    with _tokens_lock:
+        prev = _tokens.get("best")
+        _tokens.update(state=state, ts=time.time(), best=best)
+    if best:
+        os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = TOKENS[best]
+        if best != prev:
+            print(f"[tokens] turns now run on '{best}' ({state[best]['pct']}% used)", flush=True)
+    for n, s in state.items():
+        if s["status"] == 401:
+            print(f"[tokens] '{n}' is DEAD (401) — re-mint with claude setup-token", flush=True)
+    return state
+
+
+def token_summary():
+    with _tokens_lock:
+        st, best = dict(_tokens["state"]), _tokens.get("best")
+    return {"using": best, "dead": sorted(n for n, s in st.items() if s["status"] == 401),
+            "pct": {n: s["pct"] for n, s in st.items()}}
+
+
 def _refresh_headroom():
     """Ask the router for the best plan; runs in a daemon thread, one in flight."""
     best = None
     endpoint = {}
     try:
+        if TOKENS:
+            st = refresh_tokens()
+            pcts = [s["pct"] for s in st.values()
+                    if s["status"] in (200, 429) and s["pct"] is not None]
+            best = min(pcts) if pcts else None
+            return
         st = _router_status()
         b = st.get("best")
         if isinstance(b, dict) and isinstance(b.get("pct"), (int, float)):
@@ -324,7 +415,13 @@ def _slot_logged_in(config_dir=None):
 def _claude_logged_in():
     """True if ANY login the router can pick is alive: the default ~/.claude
     plus every ~/.clawd-accounts/<name> slot (dead creds fall through to a
-    sibling in the router). False only when every readable slot is dead."""
+    sibling in the router). False only when every readable slot is dead.
+    With token accounts configured, the tokens are the login instead."""
+    if TOKENS:
+        st = refresh_tokens()
+        if any(s["status"] in (200, 429) for s in st.values()):
+            return True
+        return False if any(s["status"] == 401 for s in st.values()) else None
     dirs = [None]
     root = os.path.expanduser(os.environ.get("CLAWD_ACCOUNTS_DIR", "~/.clawd-accounts"))
     try:
@@ -381,6 +478,9 @@ def note_turn_error(err):
         with _auth_lock:
             _auth.update(ok=False, ts=time.time(), next_probe=time.time() + AUTH_TTL)
         print("[auth] turn failed on authentication — gate closed", flush=True)
+        if TOKENS:     # re-probe now: the next live token reopens the gate
+            threading.Thread(target=lambda: (refresh_tokens(force=True), _refresh_auth()),
+                             daemon=True).start()
 
 
 def would_serve():
@@ -622,6 +722,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {
                 "ok": True, "wouldServe": ok, "headroomPct": pct, "loggedIn": logged_in(),
                 "activeTurns": n, "model": MODEL, "brain": BRAIN,
+                **({"tokens": token_summary()} if TOKENS else {}),
             })
         self._json(404, {"error": "not found"})
 
@@ -792,6 +893,8 @@ def main():
     print(f"  agent_home={AGENT_HOME}", flush=True)
     print(f"  model={MODEL} max_concurrent={MAX_CONCURRENT} sub_max_pct={SUB_MAX_PCT}", flush=True)
     print(f"  headroom: best plan at {pct if pct is not None else 'unknown'}% used → wouldServe={ok}", flush=True)
+    if TOKENS:
+        print(f"  tokens: {token_summary()}", flush=True)
     print(f"  login: {'ok' if li else 'DEAD — every request 503s until `claude auth login`' if li is False else 'unknown'}", flush=True)
     print(f"  secret in {SECRET_FILE}" if not os.environ.get("BRIDGE_SECRET") else "  secret from env", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

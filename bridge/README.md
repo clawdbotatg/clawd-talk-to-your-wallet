@@ -52,6 +52,15 @@ the bridge's headroom gate reads the same module's query surface
 (`env --status` → `best.pct`, `endpoint.retry_after`), so "would the router
 find a usable plan?" and "do we accept the request?" always agree.
 
+**Token accounts (preferred, since 2026-10-13):** logins die ~30 days after
+sign-in; `claude setup-token` tokens last a year. Put them in `bridge/.env` as
+`CLAUDE_TOKEN_<NAME>=sk-ant-oat01-…` (one per subscription) and the bridge
+switches the router off, probes each token's rate-limit headers every
+`BRIDGE_HEADROOM_TTL`, and runs every turn on the least-used one via
+`CLAUDE_CODE_OAUTH_TOKEN`. `/health` shows `tokens: {using, dead, pct}`; the
+healthcheck pages a 401'd token daily. Needs claude-p-agent ≥ 0f42ecd (the
+scrub must keep `CLAUDE_CODE_OAUTH_TOKEN`).
+
 ## Vercel side
 
 Env vars on the Next.js app:
