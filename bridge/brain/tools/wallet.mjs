@@ -92,6 +92,49 @@ const RPC_URLS = {
 // to these chains (Robinhood Chain rejected as toChain, 2026-09-15). Addresses
 // from docs.robinhood.com/chain/cross-chain-messaging; verified on-chain:
 // inbox.bridge() == bridge (see buildOrbitDeposit, which re-checks every call).
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const NATIVE_PSEUDO = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"; // traceTransfers' ETH "token"
+
+async function simulateV1({ from, to, data, value, chain, why }) {
+  let url;
+  try {
+    url = chainRpc(chain);
+  } catch (e) {
+    return { success: false, error: e.message, changes: [] };
+  }
+  const json = await rpc(url, "eth_simulateV1", [
+    { blockStateCalls: [{ calls: [{ from, to, data, value: value || "0x0" }] }], traceTransfers: true, validation: false },
+    "latest",
+  ]);
+  if (json.error) return { success: false, error: `${why}; eth_simulateV1: ${json.error.message}`, changes: [] };
+  const call = json.result?.[0]?.calls?.[0];
+  if (!call) return { success: false, error: "No result from simulation", changes: [] };
+  if (call.status !== "0x1") return { success: false, error: call.error?.message || "transaction reverts", changes: [], via: "eth_simulateV1" };
+  const wallet = (from || "").toLowerCase();
+  const meta = {};
+  const changes = [];
+  for (const log of call.logs || []) {
+    if (log.topics?.[0] !== TRANSFER_TOPIC || log.topics.length !== 3) continue; // ERC-721 has 4 topics
+    const src = "0x" + log.topics[1].slice(26);
+    const dst = "0x" + log.topics[2].slice(26);
+    if (src !== wallet && dst !== wallet) continue;
+    const token = log.address.toLowerCase();
+    const isNative = token === NATIVE_PSEUDO;
+    meta[token] ??= isNative ? { decimals: 18, symbol: chain === 100 ? "xDAI" : chain === 56 ? "BNB" : "ETH" } : await tokenMeta(chain, token).catch(() => ({ decimals: 18, symbol: "?" }));
+    const raw = BigInt(log.data);
+    changes.push({
+      direction: dst === wallet ? "in" : "out",
+      symbol: meta[token].symbol,
+      amount: viem.formatUnits(raw, meta[token].decimals),
+      rawAmount: raw.toString(),
+      decimals: meta[token].decimals,
+      assetType: isNative ? "NATIVE" : "ERC20",
+      contractAddress: isNative ? null : token,
+    });
+  }
+  return { success: true, changes, via: "eth_simulateV1" };
+}
+
 // `edit` on a requote descriptor tells the UI which arg is the amount, so a
 // saved action can be re-run at a different size without an agent turn.
 // decimals null = the arg is already in human units (buildTransfer).
@@ -409,7 +452,10 @@ const tools = {
   async simulateAssetChanges({ from, to, data, value, chainId }) {
     const chain = chainId ?? 1;
     const json = await rpc(chainRpc(chain), "alchemy_simulateAssetChanges", [{ from, to, data, value: value || "0x0" }]);
-    if (json.error) return { success: false, error: json.error.message || JSON.stringify(json.error), changes: [] };
+    // By 2026-10 our Alchemy key answered "Unsupported method" for this on
+    // every chain, so every transaction went out unverified. eth_simulateV1
+    // (standard, same key) with traceTransfers gives the same asset changes.
+    if (json.error) return simulateV1({ from, to, data, value, chain, why: json.error.message });
     const result = json.result;
     if (!result) return { success: false, error: "No result from simulation", changes: [] };
     if (result.error) return { success: false, error: result.error.message || result.error, changes: result.changes || [] };
@@ -882,9 +928,26 @@ const tools = {
     const isEth = token.toUpperCase() === "ETH";
     const meta = isEth ? { decimals: 18, symbol: "ETH" } : await tokenMeta(chain, token).catch(() => null);
     const decimals = tokenDecimals ?? meta?.decimals ?? 18;
+    // amount is HUMAN units ("1" = 1 USDC). safeBigInt reads a bare integer as
+    // raw units, which turned "send 1 USDC" into 0.000001 USDC (2026-10-13).
+    let raw;
+    try {
+      raw = viem.parseUnits(String(amount).trim(), decimals);
+    } catch {
+      return { error: `amount must be a plain number in ${meta?.symbol || "token"} units, e.g. "100" or "0.5" — got ${amount}` };
+    }
+    if (raw <= 0n) return { error: "amount must be > 0" };
+    if (fromAddress) {
+      // Units mix-ups (raw vs human) show up as a send far above the balance.
+      const bal = isEth
+        ? await rpc(chainRpc(chain), "eth_getBalance", [fromAddress, "latest"])
+        : await rpc(chainRpc(chain), "eth_call", [{ to: token, data: "0x70a08231" + padAddress(fromAddress) }, "latest"]);
+      if (bal.result && bal.result !== "0x" && raw > BigInt(bal.result))
+        return { error: `amount ${amount} exceeds the balance of ${viem.formatUnits(BigInt(bal.result), decimals)} ${meta?.symbol || ""} — amount is in human units` };
+    }
     const tx = isEth
-      ? { to, data: "0x", value: toHex(safeBigInt(amount, 18)), chainId: chain }
-      : { to: token, data: "0xa9059cbb" + padAddress(to) + padUint256(safeBigInt(amount, decimals)), value: "0x0", chainId: chain };
+      ? { to, data: "0x", value: toHex(raw), chainId: chain }
+      : { to: token, data: "0xa9059cbb" + padAddress(to) + padUint256(raw), value: "0x0", chainId: chain };
     // Sends are the most repeated action in the logs (payroll-style "send 100
     // USDC to X" again) — make them re-runnable like swaps. amount stays human.
     tx.requote = {
