@@ -1298,7 +1298,7 @@ const tools = {
     }
   },
 
-  async getLogs({ address, eventSignature, indexedArgs, fromBlock, toBlock, chainId, chain, limit }) {
+  async getLogs({ address, eventSignature, indexedArgs, fromBlock, toBlock, chainId, chain, limit, order }) {
     const rpcUrl = chain ? RPC_URLS[chain]?.() : alchemyUrl(chainId ?? 1);
     if (!rpcUrl) return { error: `Unknown chain '${chain}'` };
     try {
@@ -1315,7 +1315,12 @@ const tools = {
       if (json.error) return { error: json.error.message || JSON.stringify(json.error), hint: "Alchemy caps log queries — narrow the block range or add indexed filters." };
       const jsonify = v =>
         typeof v === "bigint" ? v.toString() : Array.isArray(v) ? v.map(jsonify) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, jsonify(x)])) : v;
-      const logs = (json.result || []).slice(0, Math.min(limit || 25, 100)).map(l => {
+      // Newest first by default: the oldest-first slice once had the agent judge
+      // a live payout program by its first 30 transfers (2026-09-26).
+      const all = json.result || [];
+      const n = Math.min(limit || 25, 100);
+      const picked = order === "asc" ? all.slice(0, n) : all.slice(-n).reverse();
+      const logs = picked.map(l => {
         try {
           const { args: a } = viem.decodeEventLog({ abi: [abiItem], data: l.data, topics: l.topics });
           return { blockNumber: parseInt(l.blockNumber, 16), txHash: l.transactionHash, args: jsonify(a) };
@@ -1323,7 +1328,12 @@ const tools = {
           return { blockNumber: parseInt(l.blockNumber, 16), txHash: l.transactionHash, raw: { data: l.data, topics: l.topics } };
         }
       });
-      return { totalFound: (json.result || []).length, returned: logs.length, logs };
+      const out = { totalFound: all.length, returned: logs.length, order: order === "asc" ? "oldest first" : "newest first", logs };
+      if (all.length > logs.length) {
+        const blocks = logs.map(l => l.blockNumber);
+        out.note = `Only ${logs.length} of ${all.length} matching events shown (${out.order}, blocks ${Math.min(...blocks)}–${Math.max(...blocks)}). Don't generalize about the rest; narrow the block range or page through it.`;
+      }
+      return out;
     } catch (e) {
       return { error: `getLogs failed: ${e.message}` };
     }
