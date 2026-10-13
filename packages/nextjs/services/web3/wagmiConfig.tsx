@@ -4,6 +4,7 @@ import { hardhat, mainnet } from "viem/chains";
 import { createConfig } from "wagmi";
 import scaffoldConfig, { DEFAULT_ALCHEMY_API_KEY, ScaffoldConfig } from "~~/scaffold.config";
 import { getAlchemyHttpUrl } from "~~/utils/scaffold-eth";
+import { EXTRA_SIGNING_CHAINS } from "~~/utils/signingChains";
 
 const { targetNetworks } = scaffoldConfig;
 
@@ -12,8 +13,14 @@ export const enabledChains = targetNetworks.find((network: Chain) => network.id 
   ? targetNetworks
   : ([...targetNetworks, mainnet] as const);
 
+// Signing needs more chains than the app targets — see utils/signingChains.
+const walletChains = [
+  ...enabledChains,
+  ...EXTRA_SIGNING_CHAINS.filter(c => !enabledChains.some((e: Chain) => e.id === c.id)),
+] as unknown as readonly [Chain, ...Chain[]];
+
 export const wagmiConfig = createConfig({
-  chains: enabledChains,
+  chains: walletChains,
   connectors: wagmiConnectors(),
   ssr: true,
   client: ({ chain }) => {

@@ -3,9 +3,16 @@ import TOKEN_ADDRESS_FILE from "../../../data/token-addresses.json";
 import { requireAuth } from "../_lib/auth";
 import { CV_COST_CHAT, LARV_AI_BASE_URL, USDC_COST_CHAT_MICRO } from "../_lib/chainConfig";
 import { chargeCredits } from "../_lib/credits";
-import { READ_ONLY_REFUSAL, WRITE_TOOLS, isTransactionPayload, sanitizeReadOnlyStream } from "../_lib/readOnly";
+import {
+  READ_ONLY_REFUSAL,
+  WRITE_TOOLS,
+  isTransactionPayload,
+  rewriteDoneResult,
+  sanitizeReadOnlyStream,
+} from "../_lib/readOnly";
 import OpenAI from "openai";
 import { namehash } from "viem/ens";
+import { SIGNABLE_CHAIN_NAMES, unsignableChains, unsignableRefusal } from "~~/utils/signingChains";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -1618,7 +1625,7 @@ export async function POST(req: NextRequest) {
     const readOnlyDirective = viewOnly
       ? `\n\n[READ-ONLY VIEW] The wallet above is NOT the user's — they are inspecting ${address} from a public view page and cannot sign for it. Answer as an analyst: holdings, positions, history, behaviour, risk, prices, on-chain research. Refer to it as "this wallet", never "your wallet" or "you". NEVER build, quote, or simulate a transaction, and never call a build* tool; if asked to swap/send/bridge/stake/revoke, explain that this view is read-only and they'd need to open their own wallet. The CV balance above is the VIEWER's, not this wallet's.`
       : "";
-    const contextBlock = `${viewOnly ? "Wallet under inspection" : "User's wallet address"}: ${address}\nConnected chain ID: ${userChainId}${portfolioSummary}${defiSummary}${cvBalanceSummary}${activitySummary}${readOnlyDirective}`;
+    const contextBlock = `${viewOnly ? "Wallet under inspection" : "User's wallet address"}: ${address}\nConnected chain ID: ${userChainId}\nChains this app can sign transactions on (never build a transaction on any other): ${SIGNABLE_CHAIN_NAMES.join(", ")}${portfolioSummary}${defiSummary}${cvBalanceSummary}${activitySummary}${readOnlyDirective}`;
 
     /** Last gate before the wire: a read-only turn never returns calldata, no
      * matter which engine produced it or how the agent framed it. */
@@ -1626,6 +1633,11 @@ export async function POST(req: NextRequest) {
       if (viewOnly && isTransactionPayload(payload)) {
         console.warn("[viewOnly] dropped built calldata for subject", address);
         return NextResponse.json({ type: "chat", message: READ_ONLY_REFUSAL, engine: payload.engine }, init);
+      }
+      const offChain = unsignableChains(payload);
+      if (offChain.length) {
+        console.warn("[signing] dropped calldata on unsignable chain(s)", offChain);
+        return NextResponse.json({ type: "chat", message: unsignableRefusal(offChain), engine: payload.engine }, init);
       }
       return NextResponse.json(payload, init);
     };
@@ -1652,7 +1664,14 @@ export async function POST(req: NextRequest) {
           signal: AbortSignal.timeout(Number(process.env.DENARAI_BRIDGE_TIMEOUT_MS) || 240_000),
         });
         if (sse.ok && sse.body) {
-          return new NextResponse(viewOnly ? sanitizeReadOnlyStream(sse.body, READ_ONLY_REFUSAL) : sse.body, {
+          const fenced = viewOnly ? sanitizeReadOnlyStream(sse.body, READ_ONLY_REFUSAL) : sse.body;
+          const signable = rewriteDoneResult(fenced, result => {
+            const offChain = unsignableChains(result);
+            if (!offChain.length) return null;
+            console.warn("[signing] dropped streamed calldata on unsignable chain(s)", offChain);
+            return { type: "chat", message: unsignableRefusal(offChain), engine: result.engine };
+          });
+          return new NextResponse(signable, {
             headers: {
               "Content-Type": "text/event-stream",
               "Cache-Control": "no-cache, no-transform",

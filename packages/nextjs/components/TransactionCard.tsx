@@ -6,6 +6,7 @@ import AssetChip from "./AssetChip";
 import ChatMessageRenderer from "./ChatMessageRenderer";
 import NetworkChip from "./NetworkChip";
 import { useChainId, useSendTransaction, useSwitchChain, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
+import { addChainParams } from "~~/utils/signingChains";
 
 interface SimulationChange {
   direction: "in" | "out";
@@ -76,6 +77,12 @@ const EXPLORER_URLS: Record<number, string> = {
   534352: "https://scrollscan.com/tx/",
   59144: "https://lineascan.build/tx/",
   5000: "https://explorer.mantle.xyz/tx/",
+  56: "https://bscscan.com/tx/",
+  43114: "https://snowtrace.io/tx/",
+  81457: "https://blastscan.io/tx/",
+  42220: "https://celoscan.io/tx/",
+  130: "https://uniscan.xyz/tx/",
+  4663: "https://robinhoodchain.blockscout.com/tx/",
 };
 
 const CHAIN_NAMES: Record<number, string> = {
@@ -565,32 +572,12 @@ const TransactionCard = ({ tx, address, onTxHash, onConfirmed, onSave, saved, on
                     try {
                       await switchChainAsync({ chainId: tx.chainId! });
                     } catch {
-                      // Fallback: wallet_addEthereumChain works even if chain isn't pre-configured
+                      // Fallback: add the chain from its real definition, then switch.
                       try {
-                        const chainHex = `0x${tx.chainId!.toString(16)}`;
-                        const explorerUrl = EXPLORER_URLS[tx.chainId!]?.replace("/tx/", "") || undefined;
-                        await walletClient?.request({
-                          method: "wallet_addEthereumChain",
-                          params: [
-                            {
-                              chainId: chainHex,
-                              chainName: chainName || `Chain ${tx.chainId}`,
-                              nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-                              rpcUrls: [
-                                tx.chainId === 8453
-                                  ? "https://mainnet.base.org"
-                                  : tx.chainId === 42161
-                                    ? "https://arb1.arbitrum.io/rpc"
-                                    : tx.chainId === 10
-                                      ? "https://mainnet.optimism.io"
-                                      : tx.chainId === 137
-                                        ? "https://polygon-rpc.com"
-                                        : "https://cloudflare-eth.com",
-                              ],
-                              blockExplorerUrls: explorerUrl ? [explorerUrl] : [],
-                            },
-                          ],
-                        });
+                        const params = addChainParams(tx.chainId!);
+                        if (!params) throw new Error("unknown chain");
+                        await walletClient?.request({ method: "wallet_addEthereumChain", params: [params] });
+                        await switchChainAsync({ chainId: tx.chainId! });
                       } catch {
                         setExecError(
                           `Could not switch to ${chainName || `chain ${tx.chainId}`}. Please switch manually in your wallet.`,

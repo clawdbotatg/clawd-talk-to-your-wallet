@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import ChatMessageRenderer from "./ChatMessageRenderer";
 import { useChainId, useSendTransaction, useSwitchChain, useWaitForTransactionReceipt, useWalletClient } from "wagmi";
+import { addChainParams } from "~~/utils/signingChains";
 
 interface StepData {
   to: string;
@@ -64,6 +65,17 @@ const EXPLORER_URLS: Record<number, string> = {
   42161: "https://arbiscan.io/tx/",
   10: "https://optimistic.etherscan.io/tx/",
   137: "https://polygonscan.com/tx/",
+  100: "https://gnosisscan.io/tx/",
+  324: "https://explorer.zksync.io/tx/",
+  534352: "https://scrollscan.com/tx/",
+  59144: "https://lineascan.build/tx/",
+  5000: "https://explorer.mantle.xyz/tx/",
+  56: "https://bscscan.com/tx/",
+  43114: "https://snowtrace.io/tx/",
+  81457: "https://blastscan.io/tx/",
+  42220: "https://celoscan.io/tx/",
+  130: "https://uniscan.xyz/tx/",
+  4663: "https://robinhoodchain.blockscout.com/tx/",
 };
 
 const CHAIN_NAMES: Record<number, string> = {
@@ -288,19 +300,10 @@ const MultiStepTransactionCard = ({
       await switchChainAsync({ chainId: targetChainId });
     } catch {
       try {
-        const chainHex = `0x${targetChainId.toString(16)}`;
-        await walletClient?.request({
-          method: "wallet_addEthereumChain",
-          params: [
-            {
-              chainId: chainHex,
-              chainName: CHAIN_NAMES[targetChainId] || `Chain ${targetChainId}`,
-              nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-              rpcUrls: ["https://cloudflare-eth.com"],
-              blockExplorerUrls: [],
-            },
-          ],
-        });
+        const params = addChainParams(targetChainId);
+        if (!params) throw new Error("unknown chain");
+        await walletClient?.request({ method: "wallet_addEthereumChain", params: [params] });
+        await switchChainAsync({ chainId: targetChainId });
       } catch {
         setExecError(`Could not switch to ${CHAIN_NAMES[targetChainId] || `chain ${targetChainId}`}. Switch manually.`);
       }

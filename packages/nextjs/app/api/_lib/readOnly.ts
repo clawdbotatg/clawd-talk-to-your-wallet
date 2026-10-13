@@ -34,6 +34,19 @@ export function sanitizeReadOnlyStream(
   body: ReadableStream<Uint8Array>,
   refusal: string = READ_ONLY_REFUSAL,
 ): ReadableStream<Uint8Array> {
+  return rewriteDoneResult(body, result => {
+    if (!isTransactionPayload(result)) return null;
+    console.warn("[viewOnly] dropped built calldata from the agent's stream");
+    return { type: "chat", message: refusal };
+  });
+}
+
+/** Rewrite the `result` of the stream's `done` frame: `fix` returns a
+ * replacement, or null to pass the frame through untouched. */
+export function rewriteDoneResult(
+  body: ReadableStream<Uint8Array>,
+  fix: (result: Record<string, unknown>) => Record<string, unknown> | null,
+): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let buffer = "";
@@ -43,9 +56,9 @@ export function sanitizeReadOnlyStream(
     if (!line) return frame;
     try {
       const evt = JSON.parse(line.slice(6));
-      if (evt?.type !== "done" || !evt.result || !isTransactionPayload(evt.result)) return frame;
-      console.warn("[viewOnly] dropped built calldata from the agent's stream");
-      return `data: ${JSON.stringify({ type: "done", result: { type: "chat", message: refusal } })}`;
+      if (evt?.type !== "done" || !evt.result) return frame;
+      const replacement = fix(evt.result);
+      return replacement ? `data: ${JSON.stringify({ ...evt, result: replacement })}` : frame;
     } catch {
       return frame;
     }
