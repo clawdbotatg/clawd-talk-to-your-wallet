@@ -27,3 +27,4 @@ node_modules
 # cli
 dist
 .vercel
+evals/sage/*.json
