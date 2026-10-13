@@ -66,7 +66,7 @@ AGENT_HOME = os.path.abspath(os.environ.get(
     os.path.join(os.path.dirname(REPO), "claude-p-agent")))
 sys.path.insert(0, AGENT_HOME)
 os.environ["CLAUDE_P_AGENT_HOME"] = AGENT_HOME
-from agent import run_turn, current_session, forget  # noqa: E402
+from agent import run_turn, current_session, forget, scrubbed_env  # noqa: E402
 
 PORT = int(os.environ.get("BRIDGE_PORT", "8790"))
 MODEL = os.environ.get("BRIDGE_MODEL", "opus")
@@ -578,46 +578,168 @@ def _looks_like_writeup(event):
 
 # Each wallet's conversation is resumed forever, and every model step re-reads
 # all of it: by 2026-10 the median turn carried ~200k tokens of history (max
-# 590k) and 96% of a turn's wall time was the model, not the tools — 1-3 min
-# replies vs ~10 s on a fresh session. Past CTX_MAX we forget the session and
-# start fresh; the frontend's last 10 messages ride along as the carry-over.
-# The old transcript stays on disk (and in transcripts-archive).
+# 607k) and 96% of a turn's wall time was the model, not the tools — 1-3 min
+# replies vs ~10 s on a fresh session. Past CTX_MAX the session is rotated: a
+# cheap model folds the old conversation (and any earlier recap) into a short
+# recap, saved server-side with the last RECAP_KEEP messages verbatim, and the
+# next turn starts fresh from those. Rotation runs in the background right
+# after the turn that crossed the line, so nobody waits on it; build_prompt
+# repeats it synchronously only if that didn't happen. The old transcript
+# stays on disk (and in transcripts-archive).
 CTX_MAX = int(os.environ.get("BRIDGE_CTX_MAX", "60000"))
+RECAP_KEEP = 5
+RECAP_MODEL = os.environ.get("BRIDGE_RECAP_MODEL", "haiku")
+MEMORY_DIR = os.environ["CLAUDE_P_AGENT_MEMORY"]
+_rotating = set()
+_rotating_lock = threading.Lock()
+
+RECAP_SYSTEM = (
+    "You compress a chat between a crypto wallet owner and their wallet assistant, "
+    "Denarai, into a recap the assistant will read before the next message. Plain "
+    "text, at most 250 words. Keep: what the user is trying to do, facts that came "
+    "up (exact addresses, token contracts, chains, amounts, tx hashes, names the "
+    "user gave people), conclusions reached, and anything unfinished or promised. "
+    "Drop greetings, prices that will be stale, and step-by-step tool chatter. "
+    "Write it about the user in the third person. Output only the recap.")
+
+
+def _transcript_path(sid):
+    roots = [os.path.expanduser("~/.claude")] + glob.glob(
+        os.path.expanduser("~/.clawd-accounts/*"))
+    for root in roots:
+        hits = glob.glob(os.path.join(root, "projects", "*", f"{sid}.jsonl"))
+        if hits:
+            return hits[0]
+    return None
 
 
 def _session_tokens(sid):
     """Context size of the session's last model call, from its transcript."""
-    roots = [os.path.expanduser("~/.claude")] + glob.glob(
-        os.path.expanduser("~/.clawd-accounts/*"))
-    for root in roots:
-        for path in glob.glob(os.path.join(root, "projects", "*", f"{sid}.jsonl")):
-            try:
-                with open(path, "rb") as f:
-                    f.seek(0, 2)
-                    f.seek(max(0, f.tell() - 400_000))
-                    lines = f.read().decode("utf-8", "replace").splitlines()
-            except OSError:
-                continue
-            for line in reversed(lines):
-                if '"usage"' not in line:
-                    continue
-                try:
-                    u = json.loads(line)["message"]["usage"]
-                except (ValueError, KeyError, TypeError):
-                    continue
-                return (u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0)
-                        + u.get("cache_creation_input_tokens", 0))
+    path = _transcript_path(sid)
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 400_000))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        if '"usage"' not in line:
+            continue
+        try:
+            u = json.loads(line)["message"]["usage"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        return (u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0)
+                + u.get("cache_creation_input_tokens", 0))
     return None
 
 
-def _rotate_if_big(key):
-    sid = current_session(key)
-    if not sid:
-        return
-    n = _session_tokens(sid)
-    if n and n > CTX_MAX:
-        print(f"[session] {key} carries {n} tokens of history — starting fresh", flush=True)
-        forget(key)
+def _conversation(sid):
+    """[(role, text)] for a session: what the user typed and what Denarai said."""
+    path = _transcript_path(sid)
+    if not path:
+        return []
+    out, reply = [], None
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            c = (e.get("message") or {}).get("content")
+            if e.get("type") == "user":
+                texts = [c] if isinstance(c, str) else [
+                    b.get("text", "") for b in c or [] if b.get("type") == "text"]
+                text = "\n".join(texts)
+                if "User message:" not in text:
+                    continue          # tool results, not a new user turn
+                if reply and reply.strip() != "No response requested.":
+                    out.append(("Denarai", reply))
+                    reply = None
+                out.append(("User", text.rsplit("User message:", 1)[1].strip()))
+            elif e.get("type") == "assistant":
+                for b in c or []:
+                    if b.get("type") == "text" and b.get("text", "").strip():
+                        reply = b["text"]
+    if reply:
+        out.append(("Denarai", reply))
+    for i, (role, text) in enumerate(out):
+        if role == "Denarai":
+            parsed = extract_contract_json(text)
+            if parsed and parsed.get("message"):
+                out[i] = (role, parsed["message"])
+    return out
+
+
+def _recap_path(key):
+    return os.path.join(MEMORY_DIR, key.replace(":", "_") + ".recap.json")
+
+
+def _load_recap(key):
+    try:
+        with open(_recap_path(key), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _summarize(wallet, prior, convo):
+    """Recap text from the cheap model, or None if it failed."""
+    lines = [f"{r}: {t[:1500]}" for r, t in convo]
+    body = "\n".join(lines)[-60000:]
+    prompt = (f"The user's own wallet: {wallet}. Denarai's answers come from live "
+              "on-chain lookups that are not shown here; treat its stated facts as "
+              "verified.\n\n"
+              + (f"Earlier recap:\n{prior}\n\n" if prior else "")
+              + f"Conversation:\n{body}")
+    try:
+        r = subprocess.run(
+            ["claude", "-p", "--model", RECAP_MODEL, "--tools", "",
+             "--no-session-persistence", "--system-prompt", RECAP_SYSTEM],
+            input=prompt, capture_output=True, text=True, timeout=180,
+            env=scrubbed_env(), cwd=MEMORY_DIR)
+    except Exception as e:
+        print(f"[recap] failed: {e}", flush=True)
+        return None
+    text = (r.stdout or "").strip()
+    if r.returncode != 0 or not text:
+        print(f"[recap] failed: exit {r.returncode} {(r.stderr or text)[:200]}", flush=True)
+        return None
+    return text
+
+
+def rotate_if_big(key):
+    """Recap and forget the wallet's session once it carries > CTX_MAX tokens."""
+    with _rotating_lock:
+        if key in _rotating:
+            return
+        _rotating.add(key)
+    try:
+        sid = current_session(key)
+        n = sid and _session_tokens(sid)
+        if not n or n <= CTX_MAX:
+            return
+        convo = _conversation(sid)
+        prior = _load_recap(key).get("recap", "")
+        recap = _summarize(key.split(":", 1)[1], prior, convo) or prior
+        if recap or convo:
+            tmp = _recap_path(key) + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"recap": recap, "recent": convo[-RECAP_KEEP:],
+                           "from_session": sid, "ts": time.time()}, f)
+            os.replace(tmp, _recap_path(key))
+        if current_session(key) == sid:   # a turn mid-flight may have moved on
+            forget(key)
+        print(f"[session] {key} carried {n} tokens — recapped ({len(recap)} chars)"
+              " and starting fresh", flush=True)
+    except Exception as e:
+        print(f"[recap] {key}: {e}", flush=True)
+    finally:
+        with _rotating_lock:
+            _rotating.discard(key)
 
 
 def build_prompt(body):
@@ -629,17 +751,22 @@ def build_prompt(body):
     if not message or not address:
         return None, None, None
     key = f"wallet:{address.lower()}"
-    _rotate_if_big(key)
+    rotate_if_big(key)
     parts = [context.strip()] if context.strip() else []
     if address.lower() not in context.lower():
         # A fresh session only knows the wallet from this prompt (2026-09-22: it
         # told the user "your address didn't come through").
         parts.append(f"Wallet address: {address}")
-    if recent and not current_session(key):
-        hist = "\n".join(
-            f"{'User' if m.get('role') == 'user' else 'Denarai'}: {m.get('content', '')}"
-            for m in recent[-10:])
-        parts.append(f"Recent conversation:\n{hist}")
+    if not current_session(key):
+        saved = _load_recap(key)
+        if saved.get("recap"):
+            parts.append(f"Recap of your earlier conversation with this user:\n{saved['recap']}")
+        hist = saved.get("recent") or [
+            ("User" if m.get("role") == "user" else "Denarai", m.get("content", ""))
+            for m in recent]
+        if hist:
+            parts.append("Recent conversation:\n" + "\n".join(
+                f"{r}: {t}" for r, t in hist[-RECAP_KEEP:]))
     parts.append(f"User message: {message}")
     return "\n\n".join(parts), key, address
 
@@ -658,14 +785,17 @@ def run_wallet_turn(body, **kw):
     history then rides along, as for any new conversation)."""
     prompt, key, _address = build_prompt(body)
     try:
-        return run_turn(prompt, remember=key, **kw)
-    except RuntimeError as e:
-        if STALE_SESSION not in str(e).lower():
-            raise
-        print(f"[session] {key} names a purged transcript — forgetting and retrying fresh", flush=True)
-        forget(key)
-        prompt, key, _address = build_prompt(body)
-        return run_turn(prompt, remember=key, **kw)
+        try:
+            return run_turn(prompt, remember=key, **kw)
+        except RuntimeError as e:
+            if STALE_SESSION not in str(e).lower():
+                raise
+            print(f"[session] {key} names a purged transcript — forgetting and retrying fresh", flush=True)
+            forget(key)
+            prompt, key, _address = build_prompt(body)
+            return run_turn(prompt, remember=key, **kw)
+    finally:
+        threading.Thread(target=rotate_if_big, args=(key,), daemon=True).start()
 
 
 def turn_args():
