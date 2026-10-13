@@ -36,14 +36,37 @@ const ENS_REGISTRAR = "0x253553366Da8546fC250F225fe3d25d0C782303b";
 const ENS_PUBLIC_RESOLVER = "0x231b0Ee14048e9dCcD1d247744d114a4EB5E8E63";
 
 const NETWORK_MAP = { 1: "eth-mainnet", 8453: "base-mainnet", 42161: "arb-mainnet", 10: "opt-mainnet", 137: "polygon-mainnet" };
-const alchemyUrl = chainId => `https://${NETWORK_MAP[chainId] || "eth-mainnet"}.g.alchemy.com/v2/${ALCHEMY_KEY}`;
+// Chains Alchemy doesn't serve for us. Before 2026-10-13 any chain id missing
+// from NETWORK_MAP silently fell back to eth-mainnet: getCode/ethCall/getLogs
+// and even simulateAssetChanges on Gnosis, BNB or Robinhood Chain answered
+// with ETHEREUM data under the other chain's name (a RECEIPT token on
+// Robinhood "had no code"; a Gnosis approval "simulated clean" on mainnet).
+const PUBLIC_RPC = {
+  100: "https://rpc.gnosischain.com",
+  56: "https://bsc-dataseed.binance.org",
+  324: "https://mainnet.era.zksync.io",
+  534352: "https://rpc.scroll.io",
+  59144: "https://rpc.linea.build",
+  5000: "https://rpc.mantle.xyz",
+  4663: "https://rpc.mainnet.chain.robinhood.com",
+  43114: "https://api.avax.network/ext/bc/C/rpc",
+  81457: "https://rpc.blast.io",
+  42220: "https://forno.celo.org",
+  130: "https://mainnet.unichain.org",
+};
+const chainRpc = chainId => {
+  const id = Number(chainId);
+  if (NETWORK_MAP[id]) return `https://${NETWORK_MAP[id]}.g.alchemy.com/v2/${ALCHEMY_KEY}`;
+  if (PUBLIC_RPC[id]) return PUBLIC_RPC[id];
+  throw new Error(`no RPC for chain ${chainId} — tell the user this chain is out of reach; never substitute another chain's data`);
+};
 
 const RPC_URLS = {
-  ethereum: () => alchemyUrl(1),
-  base: () => alchemyUrl(8453),
-  arbitrum: () => alchemyUrl(42161),
-  optimism: () => alchemyUrl(10),
-  polygon: () => alchemyUrl(137),
+  ethereum: () => chainRpc(1),
+  base: () => chainRpc(8453),
+  arbitrum: () => chainRpc(42161),
+  optimism: () => chainRpc(10),
+  polygon: () => chainRpc(137),
   xdai: () => "https://rpc.gnosischain.com",
   gnosis: () => "https://rpc.gnosischain.com",
   monad: () => "https://testnet-rpc.monad.xyz",
@@ -211,7 +234,7 @@ function v4PoolId(key) {
 
 async function v4EthCall(chainId, to, abiItem, args) {
   const data = viem.encodeFunctionData({ abi: [abiItem], functionName: abiItem.name, args });
-  const json = await rpc(alchemyUrl(chainId), "eth_call", [{ to, data }, "latest"]);
+  const json = await rpc(chainRpc(chainId), "eth_call", [{ to, data }, "latest"]);
   if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
   const decoded = viem.decodeFunctionResult({ abi: [abiItem], functionName: abiItem.name, data: json.result });
   return Array.isArray(decoded) ? decoded : [decoded]; // single-output fns decode to a bare value
@@ -277,7 +300,7 @@ const V4_INITIALIZE_EVENT =
 const V4_DEPLOY_BLOCK = { 1: 21688329, 8453: 25350988 };
 
 async function v4GetLogs(chain, topics, fromBlock) {
-  const json = await rpc(alchemyUrl(chain), "eth_getLogs", [
+  const json = await rpc(chainRpc(chain), "eth_getLogs", [
     { address: V4[chain].poolManager, topics, fromBlock, toBlock: "latest" },
   ]);
   if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
@@ -351,7 +374,7 @@ function buildV4SwapCalldata(poolKey, zeroForOne, amount, minOut, isNativeIn) {
 const tools = {
   async simulateAssetChanges({ from, to, data, value, chainId }) {
     const chain = chainId ?? 1;
-    const json = await rpc(alchemyUrl(chain), "alchemy_simulateAssetChanges", [{ from, to, data, value: value || "0x0" }]);
+    const json = await rpc(chainRpc(chain), "alchemy_simulateAssetChanges", [{ from, to, data, value: value || "0x0" }]);
     if (json.error) return { success: false, error: json.error.message || JSON.stringify(json.error), changes: [] };
     const result = json.result;
     if (!result) return { success: false, error: "No result from simulation", changes: [] };
@@ -381,7 +404,7 @@ const tools = {
 
   async traceCall({ from, to, data, value, chainId }) {
     const chain = chainId ?? 1;
-    const json = await rpc(alchemyUrl(chain), "debug_traceCall", [
+    const json = await rpc(chainRpc(chain), "debug_traceCall", [
       { from, to, data, value: value || "0x0" },
       "latest",
       { tracer: "callTracer" },
@@ -698,7 +721,7 @@ const tools = {
     }
     if (l2CallValue <= 0n) return { error: "amount must be positive" };
     const amountHuman = (Number(l2CallValue) / 1e18).toString();
-    const l1 = alchemyUrl(chain.parentChainId);
+    const l1 = chainRpc(chain.parentChainId);
     const l2 = RPC_URLS[Object.keys(ORBIT_CHAINS).find(k => ORBIT_CHAINS[k] === chain)]();
 
     // Guard 1: the Inbox must still point at the Bridge we expect — a proxy
@@ -871,7 +894,7 @@ const tools = {
     const label = name.replace(/\.eth$/i, "");
     const duration = BigInt(Math.round(years * 365 * 24 * 60 * 60));
     const calldata = "0x83e7f6ff" + padUint256(64n) + padUint256(duration) + encodeString(label);
-    const json = await rpc(alchemyUrl(1), "eth_call", [{ to: ENS_REGISTRAR, data: calldata }, "latest"]);
+    const json = await rpc(chainRpc(1), "eth_call", [{ to: ENS_REGISTRAR, data: calldata }, "latest"]);
     if (json.error) return { error: json.error.message || JSON.stringify(json.error) };
     const result = (json.result || "0x").replace("0x", "");
     const base = BigInt("0x" + (result.slice(0, 64) || "0"));
@@ -897,7 +920,7 @@ const tools = {
     const secretHex = "0x" + Array.from(secretBytes, b => b.toString(16).padStart(2, "0")).join("");
 
     const priceCalldata = "0x83e7f6ff" + padUint256(64n) + padUint256(duration) + encodeString(label);
-    const priceJson = await rpc(alchemyUrl(1), "eth_call", [{ to: ENS_REGISTRAR, data: priceCalldata }, "latest"]);
+    const priceJson = await rpc(chainRpc(1), "eth_call", [{ to: ENS_REGISTRAR, data: priceCalldata }, "latest"]);
     if (priceJson.error) return { error: `Failed to get rent price: ${priceJson.error.message || JSON.stringify(priceJson.error)}` };
     const priceResult = (priceJson.result || "0x").replace("0x", "");
     const base = BigInt("0x" + (priceResult.slice(0, 64) || "0"));
@@ -907,7 +930,7 @@ const tools = {
     const priceEth = Number(totalPrice) / 1e18;
 
     const params = encodeENSParams(label, owner, duration, secretHex, ENS_PUBLIC_RESOLVER, true, 0);
-    const commitmentJson = await rpc(alchemyUrl(1), "eth_call", [{ to: ENS_REGISTRAR, data: "0x65a69dcf" + params }, "latest"]);
+    const commitmentJson = await rpc(chainRpc(1), "eth_call", [{ to: ENS_REGISTRAR, data: "0x65a69dcf" + params }, "latest"]);
     if (commitmentJson.error)
       return { error: `Failed to compute commitment: ${commitmentJson.error.message || JSON.stringify(commitmentJson.error)}` };
     const commitment = commitmentJson.result;
@@ -1281,7 +1304,7 @@ const tools = {
   // ─── generic on-chain research: read ANY contract state or event history ──
 
   async ethCall({ to, signature, args, chainId, chain }) {
-    const rpcUrl = chain ? RPC_URLS[chain]?.() : alchemyUrl(chainId ?? 1);
+    const rpcUrl = chain ? RPC_URLS[chain]?.() : chainRpc(chainId ?? 1);
     if (!rpcUrl) return { error: `Unknown chain '${chain}'` };
     try {
       const abiItem = viem.parseAbiItem(signature.startsWith("function") ? signature : `function ${signature}`);
@@ -1299,7 +1322,7 @@ const tools = {
   },
 
   async getLogs({ address, eventSignature, indexedArgs, fromBlock, toBlock, chainId, chain, limit, order }) {
-    const rpcUrl = chain ? RPC_URLS[chain]?.() : alchemyUrl(chainId ?? 1);
+    const rpcUrl = chain ? RPC_URLS[chain]?.() : chainRpc(chainId ?? 1);
     if (!rpcUrl) return { error: `Unknown chain '${chain}'` };
     try {
       const abiItem = viem.parseAbiItem(eventSignature.startsWith("event") ? eventSignature : `event ${eventSignature}`);
@@ -1340,7 +1363,7 @@ const tools = {
   },
 
   async getCode({ address, chainId, chain }) {
-    const rpcUrl = chain ? RPC_URLS[chain]?.() : alchemyUrl(chainId ?? 1);
+    const rpcUrl = chain ? RPC_URLS[chain]?.() : chainRpc(chainId ?? 1);
     if (!rpcUrl) return { error: `Unknown chain '${chain}'` };
     const json = await rpc(rpcUrl, "eth_getCode", [address, "latest"]);
     if (json.error) return { error: json.error.message };
@@ -1450,7 +1473,7 @@ const tools = {
 
   async getTokenApprovals({ owner, tokenAddress, tokens, chain, chainId, fromBlock, includeZero, limit }) {
     if (!owner) return { error: "owner (the wallet address) is required" };
-    const rpcUrl = chain ? RPC_URLS[chain]?.() : alchemyUrl(chainId ?? 1);
+    const rpcUrl = chain ? RPC_URLS[chain]?.() : chainRpc(chainId ?? 1);
     if (!rpcUrl) return { error: `Unknown chain '${chain ?? chainId ?? 1}'` };
 
     // Approval logs are the on-chain registry of every spender the wallet has ever
