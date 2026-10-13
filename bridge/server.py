@@ -723,12 +723,13 @@ def rotate_if_big(key):
         if not n or n <= CTX_MAX:
             return
         convo = _conversation(sid)
-        prior = _load_recap(key).get("recap", "")
+        saved = _load_recap(key)
+        prior = saved.get("recap", "")
         recap = _summarize(key.split(":", 1)[1], prior, convo) or prior
         if recap or convo:
             tmp = _recap_path(key) + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"recap": recap, "recent": convo[-RECAP_KEEP:],
+                json.dump({"recap": recap, "recent": ([tuple(m) for m in saved.get("recent") or []] + convo)[-RECAP_KEEP:],
                            "from_session": sid, "ts": time.time()}, f)
             os.replace(tmp, _recap_path(key))
         if current_session(key) == sid:   # a turn mid-flight may have moved on
