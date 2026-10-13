@@ -92,6 +92,17 @@ const RPC_URLS = {
 // to these chains (Robinhood Chain rejected as toChain, 2026-09-15). Addresses
 // from docs.robinhood.com/chain/cross-chain-messaging; verified on-chain:
 // inbox.bridge() == bridge (see buildOrbitDeposit, which re-checks every call).
+const CHAIN_ID_BY_NAME = {
+  ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10, polygon: 137,
+  gnosis: 100, xdai: 100, bsc: 56, bnb: 56, "binance-smart-chain": 56,
+  zksync: 324, "zksync-era": 324, scroll: 534352, linea: 59144, mantle: 5000,
+  robinhood: 4663, "robinhood-chain": 4663, avalanche: 43114, blast: 81457, celo: 42220, unichain: 130,
+};
+const NATIVE_SYMBOL = {
+  polygon: ["POL", "MATIC"], gnosis: ["XDAI"], xdai: ["XDAI"], bsc: ["BNB"], bnb: ["BNB"],
+  "binance-smart-chain": ["BNB"], avalanche: ["AVAX"], celo: ["CELO"], mantle: ["MNT"],
+};
+
 const ORBIT_CHAINS = {
   robinhood: {
     name: "Robinhood Chain", chainId: 4663, parentChainId: 1, parentName: "ethereum",
@@ -586,6 +597,18 @@ const tools = {
   async getOnChainBalance({ walletAddress, chain, tokenAddress, tokenSymbol, tokenDecimals }) {
     const rpcUrl = RPC_URLS[chain]?.();
     if (!rpcUrl) return { error: `Chain '${chain}' not supported` };
+    const native = NATIVE_SYMBOL[chain] || ["ETH"];
+    // A symbol with no address used to fall through to the NATIVE balance,
+    // labelled with the symbol: "USDC" and "DAI" came back as the ETH balance
+    // (2026-09-22). Resolve the symbol to its contract instead.
+    if (!tokenAddress && tokenSymbol && !native.includes(tokenSymbol.toUpperCase())) {
+      const chainId = CHAIN_ID_BY_NAME[chain];
+      const hit = chainId ? await tools.getTokenAddress({ symbol: tokenSymbol, chainId }) : null;
+      const addr = typeof hit === "string" ? hit : hit?.address;
+      if (!addr) return { error: `Couldn't find ${tokenSymbol}'s contract on ${chain} — pass tokenAddress` };
+      tokenAddress = addr;
+      tokenDecimals ??= typeof hit === "object" ? hit.decimals : undefined;
+    }
     const isNative =
       !tokenAddress ||
       tokenAddress === "0x0000000000000000000000000000000000000000" ||
@@ -594,9 +617,13 @@ const tools = {
     if (isNative) {
       const data = await rpc(rpcUrl, "eth_getBalance", [walletAddress, "latest"]);
       const balance = Number(BigInt(data.result || "0x0")) / 1e18;
-      return { walletAddress, chain, token: tokenSymbol || "ETH", balance: balance.toFixed(6), raw: data.result };
+      return { walletAddress, chain, token: native[0], balance: balance.toFixed(6), raw: data.result };
     }
-    const decimals = tokenDecimals ?? 18;
+    if (tokenDecimals == null) {
+      const d = await rpc(rpcUrl, "eth_call", [{ to: tokenAddress, data: "0x313ce567" }, "latest"]);
+      tokenDecimals = d.result && d.result !== "0x" ? Number(BigInt(d.result)) : 18;
+    }
+    const decimals = tokenDecimals;
     const data = await rpc(rpcUrl, "eth_call", [{ to: tokenAddress, data: "0x70a08231" + padAddress(walletAddress) }, "latest"]);
     if (data.error) return { error: data.error.message };
     const balance = Number(BigInt(data.result || "0x0")) / Math.pow(10, decimals);

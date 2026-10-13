@@ -787,7 +787,13 @@ def run_wallet_turn(body, **kw):
     prompt, key, _address = build_prompt(body)
     try:
         try:
-            return run_turn(prompt, remember=key, **kw)
+            text = run_turn(prompt, remember=key, **kw)
+            if not (text or "").strip():
+                # 2026-09-22: a tool was SIGKILLed mid-turn and the user got a
+                # blank reply. One retry; a second blank is reported as a failure.
+                print(f"[session] {key} empty reply — retrying once", flush=True)
+                text = run_turn(prompt, remember=key, **kw)
+            return text
         except RuntimeError as e:
             if STALE_SESSION not in str(e).lower():
                 raise
