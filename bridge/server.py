@@ -32,6 +32,8 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import txcheck
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 BRAIN = os.path.join(HERE, "brain")
@@ -815,8 +817,9 @@ def turn_args():
     ]
 
 
-def finish_turn(text, address, message, context, dt):
-    """Parse the agent's reply into the response contract and log the turn."""
+def finish_turn(text, address, message, context, dt, recent=None):
+    """Parse the agent's reply into the response contract, run the pre-sign
+    check on any card, and log the turn."""
     parsed = extract_contract_json(text)
     if parsed and parsed.get("type") in VALID_TYPES:
         parsed["engine"] = "claude-p"
@@ -825,6 +828,15 @@ def finish_turn(text, address, message, context, dt):
         response = {"type": "chat", "message": text, "engine": "claude-p"}
     else:
         response = None
+    if response:
+        try:
+            verdict = txcheck.check(response, address, message, recent)
+        except Exception as e:  # noqa: BLE001 — the check must never eat a reply
+            print(f"[txcheck] failed: {e}", flush=True)
+            verdict = {"ok": None, "reasons": ["Couldn't double-check this one."]}
+        if verdict:
+            response["check"] = verdict
+            print(f"[txcheck] {address[:10]}… {verdict}", flush=True)
     log_turn({
         "wallet": address, "message": message, "context": context,
         "raw_reply": text, "response": response,
@@ -850,29 +862,8 @@ def handle_intent(body):
         extra_args=turn_args(),
     )
     dt = time.time() - t0
-
-    parsed = extract_contract_json(text)
-    if parsed and parsed.get("type") in VALID_TYPES:
-        parsed["engine"] = "claude-p"
-        print(f"[intent] {address[:10]}… {parsed['type']} in {dt:.1f}s", flush=True)
-        response = parsed
-    elif text:
-        # Model spoke prose instead of the contract — still a usable chat reply.
-        print(f"[intent] {address[:10]}… non-contract reply in {dt:.1f}s", flush=True)
-        response = {"type": "chat", "message": text, "engine": "claude-p"}
-    else:
-        response = None
-
-    log_turn({
-        "wallet": address,
-        "message": message,
-        "context": context,
-        "raw_reply": text,
-        "response": response,
-        "contract": bool(parsed and parsed.get("type") in VALID_TYPES),
-        "duration_s": round(dt, 1),
-        "engine": "claude-p",
-    })
+    response = finish_turn(text, address, message, context, dt, body.get("recentMessages"))
+    print(f"[intent] {address[:10]}… {response.get('type') if response else 'empty'} in {dt:.1f}s", flush=True)
     if response:
         return 200, response
     return 502, {"type": "chat", "message": "empty reply from agent"}
@@ -991,7 +982,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         dt = time.time() - t0
-        response = finish_turn(text, address, user_message, body.get("context") or "", dt)
+        response = finish_turn(text, address, user_message, body.get("context") or "", dt,
+                               body.get("recentMessages"))
         _turn_done(address, response)               # collectable after a reload
         print(f"[stream] {address[:10]}… {len(seen)} steps, "
               f"{response.get('type') if response else 'empty'} in {dt:.1f}s"

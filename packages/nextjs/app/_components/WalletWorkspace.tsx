@@ -78,8 +78,14 @@ interface ChatMessage {
     txHash?: `0x${string}`;
   };
   multistepTransaction?: MultiStepTransactionData;
+  // Bridge's pre-sign check (bridge/txcheck.py). ok:false greys the card out
+  // until the user says they've checked it; checkAcked records that.
+  check?: TxCheck;
+  checkAcked?: boolean;
   timestamp: number;
 }
+
+type TxCheck = { ok: boolean | null; reasons?: string[] };
 
 interface PendingActivity {
   id: string;
@@ -160,8 +166,46 @@ type IntentResponse = {
   priceEth?: string;
   priceWei?: string;
   requote?: { tool: string; args: Record<string, unknown> };
+  check?: TxCheck;
   error?: string;
 };
+
+/** The pre-sign check's verdict on a card. A flag never blocks — the one false
+ * alarm in testing was a real request — but the card stays greyed out until the
+ * user says they've checked it. */
+function TxCheckNotice({ check, acked, onAck }: { check: TxCheck; acked: boolean; onAck: () => void }) {
+  if (check.ok === null) {
+    return (
+      <p className="mt-3 mb-0 text-xs" style={{ color: "#8A8578" }}>
+        {check.reasons?.[0] || "Couldn't double-check this one."} Review it carefully before signing.
+      </p>
+    );
+  }
+  return (
+    <div
+      className="mt-3 p-3 text-xs space-y-2"
+      style={{
+        backgroundColor: "rgba(220, 80, 60, 0.08)",
+        border: "1px solid rgba(220, 80, 60, 0.4)",
+        color: "#E8E4DC",
+      }}
+    >
+      <p className="m-0 font-semibold" style={{ color: "#E8715C" }}>
+        ⚠ Double-check this before signing
+      </p>
+      <ul className="m-0 pl-4 list-disc space-y-1">
+        {(check.reasons || []).map((r, k) => (
+          <li key={k}>{r}</li>
+        ))}
+      </ul>
+      {!acked && (
+        <button className="btn btn-xs btn-outline" style={{ color: "#E8715C", borderColor: "#E8715C" }} onClick={onAck}>
+          I&apos;ve checked it — show the card
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** Read the agent's SSE progress stream, reporting each tool call as it lands and
  * resolving with the final result object. */
@@ -665,6 +709,8 @@ const WalletWorkspace = ({ subjectAddress, subjectName, readOnly = false }: Wall
                 requote: data.requote,
               }
             : undefined,
+        check:
+          !readOnly && (data.type === "transaction" || data.type === "multistep_transaction") ? data.check : undefined,
         timestamp: Date.now(),
       };
       setMessages(prev => [...prev, assistantMsg]);
@@ -1203,70 +1249,94 @@ const WalletWorkspace = ({ subjectAddress, subjectName, readOnly = false }: Wall
                           <p className="text-sm whitespace-pre-wrap leading-snug m-0">{msg.content}</p>
                         )}
 
-                        {msg.multistepTransaction && (
-                          <MultiStepTransactionCard
-                            tx={msg.multistepTransaction}
-                            address={address!}
-                            onConfirmed={handleTxConfirmed}
-                            onSave={
-                              msg.multistepTransaction.requote
-                                ? () =>
-                                    saveAction({
-                                      label: labelForCard(i),
-                                      requote: msg.multistepTransaction!.requote!,
-                                      chainId: msg.multistepTransaction!.steps[0]?.chainId,
-                                      description: msg.multistepTransaction!.steps.at(-1)?.description,
-                                    })
-                                : undefined
-                            }
-                            saved={msg.multistepTransaction.requote ? isSaved(msg.multistepTransaction.requote) : false}
-                            onRerun={
-                              msg.multistepTransaction.requote
-                                ? () =>
-                                    runAction(
-                                      labelForCard(i),
-                                      msg.multistepTransaction!.requote!,
-                                      msg.multistepTransaction!.steps.at(-1)?.description,
-                                    )
-                                : undefined
+                        {msg.check && msg.check.ok !== true && (msg.transaction || msg.multistepTransaction) && (
+                          <TxCheckNotice
+                            check={msg.check}
+                            acked={!!msg.checkAcked}
+                            onAck={() =>
+                              setMessages(prev => prev.map((m, idx) => (idx === i ? { ...m, checkAcked: true } : m)))
                             }
                           />
                         )}
 
-                        {msg.transaction && !msg.multistepTransaction && (
-                          <TransactionCard
-                            tx={msg.transaction}
-                            address={address!}
-                            onConfirmed={handleTxConfirmed}
-                            onSave={
-                              msg.transaction.requote
-                                ? () =>
-                                    saveAction({
-                                      label: labelForCard(i),
-                                      requote: msg.transaction!.requote!,
-                                      chainId: msg.transaction!.chainId,
-                                      description: msg.transaction!.description,
-                                    })
-                                : undefined
-                            }
-                            saved={msg.transaction.requote ? isSaved(msg.transaction.requote) : false}
-                            onRerun={
-                              msg.transaction.requote
-                                ? () =>
-                                    runAction(labelForCard(i), msg.transaction!.requote!, msg.transaction!.description)
-                                : undefined
-                            }
-                            onTxHash={(hash: `0x${string}`) => {
-                              setMessages(prev =>
-                                prev.map((m, idx) =>
-                                  idx === i && m.transaction
-                                    ? { ...m, transaction: { ...m.transaction, txHash: hash } }
-                                    : m,
-                                ),
-                              );
-                            }}
-                          />
-                        )}
+                        <div
+                          className={
+                            msg.check?.ok === false && !msg.checkAcked
+                              ? "opacity-40 pointer-events-none select-none"
+                              : ""
+                          }
+                        >
+                          {msg.multistepTransaction && (
+                            <MultiStepTransactionCard
+                              tx={msg.multistepTransaction}
+                              address={address!}
+                              onConfirmed={handleTxConfirmed}
+                              onSave={
+                                msg.multistepTransaction.requote
+                                  ? () =>
+                                      saveAction({
+                                        label: labelForCard(i),
+                                        requote: msg.multistepTransaction!.requote!,
+                                        chainId: msg.multistepTransaction!.steps[0]?.chainId,
+                                        description: msg.multistepTransaction!.steps.at(-1)?.description,
+                                      })
+                                  : undefined
+                              }
+                              saved={
+                                msg.multistepTransaction.requote ? isSaved(msg.multistepTransaction.requote) : false
+                              }
+                              onRerun={
+                                msg.multistepTransaction.requote
+                                  ? () =>
+                                      runAction(
+                                        labelForCard(i),
+                                        msg.multistepTransaction!.requote!,
+                                        msg.multistepTransaction!.steps.at(-1)?.description,
+                                      )
+                                  : undefined
+                              }
+                            />
+                          )}
+
+                          {msg.transaction && !msg.multistepTransaction && (
+                            <TransactionCard
+                              tx={msg.transaction}
+                              address={address!}
+                              onConfirmed={handleTxConfirmed}
+                              onSave={
+                                msg.transaction.requote
+                                  ? () =>
+                                      saveAction({
+                                        label: labelForCard(i),
+                                        requote: msg.transaction!.requote!,
+                                        chainId: msg.transaction!.chainId,
+                                        description: msg.transaction!.description,
+                                      })
+                                  : undefined
+                              }
+                              saved={msg.transaction.requote ? isSaved(msg.transaction.requote) : false}
+                              onRerun={
+                                msg.transaction.requote
+                                  ? () =>
+                                      runAction(
+                                        labelForCard(i),
+                                        msg.transaction!.requote!,
+                                        msg.transaction!.description,
+                                      )
+                                  : undefined
+                              }
+                              onTxHash={(hash: `0x${string}`) => {
+                                setMessages(prev =>
+                                  prev.map((m, idx) =>
+                                    idx === i && m.transaction
+                                      ? { ...m, transaction: { ...m.transaction, txHash: hash } }
+                                      : m,
+                                  ),
+                                );
+                              }}
+                            />
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}

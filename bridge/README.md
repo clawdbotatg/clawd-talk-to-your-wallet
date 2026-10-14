@@ -24,6 +24,13 @@ browser → Vercel /api/intent ──(CV charge, auth, context)──► bridge 
 - `brain/tools/wallet.mjs` — all 19 wallet tools as one Node CLI
   (`node tools/wallet.mjs <tool> '<json>'`), ported 1:1 from route.ts.
   Resolves `viem` from `packages/nextjs/node_modules` — run `yarn install` first.
+- `txcheck.py` — pre-sign check on every transaction card: plain code
+  (unlimited approval, a recipient the chat never named, wrong chain) plus
+  Levanto Sage ("does it contradict the request?", `SAGE_API_KEY` in
+  `bridge/.env`). Adds `check: {ok, reasons}` to the payload; the UI greys a
+  flagged card until the user says they've checked it. Without the key or if
+  Sage is down, code checks still run and the card says it couldn't
+  double-check. Eval: `evals/sage/eval_tx_match.py`.
 - `.bridge-secret` — auto-generated shared secret (gitignored). Must match
   `DENARAI_BRIDGE_SECRET` on the Vercel side.
 - `.memory/` — per-wallet conversation keys (`wallet:<address>` → claude
